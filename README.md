@@ -5,6 +5,8 @@
 ## Included
 
 - Docker Compose API, RQ worker, Redis, PostgreSQL, optional ComfyUI profile.
+- Local account sessions and backend-enforced project membership/roles under `/v1`;
+  see [the API contract](docs/authentication-projects-v1.md).
 - Working deterministic FFmpeg `render_test` operation (once infrastructure is deployed).
 - Wan 2.2 ComfyUI prompt **submission adapter only**. This does not claim a completed video;
   an administrator must import an approved ComfyUI *API-format* graph and implement an
@@ -81,10 +83,9 @@ an external gateway, or public access.
 ## Gaps before production
 
 - OAuth/OIDC JWT validation with JWKS, external reverse-proxy hardening and HTTPS.
-- True end-user identities (current service tokens distinguish only service clients).
 - Dispatch reconciler, idempotency constraint, robust cancellations and limits.
 - GPU output reconciliation and checksum/FFprobe verification.
-- Tenant/project RBAC, signed artifact download, backup automation and retention.
+- Signed artifact download, backup automation and retention.
 - Pin and scan all images and dependencies; audit log export and alerting.
 - Durable outbox and deployment smoke/negative tests.
 
@@ -104,7 +105,7 @@ and registered separately.
 
 ## Known gaps in this v0.1 scaffold
 
-- No public gateway, TLS, or per-user OAuth. Do NOT publish `api` directly to the internet.
+- No public gateway, TLS, or external OAuth/OIDC. Do NOT publish `api` directly to the internet.
 - WAN job submission is an integration stub, not a completed video renderer.
 - Rendering only supports a deterministic test clip, not arbitrary multimedia editing.
 - DB reconciliation, event hashing, idempotency, cancellation, review workflows,
