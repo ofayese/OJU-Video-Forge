@@ -28,9 +28,8 @@ Use Docker Desktop WSL2 backend with GPU support. Keep `$FORGE_DATA` inside the 
 ext4 filesystem, not under `/mnt/c`.
 
 ```bash
-sudo mkdir -p /srv/video-forge/{artifacts,models,comfy-input,comfy-output}
+sudo mkdir -p /srv/video-forge/artifacts
 sudo chown -R 10001:10001 /srv/video-forge/artifacts
-# Ensure model directories are writable by the configured ComfyUI image user.
 docker network inspect ai-net >/dev/null || docker network create ai-net
 cp .env.example .env
 # Generate separate DB and bearer secrets; edit .env; chmod 600 .env
@@ -69,6 +68,29 @@ HTTPS names are deployment targets only; this scaffold does not configure DNS, T
 an external gateway, or public access.
 
 ## AI gate
+
+The optional `gpu` profile runs ComfyUI as UID/GID `10001:10001`, with all
+Linux capabilities dropped and no published port. Before enabling it, inspect
+`${FORGE_DATA:-/srv/video-forge}/{models,comfy-input,comfy-output}` and arrange
+for UID 10001 to traverse the parent directories, read model files, and write
+to the input and output directories. ComfyUI may also need to create model
+subdirectories on startup, so the models directory must be writable. For new,
+empty directories an administrator can create them with:
+
+```bash
+sudo install -d -o 10001 -g 10001 -m 750 \
+  "${FORGE_DATA:-/srv/video-forge}/models" \
+  "${FORGE_DATA:-/srv/video-forge}/comfy-input" \
+  "${FORGE_DATA:-/srv/video-forge}/comfy-output"
+```
+
+For existing data, inspect ownership and permissions first; grant only the
+necessary access to the relevant directories and model files using targeted
+ownership, group permissions, or ACLs. Do not recursively change ownership or
+permissions of existing data. Account for user-namespace remapping if enabled.
+Disable the GPU profile to roll back; preserve existing models and media.
+Temporary files and previews are stored in the container's writable home and
+are not preserved when the container is removed.
 
 1. Pin approved ComfyUI git revision and NVIDIA-compatible PyTorch image digest.
 2. Download official Wan 2.2 TI2V 5B FP16, UMT5 FP8 and Wan 2.2 VAE into model paths.
