@@ -1,0 +1,43 @@
+name: Implementation task
+description: Define a bounded, independently reviewable engineering task.
+title: "[Task]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "Use for implementation work with explicit acceptance and evidence. Keep confidential details out of the public issue."
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: State the change and its boundaries.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Link prerequisite issues and explain the dependency order.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Give measurable behavior, security, and recovery criteria.
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Required tests and evidence
+      description: List commands, isolated services, expected outputs, and evidence fields.
+    validations:
+      required: true
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Documentation and rollback
+      description: Identify docs, data-impact precautions, and a safe rollback.
+    validations:
+      required: true

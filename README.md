@@ -12,6 +12,15 @@
 - Alembic initial migration and basic contract tests.
 - API spec auto-generated at `/openapi.json` after startup.
 
+## Contributing and validation
+
+The project is local-first and not production ready. See
+[CONTRIBUTING.md](CONTRIBUTING.md), [the development workflow](docs/development/DEVELOPMENT-WORKFLOW.md),
+[testing strategy](docs/development/TESTING-STRATEGY.md), and
+[security policy](SECURITY.md) before making changes. Python and frontend CI run on
+pull requests to `main`; no GPU, Azure, or external application deployment is
+required by those checks.
+
 ## WSL2 setup
 
 Use Windows NVIDIA graphics drivers; do not install Linux NVIDIA kernel drivers in WSL.

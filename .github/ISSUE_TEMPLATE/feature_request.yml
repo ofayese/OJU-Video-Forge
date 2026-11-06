@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a user-facing capability or improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "Keep the proposal local-first. Do not include private media, prompts, credentials, or internal infrastructure details."
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who needs this and what task is blocked?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior, not only an implementation preference.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List testable success conditions.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Security, data, and compatibility considerations
+      description: Include authorization, media privacy, API compatibility, and local resource constraints.
+    validations:
+      required: true

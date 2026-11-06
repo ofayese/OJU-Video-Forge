@@ -1,0 +1,75 @@
+name: Backend CI
+
+"on":
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend / python-3.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      APP_ENV: test
+      DB_PASSWORD: ci-only-not-a-secret
+      DATABASE_URL: postgresql+psycopg://forge:ci-only-not-a-secret@localhost:5432/forge
+      REDIS_URL: redis://localhost:6379/0
+      FORGE_OPENWEBUI_TOKEN: ci-test-token
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: forge
+          POSTGRES_USER: forge
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U forge -d forge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.lock.txt
+      - name: Install locked Python dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock.txt
+      - name: Check dependency consistency and vulnerabilities
+        run: |
+          python -m pip check
+          pip-audit -r requirements.lock.txt
+          pip-audit -r requirements-dev.lock.txt
+      - name: Lint, compile, test, and validate OpenAPI
+        run: |
+          ruff check app tests alembic scripts
+          python -m compileall -q app tests alembic scripts
+          python -m pytest -q -p no:cacheprovider
+          python scripts/export_openapi.py --output "$RUNNER_TEMP/openapi.json"
+      - name: Validate isolated PostgreSQL migration and Redis connectivity
+        run: |
+          python -m alembic upgrade head
+          python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events'} <= tables, tables"
+          python -c "from redis import Redis; assert Redis.from_url('redis://localhost:6379/0').ping()"

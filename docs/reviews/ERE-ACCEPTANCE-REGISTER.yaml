@@ -13,8 +13,7 @@ gates:
     status: "PARTIAL"
     evidence:
       - "Branch main and untracked worktree observed; HEAD did not resolve."
-      - "Host reported hostname ere and Windows 11; organizational identity is not independently confirmed."
-      - "RTX 5070 Ti with 16,303 MiB VRAM and Docker Desktop observed."
+      - "A local Windows and Docker Desktop development environment was observed; organizational assignment was not independently confirmed. Machine-specific inventory details are intentionally omitted from this public register."
       - "Base+development and base+GPU Docker Compose configurations validate; no services were started."
       - "Base+development and base+GPU Docker Compose configurations validate; no services were started."
     missing:
@@ -99,8 +98,10 @@ security_remediation_addendum:
     branch: "security/fastapi-starlette-hardening-2026-11"
     base_commit: "486e387931dd7c8b022d14348f5f9ec6749f432c"
     code_commit: "5a81fee41b8e723affe3f53132e2dd4540b9c498"
-    pull_request: "NOT_CREATED; push failed because Git could not obtain an HTTPS password"
-    publication_blocker: "gh auth status was active for ofayese, but git push exited 128 with 'unable to get password'; no credential changes or alternate publishing route attempted"
+    pull_request: "https://github.com/ofayese/OJU-Video-Forge/pull/4"
+    state: "MERGED"
+    head_commit: "1409fc45eceba6602649a5a6fbe1542ee18a46d8"
+    merge_commit: "8e462ec233c3cecc1fcf225a0f02e0d551ef50f8"
     versions:
       fastapi: "0.162.0"
       starlette: "1.10.0"
@@ -133,3 +134,92 @@ security_remediation_addendum:
       - "Starlette TestClient warns that httpx is deprecated for test-client use; the suite passes."
       - "No live database migration, GPU/ComfyUI run, public deployment, or full application end-to-end test."
   release_readiness: "Dependency security checks are green; overall application release readiness remains NOT_VERIFIED."
+current_gates:
+  - gate_id: repository-governance
+    requirement: "Governance files, scoped Copilot instructions, CI workflows, dependency policy, and evidence validator are implemented and verified."
+    status: PARTIAL
+    evidence_reference:
+      - "docs/development/DEVELOPMENT-WORKFLOW.md"
+      - "docs/governance/PUBLIC-REPOSITORY-SECURITY.md"
+      - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
+      - "docs/reviews/acceptance-register.schema.json"
+      - "docs/implementation/VERTICAL-SLICE-PLAN.md"
+      - ".github/workflows/"
+    commit_sha: null
+    test_command: "See governance evidence report: actionlint; repository and acceptance validators; dependency-lock check; Ruff; compileall; pytest; OpenAPI export; npm audit/typecheck/test/build; Compose config; Dockerfile syntax checks; source Gitleaks scan."
+    execution_environment: "ERE Windows 11; project Python 3.12 virtual environment, Node 26.12.1, and Docker Desktop. GitHub-hosted CI has not yet run."
+    exit_code: 0
+    validation_date: "2026-11-06"
+    remaining_gaps:
+      - "GitHub Actions, CodeQL, clean-checkout secret scanning, container scans, and SBOM generation remain NOT_VERIFIED pending a PR run."
+      - "The unfiltered local secret scan found false positives only in ignored .venv license metadata; targeted source scans passed."
+      - "Local Trivy configuration scanning found HIGH DS-0002 in the ComfyUI Dockerfile; issue #16 tracks rootless runtime hardening, and CI is expected to fail until resolved."
+      - "The main branch has no protection rule; owner authorization is required before changing repository settings."
+  - gate_id: security-baseline
+    requirement: "Merged dependency remediations remain reflected in the repository and GitHub Dependabot state."
+    status: PARTIAL
+    evidence_reference:
+      - "docs/reviews/ERE-SECURITY-VALIDATION.md"
+      - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
+      - "GitHub Dependabot open-alert query returned zero alerts."
+    commit_sha: null
+    test_command: "pip-audit -r requirements.lock.txt; pip-audit -r requirements-dev.lock.txt; npm --prefix frontend audit --audit-level=moderate; gh api 'repos/ofayese/OJU-Video-Forge/dependabot/alerts?state=open&per_page=100' --jq length"
+    execution_environment: "ERE project Python 3.12 virtual environment, Node 26.12.1, and GitHub API."
+    exit_code: 0
+    validation_date: "2026-11-06"
+    remaining_gaps:
+      - "The ERE global system Python remains separate from the project lock; use the project virtual environment for application execution."
+      - "GitHub Actions scans have not yet run; the local ComfyUI root-container finding remains open as issue #16."
+  - gate_id: application-functional
+    requirement: "Authenticated project-to-render-to-authorized-artifact workflow is operational."
+    status: PARTIAL
+    evidence_reference:
+      - "docs/implementation/VERTICAL-SLICE-PLAN.md"
+      - "docs/reviews/ERE-REMAINING-GAPS.md"
+      - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
+    commit_sha: null
+    test_command: "python -m pytest -q -p no:cacheprovider; python scripts/export_openapi.py --output <temp>/openapi.json"
+    execution_environment: "ERE Windows 11; project Python 3.12 virtual environment."
+    exit_code: 0
+    validation_date: "2026-11-06"
+    remaining_gaps:
+      - "Tests passed 63, skipped 1, warning 1; full authenticated upload-to-render-to-retrieval workflow remains unimplemented/unverified."
+      - "The FFmpeg/FFprobe fixture is skipped because the executables are unavailable; no live database migration or GPU workflow was run."
+  - gate_id: gpu-inference
+    requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
+    status: BLOCKED
+    evidence_reference:
+      - "docs/reviews/ERE-GPU-VALIDATION.md"
+    commit_sha: "8e462ec233c3cecc1fcf225a0f02e0d551ef50f8"
+    test_command: null
+    execution_environment: "ERE local GPU workload not run."
+    exit_code: null
+    validation_date: "2026-11-05"
+    remaining_gaps:
+      - "ComfyUI, model/workflow, scheduling, and generated output have not been validated."
+  - gate_id: local-release
+    requirement: "A clean local setup passes the end-to-end product acceptance suite and recovery checks."
+    status: NOT_VERIFIED
+    evidence_reference:
+      - "docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml"
+      - "docs/implementation/VERTICAL-SLICE-PLAN.md"
+    commit_sha: "8e462ec233c3cecc1fcf225a0f02e0d551ef50f8"
+    test_command: null
+    execution_environment: "ERE local environment."
+    exit_code: null
+    validation_date: "2026-11-05"
+    remaining_gaps:
+      - "No complete end-to-end render, artifact retrieval, or backup/restore acceptance."
+  - gate_id: future-migration
+    requirement: "Migration readiness to another environment is separately validated and explicitly authorized."
+    status: BLOCKED
+    evidence_reference:
+      - "ADR-OVF-002.md"
+      - "docs/governance/ADR-INDEX.md"
+    commit_sha: "8e462ec233c3cecc1fcf225a0f02e0d551ef50f8"
+    test_command: null
+    execution_environment: "No external infrastructure accessed."
+    exit_code: null
+    validation_date: "2026-11-05"
+    remaining_gaps:
+      - "No migration is authorized or in scope; both ADRs remain PROPOSED."

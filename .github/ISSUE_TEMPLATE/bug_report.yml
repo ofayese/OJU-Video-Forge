@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible defect in the local-first application or tooling.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include credentials, private media, raw logs, or internal infrastructure details."
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken and what impact does it have?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: Include a minimal, sanitized example.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      description: Include a commit SHA or release tag.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Environment and checks
+      description: Runtime versions, exact commands, exit codes, and sanitized results.
+    validations:
+      required: false

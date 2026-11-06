@@ -1,0 +1,8 @@
+-r requirements.txt
+pip-tools==7.5.0
+pytest==9.0.3
+ruff==0.14.4
+pip-audit==2.9.0
+openapi-spec-validator==0.7.2
+PyYAML==6.0.3
+jsonschema==4.26.0
