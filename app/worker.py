@@ -142,7 +142,10 @@ def execute(job_id: str):
             if job.status == 'cancel_requested':
                 transition(db, job, 'cancelled', 'worker')
                 return
-            transition(db, job, 'failed', 'worker', error=type(exc).__name__)
+            if not transition(db, job, 'failed', 'worker', error=type(exc).__name__):
+                if job.status == 'cancel_requested':
+                    transition(db, job, 'cancelled', 'worker')
+                    return
             raise
 
 
