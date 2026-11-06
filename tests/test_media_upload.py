@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.api import MEDIA_TYPES, app, db_session
 from app.auth import Actor, get_current_actor
-from app.core import Base
+from app.core import Base, MediaAsset
 
 
 @pytest.fixture
@@ -25,7 +25,10 @@ def media_api(tmp_path, monkeypatch):
         with test_sessions() as db:
             yield db
 
-    actor_state = {"actor": Actor(name="owner-one", roles=["producer", "viewer"])}
+    actor_state = {
+        "actor": Actor(name="owner-one", roles=["producer", "viewer"]),
+        "sessions": test_sessions,
+    }
     monkeypatch.setitem(app.dependency_overrides, db_session, test_db_session)
     monkeypatch.setitem(app.dependency_overrides, get_current_actor, lambda: actor_state["actor"])
     monkeypatch.setattr("app.api.ARTIFACT_ROOT", tmp_path / "private-media")
@@ -60,7 +63,7 @@ def test_artifact_openapi_declares_binary_media_types():
 
 
 def test_upload_manifest_retrieval_and_checksum(media_api):
-    client, _, root = media_api
+    client, state, root = media_api
     project_id = create_project(client)
     content = b"synthetic media bytes"
 
@@ -76,6 +79,11 @@ def test_upload_manifest_retrieval_and_checksum(media_api):
         "size_bytes": len(content),
         "sha256": hashlib.sha256(content).hexdigest(),
     }
+    with state["sessions"]() as db:
+        media_asset = db.get(MediaAsset, manifest["id"])
+        assert media_asset is not None
+        assert media_asset.project_id == project_id
+        assert media_asset.sha256 == manifest["sha256"]
     stored = list(root.rglob(f'{manifest["id"]}.mp4'))
     assert len(stored) == 1
     assert stored[0].read_bytes() == content
