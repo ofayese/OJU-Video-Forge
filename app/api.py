@@ -1,3 +1,4 @@
+import sqlite3
 import uuid
 import secrets
 from datetime import datetime, timezone
@@ -104,6 +105,20 @@ def require_project_role(
     if role not in allowed_roles:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient project permissions")
     return project, role
+
+
+def _is_project_membership_conflict(exc: IntegrityError) -> bool:
+    original = exc.orig
+    if (
+        getattr(getattr(original, "diag", None), "constraint_name", None)
+        == "uq_project_memberships_project_user"
+    ):
+        return True
+    return (
+        getattr(original, "sqlite_errorcode", None) == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+        and str(original)
+        == "UNIQUE constraint failed: project_memberships.project_id, project_memberships.user_id"
+    )
 
 
 @app.get("/health/live", include_in_schema=False)
@@ -301,11 +316,32 @@ def set_project_member(
             role=payload.role,
         )
         db.add(membership)
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            if not _is_project_membership_conflict(exc):
+                raise
+            membership = db.scalar(
+                select(ProjectMembership).where(
+                    ProjectMembership.project_id == project_id,
+                    ProjectMembership.user_id == user.id,
+                )
+            )
+            if membership is None:
+                raise
+            if membership.role == "owner":
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "The project owner role cannot be changed",
+                ) from exc
+            membership.role = payload.role
+            db.commit()
     else:
         if membership.role == "owner":
             raise HTTPException(status.HTTP_409_CONFLICT, "The project owner role cannot be changed")
         membership.role = payload.role
-    db.commit()
+        db.commit()
     return ProjectMemberResult(username=user.username, role=membership.role)
 
 
