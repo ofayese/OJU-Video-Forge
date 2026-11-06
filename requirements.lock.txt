@@ -483,9 +483,9 @@ redis==8.1.0 \
     #   -c requirements.lock.txt
     #   -r requirements.txt
     #   rq
-rq==2.3.2 \
-    --hash=sha256:5bd212992724428ec1689736abde783d245e7856bca39d89845884f5d580f5f1 \
-    --hash=sha256:bf4dc622a7b9d5f7d4a39444f26d89ce6de8a1d6db61b21060612114dbf8d5ff
+rq==3.0.0 \
+    --hash=sha256:71b92cb7b2880e0d0ac2a462945e3f09243122f61465cec4238689d8ddf2abf4 \
+    --hash=sha256:b41e39b3c36ec3faf9e2402c638a0b25fe18ebb93a1cb15193bc69694f054618
     # via
     #   -c requirements.lock.txt
     #   -r requirements.txt
