@@ -67,6 +67,14 @@ def upgrade():
         sa.Column("dispatched_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("ix_dispatch_outbox_available_at", "dispatch_outbox", ["available_at"])
+    op.execute(
+        sa.text(
+            "INSERT INTO dispatch_outbox "
+            "(job_id, status, attempts, available_at, created_at) "
+            "SELECT id, 'pending', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+            "FROM jobs WHERE status IN ('dispatch_pending', 'queued')"
+        )
+    )
     op.create_check_constraint(
         "ck_dispatch_outbox_status",
         "dispatch_outbox",
