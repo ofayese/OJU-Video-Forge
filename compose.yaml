@@ -28,6 +28,8 @@ services:
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
       DB_PASSWORD: ${DB_PASSWORD:-forge}
       WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
+    volumes:
+      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -57,7 +59,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-forge}
       WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
     volumes:
-      - ${FORGE_DATA:-/srv/video-forge}/artifacts:/artifacts
+      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
       - ./config/workflows:/workflows:ro
     depends_on:
       postgres: {condition: service_healthy}
