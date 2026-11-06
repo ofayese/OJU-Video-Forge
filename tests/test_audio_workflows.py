@@ -13,6 +13,7 @@ from app.audio_workflows import (
     validate_audio,
     validate_captions,
 )
+from app.private_storage import private_file, write_private_file
 
 
 def synthetic_wav():
@@ -39,6 +40,11 @@ def test_synthetic_audio_is_validated():
 def test_invalid_audio_is_rejected(data):
     with pytest.raises(AudioWorkflowError):
         validate_audio(data)
+
+
+def test_truncated_wav_data_is_rejected():
+    with pytest.raises(AudioWorkflowError, match="truncated"):
+        validate_audio(synthetic_wav()[:-10])
 
 
 def test_caption_timing_and_text_are_strict():
@@ -94,3 +100,20 @@ def test_manifest_records_project_job_and_content_checksums():
         "sha256": hashlib.sha256(subtitle).hexdigest(),
         "size_bytes": len(subtitle),
     }
+
+
+def test_private_storage_rejects_traversal_and_symlink_escape(tmp_path):
+    root = tmp_path / "private"
+    write_private_file(root, "projects/project/audio/asset.wav", b"private")
+    assert private_file(root, "projects/project/audio/asset.wav").read_bytes() == b"private"
+    with pytest.raises(ValueError):
+        private_file(root, "../outside")
+
+    outside = tmp_path / "outside.wav"
+    outside.write_bytes(b"outside")
+    try:
+        (root / "projects/project/audio/escape.wav").symlink_to(outside)
+    except OSError:
+        pytest.skip("Local account cannot create symlinks")
+    with pytest.raises((ValueError, FileNotFoundError)):
+        private_file(root, "projects/project/audio/escape.wav")

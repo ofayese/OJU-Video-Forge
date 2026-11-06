@@ -56,13 +56,17 @@ def validate_audio(data: bytes) -> dict[str, int | str]:
     try:
         with wave.open(io.BytesIO(data), "rb") as audio:
             channels = audio.getnchannels()
+            sample_width = audio.getsampwidth()
             sample_rate = audio.getframerate()
             frames = audio.getnframes()
             duration_ms = frames * 1000 // sample_rate
             if (audio.getcomptype() != "NONE" or channels not in (1, 2)
+                    or sample_width not in (1, 2, 3, 4)
                     or not 8000 <= sample_rate <= 96000 or frames <= 0
                     or not 0 < duration_ms <= MAX_AUDIO_DURATION_MS):
                 raise AudioWorkflowError("Unsupported WAV audio metadata")
+            if len(audio.readframes(frames)) != frames * channels * sample_width:
+                raise AudioWorkflowError("WAV audio data is truncated")
     except (wave.Error, EOFError, ZeroDivisionError) as exc:
         raise AudioWorkflowError("Invalid PCM WAV audio") from exc
     return {"media_type": "audio/wav", "channels": channels,
@@ -144,15 +148,29 @@ def checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def canonical_hash(value: object) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return checksum(encoded)
+
+
 def manifest(*, project_id: str, job_id: str, inputs: list[dict],
-             outputs: dict[str, bytes]) -> bytes:
+             outputs: dict[str, bytes],
+             output_ids: dict[str, str] | None = None,
+             step: str | None = None) -> bytes:
     document = {
         "version": WORKFLOW_VERSION,
+        **({"step": step} if step is not None else {}),
         "project_id": project_id,
         "job_id": job_id,
         "inputs": inputs,
         "outputs": {
-            name: {"sha256": checksum(data), "size_bytes": len(data)}
+            name: {
+                **({"artifact_id": output_ids[name]} if output_ids and name in output_ids else {}),
+                "sha256": checksum(data),
+                "size_bytes": len(data),
+            }
             for name, data in sorted(outputs.items())
         },
     }

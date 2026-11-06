@@ -3,7 +3,7 @@ from pathlib import Path
 
 from redis import Redis
 from rq import Queue
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, create_engine
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import get_settings
@@ -19,10 +19,22 @@ SessionLocal = sessionmaker(engine, expire_on_commit=False)
 class Base(DeclarativeBase):
     pass
 
-class Job(Base):
-    __tablename__ = 'jobs'
+
+class Project(Base):
+    __tablename__ = 'projects'
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Job(Base):
+    __tablename__ = 'jobs'
+    __table_args__ = (UniqueConstraint('retry_of_id', name='uq_jobs_retry_of_id'),)
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey('projects.id'), nullable=True, index=True)
+    retry_of_id: Mapped[str | None] = mapped_column(ForeignKey('jobs.id'), nullable=True)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default='queued')
     spec: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -31,6 +43,34 @@ class Job(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class AudioAsset(Base):
+    __tablename__ = 'audio_assets'
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), nullable=False, index=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    relative_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WorkflowArtifact(Base):
+    __tablename__ = 'workflow_artifacts'
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey('jobs.id'), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), nullable=False, index=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    relative_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    filename: Mapped[str] = mapped_column(String(128), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
 
 class Audit(Base):
     __tablename__ = 'audit_events'

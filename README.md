@@ -11,6 +11,9 @@
   output reconciler before Gate D can pass.
 - Alembic initial migration and basic contract tests.
 - API spec auto-generated at `/openapi.json` after startup.
+- Project-owned WAV uploads and asynchronous SRT/WebVTT export; speech model steps
+  remain `NOT_VERIFIED` until optional local providers are configured. See the
+  [audio workflow contract](docs/audio-workflow-contract-v1.md).
 
 ## Contributing and validation
 
