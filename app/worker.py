@@ -2,6 +2,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -12,9 +13,30 @@ from pathlib import Path
 from redis import Redis
 from rq import Worker
 
+from .audio_workflows import (
+    MAX_AUDIO_BYTES,
+    WORKFLOW_VERSION,
+    AudioWorkflowError,
+    canonical_hash,
+    checksum,
+    manifest,
+    serialize_subtitles,
+    validate_audio,
+    validate_captions,
+)
 from .comfyui import ComfyUIAdapter, WorkflowRegistry
 from .config import get_settings
-from .core import ARTIFACT_ROOT, REDIS_URL, SessionLocal, Job, transition
+from .core import (
+    ARTIFACT_ROOT,
+    AudioAsset,
+    Job,
+    Project,
+    REDIS_URL,
+    SessionLocal,
+    WorkflowArtifact,
+    transition,
+)
+from .private_storage import private_file, write_private_file
 from .rendering import RenderEngine
 
 WORKFLOW = Path("/workflows/wan22-t2v-api.json")
@@ -24,6 +46,10 @@ GPU_WAIT_SECONDS = 3000
 GPU_INPUTS = {"positive_prompt", "seed", "width", "height", "frames", "fps"}
 MAX_WORKFLOW_BYTES = 16 * 1024 * 1024
 
+
+
+class ModelProviderUnavailable(RuntimeError):
+    pass
 
 
 class JobCancelled(Exception):
@@ -239,6 +265,111 @@ def _generate_wan22(job, output_dir):
 
 
 
+def _execute_audio_workflow(db, job):
+    project = db.get(Project, job.project_id)
+    if not project or project.owner != job.owner:
+        raise AudioWorkflowError("Project ownership could not be verified")
+    spec = job.spec
+    if type(spec.get("workflow_version")) is not int or spec["workflow_version"] != WORKFLOW_VERSION:
+        raise AudioWorkflowError("Unsupported audio workflow version")
+    step = spec.get("step")
+    asset = None
+    audio_data = None
+    if spec.get("audio_asset_id"):
+        asset = db.get(AudioAsset, spec["audio_asset_id"])
+        if (not asset or asset.project_id != project.id or asset.owner != job.owner):
+            raise AudioWorkflowError("Audio asset ownership could not be verified")
+        if asset.size_bytes > MAX_AUDIO_BYTES:
+            raise AudioWorkflowError("Audio asset exceeds the supported size")
+        source = private_file(ARTIFACT_ROOT, asset.relative_path)
+        audio_data = source.read_bytes()
+        if (len(audio_data) != asset.size_bytes
+                or checksum(audio_data) != asset.sha256):
+            raise AudioWorkflowError("Audio asset integrity check failed")
+        audio_metadata = validate_audio(audio_data)
+        if audio_metadata["duration_ms"] != asset.duration_ms:
+            raise AudioWorkflowError("Audio asset metadata changed")
+
+    if step == "narration":
+        text = spec.get("text")
+        language = spec.get("language")
+        if (type(text) is not str or not text.strip() or len(text) > 2000
+                or type(language) is not str
+                or not re.fullmatch(r"[a-z]{2,3}(?:-[A-Z]{2})?", language)):
+            raise AudioWorkflowError("Narration request is invalid")
+        raise ModelProviderUnavailable
+    if step == "transcription":
+        if asset is None:
+            raise AudioWorkflowError("Transcription requires a project audio asset")
+        raise ModelProviderUnavailable
+    if step != "captions":
+        raise AudioWorkflowError("Unsupported audio workflow step")
+
+    cues = validate_captions(spec.get("captions"))
+    if asset and any(cue["end_ms"] > asset.duration_ms for cue in cues):
+        raise AudioWorkflowError("Caption timing exceeds the source audio duration")
+    formats = spec.get("formats")
+    if (type(formats) is not list or not formats or len(formats) > 2
+            or len(set(formats)) != len(formats)
+            or any(value not in ("srt", "vtt") for value in formats)):
+        raise AudioWorkflowError("Subtitle formats are invalid")
+    outputs = {f"captions.{fmt}": serialize_subtitles(cues, fmt) for fmt in formats}
+    input_manifest = []
+    if asset:
+        input_manifest.append({
+            "asset_id": asset.id,
+            "sha256": asset.sha256,
+            "size_bytes": asset.size_bytes,
+        })
+    if "captions" in spec:
+        input_manifest.append({
+            "kind": "caption_cues",
+            "sha256": canonical_hash(cues),
+        })
+    if type(spec.get("text")) is str:
+        input_manifest.append({
+            "kind": "narration_text",
+            "sha256": hashlib.sha256(spec["text"].encode("utf-8")).hexdigest(),
+        })
+
+    artifact_ids = {name: str(uuid.uuid4()) for name in outputs}
+    manifest_data = manifest(
+        project_id=project.id,
+        job_id=job.id,
+        inputs=input_manifest,
+        outputs=outputs,
+        output_ids=artifact_ids,
+        step=step,
+    )
+    manifest_id = str(uuid.uuid4())
+    artifact_data = {
+        **outputs,
+        "manifest.json": manifest_data,
+    }
+    artifact_records = []
+    for filename, data in artifact_data.items():
+        artifact_id = manifest_id if filename == "manifest.json" else artifact_ids[filename]
+        relative_path = (
+            f"projects/{project.id}/artifacts/{job.id}/{filename}"
+        )
+        write_private_file(ARTIFACT_ROOT, relative_path, data)
+        artifact_records.append(WorkflowArtifact(
+            id=artifact_id,
+            job_id=job.id,
+            project_id=project.id,
+            owner=job.owner,
+            relative_path=relative_path,
+            filename=filename,
+            media_type=("application/json" if filename == "manifest.json"
+                        else "text/vtt" if filename.endswith(".vtt")
+                        else "application/x-subrip"),
+            sha256=checksum(data),
+            size_bytes=len(data),
+        ))
+    db.add_all(artifact_records)
+    transition(db, job, "awaiting_review", "worker", artifact=manifest_id)
+
+
 def _cleanup_render_output(inputs, result):
     try:
         path = Path(result.path)
@@ -306,10 +437,12 @@ def execute(job_id: str):
                         except OSError:
                             pass
                 return
-            output_dir = ARTIFACT_ROOT / job.id
-            output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
-            if job.operation == 'render_test':
-                dest = output_dir / "test.mp4"
+            if job.operation == "audio_workflow":
+                _execute_audio_workflow(db, job)
+            elif job.operation == 'render_test':
+                output_dir = ARTIFACT_ROOT / job.id
+                output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
+                dest = output_dir / 'test.mp4'
                 _run_ffmpeg(job.id, [
                     'ffmpeg', '-nostdin', '-y', '-f', 'lavfi', '-i',
                     'testsrc2=size=640x360:rate=24', '-t', '5',
@@ -321,8 +454,12 @@ def execute(job_id: str):
                     db, job, 'awaiting_review', artifact=f"{job.id}/test.mp4"
                 )
             elif job.operation == 'wan22_t2v':
+                if _cancel_requested(job_id):
+                    raise JobCancelled()
                 if not get_settings().comfyui_enabled:
                     raise RuntimeError("ComfyUI generation is disabled")
+                output_dir = ARTIFACT_ROOT / job.id
+                output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
                 artifact = _generate_wan22(job, output_dir)
                 _finish_or_cancel(db, job, 'awaiting_review', artifact=artifact)
             else:
@@ -334,6 +471,7 @@ def execute(job_id: str):
             if job.status == 'cancel_requested':
                 transition(db, job, 'cancelled', 'worker')
         except Exception as exc:
+            db.rollback()
             db.refresh(job)
             if job.operation == 'render_timeline_v1':
                 if result is not None and inputs is not None:
@@ -346,13 +484,19 @@ def execute(job_id: str):
             if job.status == 'cancel_requested':
                 transition(db, job, 'cancelled', 'worker')
                 return
-            error = (
-                "ComfyUI generation failed; inspect restricted worker diagnostics."
-                if job.operation == "wan22_t2v"
-                else f'{type(exc).__name__}: timeline render failed'
-                if job.operation == 'render_timeline_v1'
-                else type(exc).__name__
-            )
+            if job.operation == "audio_workflow":
+                if isinstance(exc, ModelProviderUnavailable):
+                    error = "provider_unavailable; NOT_VERIFIED"
+                elif isinstance(exc, AudioWorkflowError):
+                    error = f"invalid_audio_workflow: {str(exc)[:200]}"
+                else:
+                    error = "audio_workflow_failed"
+            elif job.operation == "wan22_t2v":
+                error = "ComfyUI generation failed; inspect restricted worker diagnostics."
+            elif job.operation == 'render_timeline_v1':
+                error = f'{type(exc).__name__}: timeline render failed'
+            else:
+                error = type(exc).__name__
             if not transition(db, job, 'failed', 'worker', error=error):
                 if job.status == 'cancel_requested':
                     transition(db, job, 'cancelled', 'worker')

@@ -55,7 +55,9 @@ def test_artifact_openapi_declares_binary_media_types():
         "/v1/projects/{project_id}/artifacts/{artifact_id}"
     ]["get"]["responses"]["200"]["content"]
 
-    assert set(response_content) == set(MEDIA_TYPES.values())
+    assert set(response_content) == set(MEDIA_TYPES.values()) | {
+        "application/json", "application/x-subrip", "text/vtt"
+    }
     assert all(
         media["schema"] == {"type": "string", "format": "binary"}
         for media in response_content.values()

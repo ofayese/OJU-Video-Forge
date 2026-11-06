@@ -17,6 +17,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.orm import synonym
 
 from .config import get_settings
 
@@ -104,6 +105,7 @@ class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
         UniqueConstraint("owner", "idempotency_key", name="uq_jobs_owner_idempotency"),
+        UniqueConstraint("retry_of_job_id", name="uq_jobs_retry_of_id"),
         CheckConstraint(
             "status IN ('dispatch_pending', 'queued', 'running', 'cancel_requested', "
             "'awaiting_review', 'submitted_to_comfyui', 'failed', 'cancelled')",
@@ -122,6 +124,7 @@ class Job(Base):
     retry_of_job_id: Mapped[str | None] = mapped_column(
         String(40), ForeignKey("jobs.id"), nullable=True, index=True
     )
+    retry_of_id = synonym("retry_of_job_id")
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     spec: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -167,6 +170,34 @@ class DispatchOutbox(Base):
     dispatched_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+
+class AudioAsset(Base):
+    __tablename__ = 'audio_assets'
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), nullable=False, index=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    relative_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WorkflowArtifact(Base):
+    __tablename__ = 'workflow_artifacts'
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey('jobs.id'), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), nullable=False, index=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    relative_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    filename: Mapped[str] = mapped_column(String(128), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class Audit(Base):
