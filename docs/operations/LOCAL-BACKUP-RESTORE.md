@@ -74,7 +74,7 @@ records; never use a real or shared database dump for this drill.
 
 ```sh
 RESTORE_PROJECT="forge-restore-$(date -u +%Y%m%d%H%M%S)"
-docker compose -p "$RESTORE_PROJECT" up -d postgres redis
+docker compose -p "$RESTORE_PROJECT" up -d --wait postgres redis
 docker compose -p "$RESTORE_PROJECT" exec -T postgres \
   pg_restore -U forge -d forge --clean --if-exists --no-owner < synthetic.dump
 docker compose -p "$RESTORE_PROJECT" exec -T postgres \
