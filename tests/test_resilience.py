@@ -3,6 +3,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from redis import Redis
+from rq.job import Job as RQJob
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -114,17 +116,20 @@ def test_readiness_fails_when_required_dependency_is_down(monkeypatch):
     assert response.json()["optional"]["gpu"] == "not_required"
 
 
-def test_readiness_closes_database_connection_when_probe_times_out(monkeypatch):
-    class Connection:
+def test_readiness_closes_connection_when_database_probe_times_out(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    class StalledConnection:
         closed = False
 
         async def execute(self, statement):
-            await asyncio.Event().wait()
+            assert statement == "SELECT 1"
+            await asyncio.sleep(10)
 
         async def close(self):
             self.closed = True
 
-    connection = Connection()
+    connection = StalledConnection()
 
     class AsyncConnection:
         @staticmethod
@@ -134,7 +139,17 @@ def test_readiness_closes_database_connection_when_probe_times_out(monkeypatch):
     monkeypatch.setattr(api, "AsyncConnection", AsyncConnection)
     monkeypatch.setattr(api, "DATABASE_PROBE_TIMEOUT_SECONDS", 0.01)
 
-    assert asyncio.run(api._database_ready()) is False
+    class RedisConnection:
+        def ping(self):
+            return True
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(api.Redis, "from_url", lambda *args, **kwargs: RedisConnection())
+    response = TestClient(api.app).get("/health/ready")
+
+    assert response.status_code == 503
     assert connection.closed
 
 
@@ -146,8 +161,12 @@ def test_recovery_requeues_interrupted_job_once(database):
     assert job.status == "dispatch_pending"
     assert job.recovery_count == 1
     assert queue.enqueued == [
-        ("app.worker.execute", job.id, "job-1:recovery:1", 3600)
+        ("app.worker.execute", job.id, "job-1-recovery-1", 3600)
     ]
+    assert RQJob(
+        id=queue.enqueued[0][2],
+        connection=Redis.from_url("redis://localhost:6379/0"),
+    ).id == "job-1-recovery-1"
     assert core.recover_jobs(database, queue) == 0
     assert database.query(Audit).filter_by(action="interrupted_recovery").count() == 1
 
@@ -168,7 +187,19 @@ def test_recovery_requeues_running_job_with_stale_started_delivery(database):
     assert core.recover_jobs(database, queue) == 1
     assert job.recovery_count == 1
     assert queue.enqueued == [
-        ("app.worker.execute", job.id, "job-1:recovery:1", 3600)
+        ("app.worker.execute", job.id, "job-1-recovery-1", 3600)
+    ]
+
+
+def test_recovery_requeues_started_delivery_before_running_transition(database):
+    job = add_job(database, status="queued")
+    queue = FakeQueue({job.id: FakeRQJob("started")})
+
+    assert core.recover_jobs(database, queue) == 1
+    assert job.status == "dispatch_pending"
+    assert job.recovery_count == 1
+    assert queue.enqueued == [
+        ("app.worker.execute", job.id, "job-1-recovery-1", 3600)
     ]
 
 

@@ -46,31 +46,46 @@ def live():
     return {"ok": True}
 
 
+DATABASE_CLOSE_TIMEOUT_SECONDS = 0.1
+
+
+async def _database_probe():
+    connection = None
+    try:
+        connection = await AsyncConnection.connect(
+            make_url(DATABASE_URL)
+            .set(drivername="postgresql")
+            .render_as_string(hide_password=False),
+            connect_timeout=1,
+            options="-c statement_timeout=1000",
+        )
+        await connection.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+    finally:
+        if connection is not None:
+            try:
+                await asyncio.wait_for(
+                    connection.close(), timeout=DATABASE_CLOSE_TIMEOUT_SECONDS
+                )
+            except Exception:
+                pass
+
+
 async def _database_ready():
     try:
-        async with asyncio.timeout(DATABASE_PROBE_TIMEOUT_SECONDS):
-            connection = None
-            try:
-                connection = await AsyncConnection.connect(
-                    make_url(DATABASE_URL)
-                    .set(drivername="postgresql")
-                    .render_as_string(hide_password=False),
-                    connect_timeout=1,
-                    options="-c statement_timeout=1000",
-                )
-                await connection.execute("SELECT 1")
-            finally:
-                if connection is not None:
-                    await connection.close()
-        return True
+        return await asyncio.wait_for(
+            _database_probe(), timeout=DATABASE_PROBE_TIMEOUT_SECONDS
+        )
     except Exception:
         return False
 
 
 @app.get("/health/ready", include_in_schema=False)
-def ready():
+async def ready():
     dependencies = {"database": False, "redis": False}
-    dependencies["database"] = asyncio.run(_database_ready())
+    dependencies["database"] = await _database_ready()
     redis_client = None
     try:
         redis_client = Redis.from_url(
