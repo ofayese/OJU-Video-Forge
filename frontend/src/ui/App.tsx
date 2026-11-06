@@ -133,14 +133,24 @@ function Workspace({
   const [submitting, setSubmitting] = useState(false);
   const [renderError, setRenderError] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState("");
-  const [job, setJob] = useState<VideoJob | null>(null);
+  const [jobs, setJobs] = useState<Record<string, VideoJob>>({});
   const [jobError, setJobError] = useState("");
   const [checkingJob, setCheckingJob] = useState(false);
   const [artifactError, setArtifactError] = useState("");
   const [artifactBlob, setArtifactBlob] = useState<Blob | null>(null);
   const [artifactUrl, setArtifactUrl] = useState("");
   const [retrievingArtifact, setRetrievingArtifact] = useState(false);
+  const job = jobs[selectedProjectId] ?? null;
   const projectActionsBusy = loading || creating || uploading || submitting || checkingJob || retrievingArtifact;
+
+  function setProjectJob(projectId: string, projectJob: VideoJob | null) {
+    setJobs((current) => {
+      const updated = { ...current };
+      if (projectJob) updated[projectId] = projectJob;
+      else delete updated[projectId];
+      return updated;
+    });
+  }
 
   async function refreshWorkspace() {
     setLoading(true);
@@ -171,7 +181,6 @@ function Workspace({
 
   useEffect(() => {
     setMedia(null);
-    setJob(null);
     setJobError("");
     setArtifactBlob(null);
     setIdempotencyKey("");
@@ -198,7 +207,7 @@ function Workspace({
         const latest = await api.getProjectJob(selectedProjectId, jobId, token);
         if (!active) return;
         setJobError("");
-        setJob(latest);
+        setProjectJob(selectedProjectId, latest);
         if (ACTIVE_JOB_STATUSES.has(latest.status)) {
           timeout = setTimeout(() => void poll(), 3000);
         }
@@ -245,7 +254,7 @@ function Workspace({
     setRenderError("");
     try {
       const uploaded = await api.uploadMedia(selectedProjectId, file, token);
-      setJob(null);
+      setProjectJob(selectedProjectId, null);
       setArtifactBlob(null);
       setMedia(uploaded);
       setIdempotencyKey("");
@@ -279,7 +288,7 @@ function Workspace({
         key,
         token,
       );
-      setJob(created);
+      setProjectJob(selectedProjectId, created);
       setIdempotencyKey("");
     } catch (error) {
       setRenderError(errorText(error));
@@ -293,7 +302,7 @@ function Workspace({
     setCheckingJob(true);
     setJobError("");
     try {
-      setJob(await api.getProjectJob(selectedProjectId, job.id, token));
+      setProjectJob(selectedProjectId, await api.getProjectJob(selectedProjectId, job.id, token));
     } catch (error) {
       setJobError(errorText(error));
     } finally {
