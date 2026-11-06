@@ -197,12 +197,17 @@ function Workspace({
       try {
         const latest = await api.getProjectJob(selectedProjectId, jobId, token);
         if (!active) return;
+        setJobError("");
         setJob(latest);
         if (ACTIVE_JOB_STATUSES.has(latest.status)) {
           timeout = setTimeout(() => void poll(), 3000);
         }
       } catch (error) {
-        if (active) setJobError(errorText(error));
+        if (!active) return;
+        setJobError(errorText(error));
+        if (error instanceof ApiError && (error.status === 0 || error.status === 429 || error.status >= 500)) {
+          timeout = setTimeout(() => void poll(), 3000);
+        }
       }
     }
 
