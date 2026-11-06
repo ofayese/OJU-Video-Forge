@@ -1,6 +1,5 @@
 """Review bridge v1: real HTTP/auth and isolated SQLite transactions."""
 import hashlib
-import json
 import os
 import subprocess
 import sys
@@ -20,7 +19,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app import api, auth, review, worker
 from app.auth import Actor, get_current_actor
 from app.config import Settings
-from app.core import Audit, Base, Job, Review, transition
+from app.core import Audit, Base, DispatchOutbox, Job, Review, transition
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -182,7 +181,7 @@ def test_role_owner_matrix(setup, monkeypatch, role, owner):
 
 @pytest.mark.parametrize("status", [
     "queued", "dispatch_pending", "running", "failed", "cancelled",
-    "submitted_to_comfyui", "approved", "rejected", "published",
+    "submitted_to_comfyui", "approved", "rejected",
 ])
 def test_invalid_state(setup, status):
     client, sessions, _, job_id, payload, _ = setup
@@ -387,10 +386,10 @@ def test_worker_persists_generated_checksum_not_submission(setup, monkeypatch):
         job.artifact = job.artifact_id = job.artifact_sha256 = None
         db.commit()
 
-    def generate(args, **kwargs):
+    def generate(job_id, args, timeout):
         Path(args[-1]).write_bytes(b"synthetic worker output")
 
-    monkeypatch.setattr(worker.subprocess, "run", generate)
+    monkeypatch.setattr(worker, "_run_ffmpeg", generate)
     worker.execute(job_id)
     with sessions() as db:
         job = db.get(Job, job_id)
@@ -404,14 +403,12 @@ def test_worker_persists_generated_checksum_not_submission(setup, monkeypatch):
         assert db.get(Job, job_id).artifact_id == identity
 
 
-def test_comfy_submission_never_records_generated_identity(setup, monkeypatch, tmp_path):
-    client, sessions, _, job_id, payload, artifact = setup
+def test_comfy_generation_never_records_review_identity(setup, monkeypatch):
+    client, sessions, settings, job_id, payload, artifact = setup
     artifact.unlink()
     artifact.parent.rmdir()
-    graph = tmp_path / "approved-workflow.json"
-    graph.write_text(json.dumps({"1": {"inputs": {"text": "", "seed": 0}}}))
-    monkeypatch.setattr(worker, "WORKFLOW", graph)
-    monkeypatch.setenv("WAN_NODE_MAPPING", json.dumps({"positive_prompt": ["1", "text"], "seed": ["1", "seed"]}))
+    settings.comfyui_enabled = True
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
     with sessions() as db:
         job = db.get(Job, job_id)
         job.status = "queued"
@@ -420,32 +417,17 @@ def test_comfy_submission_never_records_generated_identity(setup, monkeypatch, t
         job.artifact = job.artifact_id = job.artifact_sha256 = None
         db.commit()
 
-    class SubmissionResponse:
-        def raise_for_status(self):
-            pass
+    def generate(job, output_dir):
+        generated = output_dir / "generated.mp4"
+        generated.write_bytes(b"synthetic generated output")
+        return f"{job.id}/generated.mp4"
 
-        def json(self):
-            return {"prompt_id": "synthetic-submission"}
-
-    class SubmissionClient:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-        def post(self, *args, **kwargs):
-            return SubmissionResponse()
-
-    monkeypatch.setattr(worker.httpx, "Client", SubmissionClient)
+    monkeypatch.setattr(worker, "_generate_wan22", generate)
     worker.execute(job_id)
     with sessions() as db:
         job = db.get(Job, job_id)
-        assert job.status == "submitted_to_comfyui"
-        assert job.artifact.endswith("/comfy-prompt.json")
+        assert job.status == "awaiting_review"
+        assert job.artifact.endswith("/generated.mp4")
         assert job.artifact_id is None and job.artifact_sha256 is None
     assert post(client, job_id, payload).status_code == 409
 
@@ -506,12 +488,12 @@ def test_duplicate_execute_claim_is_atomic(setup, monkeypatch):
             barrier.wait(timeout=10)
         return transition(db, job, status, actor, **kwargs)
 
-    def generate(args, **kwargs):
+    def generate(job_id, args, timeout):
         calls.append(args)
         Path(args[-1]).write_bytes(b"synthetic single-winner worker output")
 
     monkeypatch.setattr(worker, "transition", interleave)
-    monkeypatch.setattr(worker.subprocess, "run", generate)
+    monkeypatch.setattr(worker, "_run_ffmpeg", generate)
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(worker.execute, [job_id, job_id]))
     assert len(calls) == 1
@@ -534,22 +516,23 @@ def test_dispatch_failure_participates_in_version_fence(setup, monkeypatch, work
     client, sessions, _, _, _, _ = setup
 
     class Dispatch:
-        def enqueue(self, function, queued_id, **kwargs):
+        def __call__(self, queued_id):
             if worker_claimed:
                 with sessions() as db:
                     assert transition(db, db.get(Job, queued_id), "running", "worker")
-            raise RuntimeError("synthetic dispatch acknowledgement failure")
+            return False
 
-    monkeypatch.setattr(api, "queue", Dispatch)
+    monkeypatch.setattr(api, "dispatch_outbox", Dispatch())
     response = client.post("/v1/jobs", headers=headers(), json={"operation": "render_test"})
     assert response.status_code == 202
     job = response.json()
     assert job["status"] == ("running" if worker_claimed else "dispatch_pending")
-    assert job["review_version"] == 1
+    assert job["review_version"] == (1 if worker_claimed else 0)
     with sessions() as db:
         assert db.scalars(select(Audit.action).where(Audit.job_id == job["id"])).all() == [
-            "queued", "running" if worker_claimed else "dispatch_pending",
+            "dispatch_pending", *(["running"] if worker_claimed else []),
         ]
+        assert db.get(DispatchOutbox, job["id"]).status == "pending"
 
 
 def test_history_bounded_indexed_and_snapshots_not_job_joins(setup):
@@ -601,7 +584,7 @@ def test_migration_old_rows_and_non_destructive_downgrade(tmp_path):
     with engine.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM job_reviews")) == 1
         assert db.scalar(text("SELECT count(*) FROM audit_events")) == 1
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
         with pytest.raises(DBAPIError, match="immutable"):
             db.execute(text("DELETE FROM job_reviews"))
     engine.dispose()

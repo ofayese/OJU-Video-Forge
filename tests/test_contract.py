@@ -45,6 +45,8 @@ def test_api_authentication_roles_and_openapi(monkeypatch):
 
         schema = app.openapi()
         assert schema["paths"]["/v1/jobs"]["post"]["operationId"] == "submitVideoJob"
+        assert "/v1/projects/{project_id}/workflows" in schema["paths"]
+        assert "/v1/projects/{project_id}/artifacts/{artifact_id}" in schema["paths"]
 
         monkeypatch.setitem(
             app.dependency_overrides,

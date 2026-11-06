@@ -24,12 +24,40 @@ export interface CreateProjectInput {
   name: string;
 }
 
+export interface MediaAsset {
+  id: string;
+  size_bytes: number;
+  media_type: string;
+  sha256: string;
+}
+
+export interface TimelineClip {
+  media_id: string;
+  in_ms: number;
+  out_ms: number;
+}
+
+export interface TimelineV1 {
+  version: 1;
+  clips: TimelineClip[];
+}
+
+export type RenderPreset = "preview" | "hd";
+
+export interface CreateRenderInput {
+  timeline: TimelineV1;
+  preset: RenderPreset;
+}
+
 export interface VideoJob {
   id: string;
-  operation: string;
+  operation?: string;
   status: string;
   artifact: string | null;
   error: string | null;
+  artifact_id?: string | null;
+  dispatch_attempts?: number;
+  dispatch_error?: string | null;
   review_contract_version: number;
   review_version: number;
   review_enabled: boolean;

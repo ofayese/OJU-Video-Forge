@@ -1,7 +1,9 @@
 import type {
   AuthSession,
+  CreateRenderInput,
   CreateProjectInput,
   LoginInput,
+  MediaAsset,
   ModelList,
   Project,
   ProjectList,
@@ -41,9 +43,11 @@ export class ApiClient {
     path: string,
     options: RequestInit = {},
     token?: string,
+    responseType: "json" | "blob" = "json",
   ): Promise<T> {
     const headers = new Headers(options.headers);
-    if (options.body && !headers.has("Content-Type")) {
+    const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+    if (options.body && !isFormData && !headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
     if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -52,6 +56,7 @@ export class ApiClient {
     try {
       response = await this.fetcher(`${this.baseUrl}${path}`, {
         ...options,
+        cache: "no-store",
         headers,
       });
     } catch {
@@ -64,7 +69,27 @@ export class ApiClient {
       throw new ApiError(errorMessage, response.status);
     }
     if (response.status === 204) return undefined as T;
+    if (responseType === "blob") return (await response.blob()) as T;
     return (await response.json()) as T;
+  }
+
+  private async requestBlob(path: string, token: string): Promise<Blob> {
+    const headers = new Headers();
+    headers.set("Authorization", ["Bearer", token].join(" "));
+
+    let response: Response;
+    try {
+      response = await this.fetcher(`${this.baseUrl}${path}`, { headers });
+    } catch {
+      throw new ApiError("Unable to reach the API. Check the API URL and connection.", 0);
+    }
+
+    if (!response.ok) {
+      const errorMessage = await this.readError(response);
+      if (response.status === 401) this.unauthorizedHandler?.();
+      throw new ApiError(errorMessage, response.status);
+    }
+    return response.blob();
   }
 
   private async readError(response: Response): Promise<string> {
@@ -81,30 +106,74 @@ export class ApiClient {
   }
 
   async login(credentials: LoginInput): Promise<AuthSession> {
-    return this.request<AuthSession>("/auth/login", {
+    return this.request<AuthSession>("/v1/auth/session", {
       method: "POST",
       body: JSON.stringify(credentials),
     });
   }
 
   async logout(token: string): Promise<void> {
-    await this.request<void>("/auth/logout", { method: "POST" }, token);
+    await this.request<void>("/v1/auth/session", { method: "DELETE" }, token);
   }
 
   async currentUser(token: string): Promise<User> {
-    return this.request<User>("/auth/me", {}, token);
+    return this.request<User>("/v1/auth/session", {}, token);
   }
 
   async listProjects(token: string): Promise<Project[]> {
-    const result = await this.request<Project[] | ProjectList>("/projects", {}, token);
+    const result = await this.request<Project[] | ProjectList>("/v1/projects", {}, token);
     return Array.isArray(result) ? result : result.projects;
   }
 
   async createProject(input: CreateProjectInput, token: string): Promise<Project> {
     return this.request<Project>(
-      "/projects",
+      "/v1/projects",
       { method: "POST", body: JSON.stringify(input) },
       token,
+    );
+  }
+
+  async uploadMedia(projectId: string, file: File, token: string): Promise<MediaAsset> {
+    const body = new FormData();
+    body.append("file", file);
+    return this.request<MediaAsset>(
+      `/v1/projects/${encodeURIComponent(projectId)}/media`,
+      { method: "POST", body },
+      token,
+    );
+  }
+
+  async createRenderJob(
+    projectId: string,
+    input: CreateRenderInput,
+    idempotencyKey: string,
+    token: string,
+  ): Promise<VideoJob> {
+    return this.request<VideoJob>(
+      `/v1/projects/${encodeURIComponent(projectId)}/jobs`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(input),
+      },
+      token,
+    );
+  }
+
+  async getProjectJob(projectId: string, jobId: string, token: string): Promise<VideoJob> {
+    return this.request<VideoJob>(
+      `/v1/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`,
+      {},
+      token,
+    );
+  }
+
+  async getProjectArtifact(projectId: string, artifactId: string, token: string): Promise<Blob> {
+    return this.request<Blob>(
+      `/v1/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}`,
+      {},
+      token,
+      "blob",
     );
   }
 
@@ -124,6 +193,13 @@ export class ApiClient {
     return this.request<VideoJob>(
       `/v1/jobs/${encodeURIComponent(jobId)}/review`,
       { method: "POST", body: JSON.stringify(input) },
+      token,
+    );
+  }
+
+  async getArtifact(jobId: string, token: string): Promise<Blob> {
+    return this.requestBlob(
+      `/v1/jobs/${encodeURIComponent(jobId)}/artifact`,
       token,
     );
   }
