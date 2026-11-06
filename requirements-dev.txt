@@ -2,6 +2,7 @@
 pip-tools==7.6.2
 colorama==0.4.6
 setuptools==84.2.1
+tzdata==2026.6
 pytest==9.0.3
 ruff==0.14.4
 pip-audit==2.9.0
