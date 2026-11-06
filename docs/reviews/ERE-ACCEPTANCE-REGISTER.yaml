@@ -177,14 +177,35 @@ current_gates:
       - "docs/implementation/VERTICAL-SLICE-PLAN.md"
       - "docs/reviews/ERE-REMAINING-GAPS.md"
       - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
-    commit_sha: null
-    test_command: "python -m pytest -q -p no:cacheprovider; python scripts/export_openapi.py --output <temp>/openapi.json"
-    execution_environment: "ERE Windows 11; project Python 3.12 virtual environment."
+    commit_sha: "e508d1f1254645530310303f9269092caedfe816"
+    test_command: >-
+      .venv/bin/python -m pytest -q -p no:cacheprovider (exit 0: 69 passed, 1 skipped, 1 warning);
+      .venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json (exit 0);
+      With APP_ENV=test and DATABASE_URL/DB_PASSWORD set to synthetic loopback-only PostgreSQL values: .venv/bin/python -m alembic upgrade head (exit 0);
+      .venv/bin/python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events'} <= tables" (exit 0);
+      .venv/bin/python -c "from redis import Redis; assert Redis.from_url('$REDIS_URL').ping()" (exit 0)
+    execution_environment: "Linux x86_64 sandbox; Python 3.12.3; Docker Engine 28.0.4; ephemeral PostgreSQL 17 and Redis 7 containers; no shared services."
     exit_code: 0
     validation_date: "2026-11-06"
     remaining_gaps:
-      - "Tests passed 63, skipped 1, warning 1; full authenticated upload-to-render-to-retrieval workflow remains unimplemented/unverified."
-      - "The FFmpeg/FFprobe fixture is skipped because the executables are unavailable; no live database migration or GPU workflow was run."
+      - "The complete authenticated project-to-render-to-authorized-artifact workflow remains incomplete."
+      - "The FFmpeg/FFprobe fixture is skipped because the executables are unavailable."
+      - "This Linux run does not validate Windows behavior; prior Windows results apply to their recorded commit."
+      - "GPU inference and recovery/backup-restore remain separate unverified gates."
+  - gate_id: local-auth-project-authorization
+    requirement: "Local password sessions and project membership roles are enforced by the versioned API."
+    status: PASS
+    evidence_reference:
+      - "docs/authentication-projects-v1.md"
+      - "tests/test_auth_projects.py"
+      - "alembic/versions/0005_local_auth_projects.py"
+    commit_sha: "642d851971e2e6451b92fa91fe7cff639a59fe1d"
+    test_command: "PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m pytest -q -p no:cacheprovider; PYTHONPATH=. /tmp/ovf-auth-venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json; DATABASE_URL=sqlite:////tmp/ovf-auth-migration.db PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m alembic -c alembic.ini upgrade head; /tmp/ovf-auth-venv/bin/ruff check app tests alembic scripts; /tmp/ovf-auth-venv/bin/python -m compileall -q app tests alembic"
+    execution_environment: "Linux sandbox, Python 3.12.3, isolated venv installed from requirements-dev.lock.txt; API tests used in-memory SQLite and migration used disposable SQLite."
+    exit_code: 0
+    validation_date: "2026-11-06"
+    remaining_gaps:
+      - "PostgreSQL migration/integration was not run; full authenticated upload-to-render-to-artifact workflow remains separately PARTIAL."
   - gate_id: gpu-inference
     requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
     status: BLOCKED
@@ -203,13 +224,29 @@ current_gates:
     evidence_reference:
       - "docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml"
       - "docs/implementation/VERTICAL-SLICE-PLAN.md"
-    commit_sha: "8e462ec233c3cecc1fcf225a0f02e0d551ef50f8"
-    test_command: null
-    execution_environment: "ERE local environment."
-    exit_code: null
-    validation_date: "2026-11-05"
+      - "docs/reviews/ERE-RECOVERY-VALIDATION.md"
+      - "docs/reviews/ERE-RENDER-VALIDATION.md"
+    commit_sha: "e508d1f1254645530310303f9269092caedfe816"
+    test_command: |-
+      Setup: python -m venv .venv && .venv/bin/python -m pip install --require-hashes -r requirements-dev.lock.txt (exit 0)
+      Backend: .venv/bin/python -m pytest -q -p no:cacheprovider (exit 0: 69 passed, 1 skipped, 1 warning); .venv/bin/ruff check app tests alembic scripts; .venv/bin/python -m compileall -q app tests alembic scripts; .venv/bin/python -m pip check (all exit 0)
+      Python audits: .venv/bin/pip-audit -r requirements.lock.txt; .venv/bin/pip-audit -r requirements-dev.lock.txt (both exit 0, no known vulnerabilities)
+      Frontend: npm --prefix frontend ci; npm --prefix frontend audit --audit-level=moderate; npm --prefix frontend run typecheck; npm --prefix frontend test; npm --prefix frontend run build (all exit 0; 3 tests passed; 0 npm audit vulnerabilities)
+      Repository checks: .venv/bin/python scripts/validate_acceptance_register.py; .venv/bin/python scripts/validate_repository.py; .venv/bin/python scripts/check_dependency_locks.py; .venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json (all exit 0)
+      Compose: docker compose --env-file .env.development.example -f compose.yaml -f compose.dev.yaml config --quiet; docker compose --env-file .env.development.example -f compose.yaml -f compose.gpu.yaml config --quiet (both exit 0; services not started)
+      Container syntax: docker buildx build --check --file services/api/Dockerfile .; docker buildx build --check --file services/worker/Dockerfile .; docker buildx build --check --file services/comfyui/Dockerfile . (all exit 0)
+      Isolated PostgreSQL/Redis: docker run --rm postgres:17-alpine and docker run --rm redis:7-alpine with loopback-only random ports and temporary storage; with APP_ENV=test and DATABASE_URL/DB_PASSWORD/REDIS_URL set to synthetic loopback values, .venv/bin/python -m alembic upgrade head; .venv/bin/python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events'} <= tables"; .venv/bin/python -c "from redis import Redis; assert Redis.from_url('$REDIS_URL').ping()" (all exit 0; containers removed)
+    execution_environment: "Linux x86_64 sandbox; Python 3.12.3, Node v24.22.1, npm 11.19.1, Docker Engine 28.0.4; ephemeral PostgreSQL 17/Redis 7; no FFmpeg/FFprobe on host."
+    exit_code: 0
+    validation_date: "2026-11-06"
     remaining_gaps:
-      - "No complete end-to-end render, artifact retrieval, or backup/restore acceptance."
+      - "No complete authenticated project/upload/job/render/FFprobe/SHA-256/authorized-retrieval workflow; required API and worker capabilities are missing."
+      - "No backup/restore or interrupted-worker recovery acceptance was run."
+      - "One FFmpeg/FFprobe integration test was skipped because the host executables are unavailable."
+      - "No Windows validation was run on this commit; GPU readiness remains separately BLOCKED."
+      - "Trivy HIGH DS-0002 for the ComfyUI container remains open under issue #16."
+      - "GitHub Frontend CI run 42278655804 failed on a separate dependency-update PR: @vitejs/plugin-react@6.2.1 requires Vite 8 while that PR resolved Vite 6.4.5; disposition is pending outside this change."
+      - "PR #37 GitHub Actions report action_required for backend run 42280276816, frontend run 42280276663, infrastructure run 42280276619, and security run 42280276756; no CI pass can be claimed until these workflows are authorized and complete. The local CodeQL checker skipped this documentation-only change."
   - gate_id: future-migration
     requirement: "Migration readiness to another environment is separately validated and explicitly authorized."
     status: BLOCKED

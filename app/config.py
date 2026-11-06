@@ -27,6 +27,7 @@ class Settings(BaseModel):
     redis_url: str = "redis://localhost:6379/0"
     artifact_root: str = "/artifacts"
     comfyui_url: str = "http://comfyui:8188"
+    comfyui_enabled: bool = False
     forge_openwebui_token: str = Field(default="")
     forge_chatgpt_token: str = Field(default="")
     db_password: str = ""
@@ -64,6 +65,7 @@ class Settings(BaseModel):
             "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
             "artifact_root": os.getenv("ARTIFACT_ROOT", "/artifacts"),
             "comfyui_url": os.getenv("COMFYUI_URL", "http://comfyui:8188"),
+            "comfyui_enabled": os.getenv("COMFYUI_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "forge_openwebui_token": os.getenv("FORGE_OPENWEBUI_TOKEN", ""),
             "forge_chatgpt_token": os.getenv("FORGE_CHATGPT_TOKEN", ""),
             "db_password": os.getenv("DB_PASSWORD", ""),

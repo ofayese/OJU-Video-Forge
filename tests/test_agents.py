@@ -7,7 +7,15 @@ from sqlalchemy.orm import sessionmaker
 from app import agents, api, auth
 from app.auth import Actor
 from app.config import Settings
-from app.core import AgentAudit, AgentProposal, Base, Job, ProjectMembership
+from app.core import (
+    AgentAudit,
+    AgentProposal,
+    Base,
+    DispatchOutbox,
+    Job,
+    ProjectMembership,
+    User,
+)
 
 
 class FakeAgentAdapter:
@@ -32,21 +40,45 @@ def agent_api(tmp_path, monkeypatch):
     )
     Base.metadata.create_all(database)
     test_sessions = sessionmaker(database, expire_on_commit=False)
-    state = {"actor": Actor(name="owner", roles=["producer"])}
+    state = {
+        "actor": Actor(name="owner", roles=["viewer"], user_id="owner-id"),
+        "dispatch_failure": False,
+    }
     adapter = FakeAgentAdapter()
     enqueued = []
+    with test_sessions() as db:
+        for username in ("owner", "editor", "reviewer", "outsider"):
+            db.add(
+                User(
+                    id=f"{username}-id",
+                    username=username,
+                    password_hash="unused",
+                )
+            )
+        db.commit()
 
     def session_override():
         with test_sessions() as db:
             yield db
 
-    class Queue:
-        def enqueue(self, *args, **kwargs):
-            enqueued.append((args, kwargs))
+    def dispatch_job(job_id):
+        enqueued.append(job_id)
+        with test_sessions() as db:
+            job = db.get(Job, job_id)
+            outbox = db.get(DispatchOutbox, job_id)
+            if state["dispatch_failure"]:
+                job.status = "dispatch_pending"
+                outbox.status = "pending"
+                db.commit()
+                return False
+            job.status = "queued"
+            outbox.status = "dispatched"
+            db.commit()
+        return True
 
     monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=True))
     monkeypatch.setattr(api, "get_agent_adapter", lambda: adapter)
-    monkeypatch.setattr(api, "queue", lambda: Queue())
+    monkeypatch.setattr(api, "dispatch_outbox", dispatch_job)
     api.app.dependency_overrides[api.db_session] = session_override
     api.app.dependency_overrides[auth.get_current_actor] = lambda: state["actor"]
     with TestClient(api.app) as client:
@@ -111,29 +143,28 @@ def test_proposals_are_project_scoped_validated_and_approval_gated(agent_api):
         assert private_task not in str(saved.arguments)
         assert [event.action for event in events] == ["proposed"]
 
-    state["actor"] = Actor(name="owner", roles=["producer", "reviewer"])
+    state["actor"] = Actor(name="owner", roles=["viewer"], user_id="owner-id")
     self_approval = client.post(
         f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/approve"
     )
     assert self_approval.status_code == 403
     assert enqueued == []
 
-    state["actor"] = Actor(name="owner", roles=["producer"])
+    state["actor"] = Actor(name="owner", roles=["viewer"], user_id="owner-id")
     add_reviewer = client.put(
-        f"/v1/projects/{project_id}/members",
-        json={"actor": "reviewer", "role": "reviewer"},
+        f"/v1/projects/{project_id}/members/reviewer",
+        json={"role": "reviewer"},
     )
     assert add_reviewer.status_code == 200
-    assert add_reviewer.json() == {"actor": "reviewer", "role": "reviewer"}
-    state["actor"] = Actor(name="reviewer", roles=["reviewer"])
+    assert add_reviewer.json() == {"username": "reviewer", "role": "reviewer"}
+    state["actor"] = Actor(name="reviewer", roles=["viewer"], user_id="reviewer-id")
     approval = client.post(
         f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/approve"
     )
     assert approval.status_code == 200
     assert approval.json()["status"] == "approved"
     assert approval.json()["job"]["operation"] == "render_test"
-    assert len(enqueued) == 1
-    assert enqueued[0][0] == ("app.worker.execute", approval.json()["job"]["id"])
+    assert enqueued == [approval.json()["job"]["id"]]
 
     repeated = client.post(
         f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/approve"
@@ -155,7 +186,7 @@ def test_cross_project_and_agent_service_approval_are_denied(agent_api):
     )
     proposal_id = response.json()["id"]
 
-    outsider = Actor(name="outsider", roles=["producer"])
+    outsider = Actor(name="outsider", roles=["viewer"], user_id="outsider-id")
     state["actor"] = outsider
     hidden = client.post(
         f"/v1/projects/{project_id}/agent/proposals",
@@ -163,9 +194,9 @@ def test_cross_project_and_agent_service_approval_are_denied(agent_api):
     )
     assert hidden.status_code == 404
 
-    state["actor"] = Actor(name="outsider", roles=["producer"])
+    state["actor"] = Actor(name="outsider", roles=["viewer"], user_id="outsider-id")
     outsider_project = create_project(client, "Other synthetic project")
-    state["actor"] = Actor(name="owner", roles=["producer"])
+    state["actor"] = Actor(name="owner", roles=["viewer"], user_id="owner-id")
     cross_project = client.post(
         f"/v1/projects/{outsider_project}/agent/proposals",
         json={"task": "cross-project request"},
@@ -174,11 +205,17 @@ def test_cross_project_and_agent_service_approval_are_denied(agent_api):
 
     with test_sessions() as db:
         db.add(
-            ProjectMembership(project_id=project_id, actor="reviewer", role="reviewer")
+            ProjectMembership(
+                project_id=project_id,
+                user_id="reviewer-id",
+                role="reviewer",
+            )
         )
         db.commit()
     state["actor"] = Actor(
-        name="reviewer", roles=["reviewer", "agent_service"]
+        name="reviewer",
+        roles=["viewer", "agent_service"],
+        user_id="reviewer-id",
     )
     service_approval = client.post(
         f"/v1/projects/{project_id}/agent/proposals/{proposal_id}/approve"
@@ -226,7 +263,12 @@ def test_agent_service_cannot_create_projects_or_bypass_approval(agent_api):
 
     with test_sessions() as db:
         assert db.scalars(select(Job)).all() == []
-        assert db.get(ProjectMembership, (project_id, "owner")) is not None
+        assert db.scalar(
+            select(ProjectMembership).where(
+                ProjectMembership.project_id == project_id,
+                ProjectMembership.user_id == "owner-id",
+            )
+        ) is not None
 
 
 def test_integration_identity_can_submit_jobs_when_agents_are_disabled(
@@ -248,8 +290,7 @@ def test_integration_identity_can_submit_jobs_when_agents_are_disabled(
 
     assert response.status_code == 202
     assert "agent_service" not in actor.roles
-    assert len(enqueued) == 1
-    assert enqueued[0][0] == ("app.worker.execute", response.json()["id"])
+    assert enqueued == [response.json()["id"]]
     with test_sessions() as db:
         assert db.get(Job, response.json()["id"]).status == "queued"
 
@@ -258,22 +299,18 @@ def test_approved_dispatch_pending_job_can_be_redispatched(agent_api, monkeypatc
     client, state, _, enqueued, test_sessions = agent_api
     project_id = create_project(client)
     add_editor = client.put(
-        f"/v1/projects/{project_id}/members",
-        json={"actor": "editor", "role": "editor"},
+        f"/v1/projects/{project_id}/members/editor",
+        json={"role": "editor"},
     )
     assert add_editor.status_code == 200
-    state["actor"] = Actor(name="editor", roles=["producer"])
+    state["actor"] = Actor(name="editor", roles=["viewer"], user_id="editor-id")
     proposal = client.post(
         f"/v1/projects/{project_id}/agent/proposals",
         json={"task": "make a render"},
     ).json()
-    state["actor"] = Actor(name="owner", roles=["producer"])
+    state["actor"] = Actor(name="owner", roles=["viewer"], user_id="owner-id")
 
-    class FailingQueue:
-        def enqueue(self, *args, **kwargs):
-            raise RuntimeError("queue unavailable")
-
-    monkeypatch.setattr(api, "queue", lambda: FailingQueue())
+    state["dispatch_failure"] = True
     approval = client.post(
         f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/approve"
     )
@@ -281,12 +318,8 @@ def test_approved_dispatch_pending_job_can_be_redispatched(agent_api, monkeypatc
     job_id = approval.json()["job"]["id"]
     assert approval.json()["job"]["status"] == "dispatch_pending"
 
-    class RecoveringQueue:
-        def enqueue(self, *args, **kwargs):
-            enqueued.append((args, kwargs))
-
-    monkeypatch.setattr(api, "queue", lambda: RecoveringQueue())
-    state["actor"] = Actor(name="owner", roles=["producer"])
+    state["dispatch_failure"] = False
+    state["actor"] = Actor(name="owner", roles=["viewer"], user_id="owner-id")
     redispatch = client.post(
         f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/redispatch"
     )
@@ -295,9 +328,7 @@ def test_approved_dispatch_pending_job_can_be_redispatched(agent_api, monkeypatc
     assert redispatch.json()["status"] == "approved"
     assert redispatch.json()["job"]["id"] == job_id
     assert redispatch.json()["job"]["status"] == "queued"
-    assert enqueued == [
-        (("app.worker.execute", job_id), {"job_id": job_id, "job_timeout": 3600})
-    ]
+    assert enqueued == [job_id, job_id]
     with test_sessions() as db:
         assert len(db.scalars(select(Job)).all()) == 1
         assert [
@@ -324,11 +355,11 @@ def test_authorized_rejection_is_audited_without_dispatch(agent_api):
         json={"task": "make a render"},
     ).json()
     add_reviewer = client.put(
-        f"/v1/projects/{project_id}/members",
-        json={"actor": "reviewer", "role": "reviewer"},
+        f"/v1/projects/{project_id}/members/reviewer",
+        json={"role": "reviewer"},
     )
     assert add_reviewer.status_code == 200
-    state["actor"] = Actor(name="reviewer", roles=["reviewer"])
+    state["actor"] = Actor(name="reviewer", roles=["viewer"], user_id="reviewer-id")
     rejected = client.post(
         f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/reject"
     )

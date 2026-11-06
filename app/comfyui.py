@@ -14,7 +14,6 @@ import math
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 import time
 import uuid
@@ -26,6 +25,8 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 import httpx
+
+from .rendering import RenderError, _run
 
 
 class ComfyUIError(RuntimeError):
@@ -647,12 +648,6 @@ class ComfyUIAdapter:
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
-            if destination.exists() and not any(
-                item.local_path == destination for item in []
-            ):
-                # This branch is intentionally a no-op placeholder for cleanup:
-                # successful destinations are removed by the caller on later error.
-                pass
 
     def _probe_media(self, path: Path) -> Mapping[str, Any] | None:
         ffprobe = shutil.which("ffprobe")
@@ -663,28 +658,18 @@ class ComfyUIAdapter:
             "-v",
             "error",
             "-show_entries",
-            "format=format_name,duration:stream=codec_type,codec_name,width,height",
+            "format=format_name,duration:stream=codec_type,codec_name,width,height,avg_frame_rate",
             "-of",
             "json",
             str(path),
         ]
         try:
-            result = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=self.ffprobe_timeout,
-                shell=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+            result = _run(command, path.parent, self.ffprobe_timeout)
+        except RenderError as exc:
             path.unlink(missing_ok=True)
             raise MediaValidationError("FFprobe could not validate the retrieved media") from exc
-        if result.returncode != 0:
-            path.unlink(missing_ok=True)
-            raise MediaValidationError("FFprobe rejected the retrieved media")
         try:
-            metadata = json.loads(result.stdout)
+            metadata = json.loads(result)
         except (TypeError, ValueError) as exc:
             path.unlink(missing_ok=True)
             raise MediaValidationError("FFprobe returned malformed metadata") from exc
