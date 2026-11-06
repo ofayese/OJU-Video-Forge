@@ -3,19 +3,20 @@ import os
 import re
 import tempfile
 import uuid
-from pathlib import Path
-
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from .auth import Actor, require_roles
+from .config import get_settings
 from .core import (
     ARTIFACT_ROOT,
     Audit,
@@ -114,22 +115,35 @@ app.add_middleware(UploadLimitMiddleware)
 
 class CreateJob(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: str
+    operation: Literal["render_test", "wan22_t2v", "render_timeline_v1"]
     project_id: str | None = None
     media_id: str | None = None
     prompt: str = Field(default="", max_length=1000)
-    width: int = Field(default=512, ge=256, le=1920)
-    height: int = Field(default=288, ge=144, le=1080)
-    frames: int = Field(default=33, ge=17, le=81)
-    fps: int = Field(default=16, ge=8, le=24)
-    seed: int = Field(default=42, ge=0, le=2**32 - 1)
+    width: int = Field(default=512, strict=True, ge=256, le=1280)
+    height: int = Field(default=288, strict=True, ge=144, le=720)
+    frames: int = Field(default=33, strict=True, ge=17, le=81)
+    fps: int = Field(default=16, strict=True, ge=8, le=24)
+    seed: int = Field(default=42, strict=True, ge=0, le=2**32 - 1)
+
+    @model_validator(mode="after")
+    def validate_generation_controls(self):
+        if self.operation == "wan22_t2v":
+            if not self.prompt.strip():
+                raise ValueError("Prompt required for AI generation")
+            if any(not char.isprintable() and char not in "\n\t" for char in self.prompt):
+                raise ValueError("Prompt contains unsupported control characters")
+            if self.width % 16 or self.height % 16 or (self.frames - 1) % 4:
+                raise ValueError("Generation dimensions and frame count must match the Wan workflow")
+            if self.fps not in {8, 16, 24}:
+                raise ValueError("Unsupported generation frame rate")
+        return self
 
 
 class JobResult(BaseModel):
     id: str
     operation: str
     status: str
-    artifact: str | None
+    artifact: str | None = Field(description="Authenticated artifact download URL when ready")
     error: str | None
     dispatch_attempts: int = 0
     dispatch_error: str | None = None
@@ -157,6 +171,10 @@ class MediaArtifactManifest(BaseModel):
 def db_session():
     with SessionLocal() as db:
         yield db
+
+
+def _artifact_url(job: Job) -> str | None:
+    return f"/v1/jobs/{job.id}/artifact" if job.status == "awaiting_review" and job.artifact else None
 
 
 @app.get("/health/live", include_in_schema=False)
@@ -346,13 +364,14 @@ def create_job(
     db: Session = Depends(db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    if payload.operation == "wan22_t2v" and not get_settings().comfyui_enabled:
+        raise HTTPException(503, "ComfyUI generation is disabled")
     if payload.operation == "wan22_t2v" and not payload.prompt.strip():
         raise HTTPException(422, "Prompt required for AI generation")
     if idempotency_key is not None and not 1 <= len(idempotency_key) <= 128:
         raise HTTPException(422, "Invalid Idempotency-Key")
     if payload.media_id and not payload.project_id:
         raise HTTPException(422, "Project required for media jobs")
-    project = None
     if payload.project_id:
         project = db.get(Project, payload.project_id)
         if project is None or project.owner != actor.name:
@@ -434,42 +453,145 @@ def retry_job(
     actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
     db: Session = Depends(db_session),
 ):
-    job = db.get(Job, job_id)
-    if not job or job.owner != actor.name:
+    original = db.execute(
+        select(Job).where(Job.id == job_id).with_for_update()
+    ).scalar_one_or_none()
+    if not original or original.owner != actor.name:
         raise HTTPException(404, "Job not found")
-    if job.status == "failed":
-        retry = Job(
-            id=str(uuid.uuid4()),
-            owner=job.owner,
-            project_id=job.project_id,
-            media_id=job.media_id,
-            retry_of_job_id=job.id,
-            operation=job.operation,
-            status="dispatch_pending",
-            spec=job.spec,
+    if original.operation == "wan22_t2v" and not get_settings().comfyui_enabled:
+        raise HTTPException(503, "ComfyUI generation is disabled")
+    if original.status == "dispatch_pending":
+        outbox = db.get(DispatchOutbox, job_id)
+        if outbox is None:
+            raise HTTPException(409, "Dispatch intent is unavailable")
+        outbox.status = "pending"
+        outbox.available_at = datetime.now(timezone.utc)
+        outbox.lease_expires_at = None
+        db.add(
+            Audit(
+                job_id=original.id,
+                actor=actor.name,
+                action="dispatch_retry_requested",
+            )
         )
-        db.add(retry)
-        db.flush()
-        db.add(DispatchOutbox(job_id=retry.id, status="pending"))
-        db.add(Audit(job_id=job.id, actor=actor.name, action="retry_requested"))
-        db.add(Audit(job_id=retry.id, actor=actor.name, action="retry_created"))
         db.commit()
-        dispatch_outbox(retry.id)
-        db.refresh(retry)
-        return _job_result(retry)
-    if job.status != "dispatch_pending":
+        dispatch_outbox(original.id)
+        db.refresh(original)
+        return _job_result(original)
+    if original.status != "failed":
         raise HTTPException(409, "Only dispatch-pending or failed jobs can be retried")
-    outbox = db.get(DispatchOutbox, job_id)
-    if outbox is None:
-        raise HTTPException(409, "Dispatch intent is unavailable")
-    outbox.status = "pending"
-    outbox.available_at = datetime.now(timezone.utc)
-    outbox.lease_expires_at = None
-    db.add(Audit(job_id=job.id, actor=actor.name, action="retry_requested"))
+
+    if not isinstance(original.spec, dict):
+        raise HTTPException(409, "Retry history is invalid")
+    root_id = original.spec.get("_retry_root")
+    if root_id is None:
+        root = original
+        while root.retry_of_job_id:
+            parent = db.get(Job, root.retry_of_job_id)
+            if parent is None or parent.owner != actor.name:
+                raise HTTPException(409, "Retry history is invalid")
+            root = parent
+        root_id = root.id
+    if not isinstance(root_id, str):
+        raise HTTPException(409, "Retry history is invalid")
+    root = db.execute(
+        select(Job).where(Job.id == root_id).with_for_update()
+    ).scalar_one_or_none()
+    if not root or root.owner != actor.name:
+        raise HTTPException(409, "Retry history is invalid")
+    retry_count = db.query(Audit).filter_by(
+        job_id=root_id, action="retry_requested"
+    ).count()
+    if retry_count >= 3:
+        raise HTTPException(409, "Retry limit reached")
+
+    retry = Job(
+        id=str(uuid.uuid4()),
+        owner=original.owner,
+        project_id=original.project_id,
+        media_id=original.media_id,
+        retry_of_job_id=original.id,
+        operation=original.operation,
+        status="dispatch_pending",
+        spec={**original.spec, "_retry_root": root_id, "_retry_of": original.id},
+    )
+    db.add(retry)
+    db.flush()
+    db.add(DispatchOutbox(job_id=retry.id, status="pending"))
+    db.add(Audit(job_id=root_id, actor=actor.name, action="retry_requested"))
+    db.add(Audit(job_id=retry.id, actor=actor.name, action="retry_created"))
+    db.add(Audit(job_id=retry.id, actor=actor.name, action=f"retry_of:{original.id}"))
     db.commit()
-    dispatch_outbox(job.id)
-    db.refresh(job)
-    return _job_result(job)
+    dispatch_outbox(retry.id)
+    db.refresh(retry)
+    return _job_result(retry)
+
+
+@app.get(
+    "/v1/jobs/{job_id}/artifact",
+    operation_id="getVideoArtifact",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "video/mp4": {
+                    "schema": {"type": "string", "format": "binary"},
+                }
+            }
+        }
+    },
+)
+def get_artifact(
+    job_id: str,
+    actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "publisher", "auditor", "administrator", "agent_service")),
+    db: Session = Depends(db_session),
+):
+    job = db.get(Job, job_id)
+    if (not job or job.owner != actor.name or job.status != "awaiting_review"
+            or not job.artifact):
+        raise HTTPException(404, "Artifact not found")
+    relative = Path(job.artifact)
+    valid_path = (
+        not relative.is_absolute()
+        and relative.parts
+        and all(part not in {"", ".", ".."} for part in relative.parts)
+        and relative.parts[0] == job.id
+    )
+    if job.operation == "wan22_t2v":
+        valid_path = valid_path and relative.parts == (job.id, "generated.mp4")
+    elif job.operation == "render_test":
+        valid_path = valid_path and relative.parts == (job.id, "test.mp4")
+    elif job.operation == "render_timeline_v1":
+        valid_path = (
+            valid_path
+            and len(relative.parts) == 4
+            and relative.parts[1] == "inputs"
+            and re.fullmatch(r"render-[A-Za-z0-9_-]+", relative.parts[2]) is not None
+            and relative.parts[3] == "output.mp4"
+        )
+    else:
+        valid_path = False
+    if not valid_path:
+        raise HTTPException(404, "Artifact not found")
+    try:
+        root = ARTIFACT_ROOT.resolve(strict=True)
+        job_dir = root / job.id
+        artifact = root.joinpath(*relative.parts)
+        candidates = [
+            job_dir,
+            *[root.joinpath(*relative.parts[:index])
+              for index in range(2, len(relative.parts) + 1)],
+        ]
+        if (any(path.is_symlink() for path in candidates)
+                or not artifact.is_file()
+                or not 0 < artifact.stat().st_size <= 512 * 1024 * 1024):
+            raise OSError
+        artifact.resolve(strict=True).relative_to(job_dir.resolve(strict=True))
+    except (OSError, ValueError):
+        raise HTTPException(404, "Artifact not found") from None
+    db.add(Audit(job_id=job.id, actor=actor.name, action="artifact_downloaded"))
+    db.commit()
+    return FileResponse(artifact, media_type="video/mp4", filename="video.mp4")
 
 
 @app.post(
@@ -524,7 +646,7 @@ def _job_result(job: Job) -> JobResult:
         id=job.id,
         operation=job.operation,
         status=job.status,
-        artifact=job.artifact,
+        artifact=_artifact_url(job),
         error=job.error,
         dispatch_attempts=job.dispatch_attempts,
         dispatch_error=job.dispatch_error,
@@ -543,4 +665,4 @@ def _same_job_request(job: Job, payload: CreateJob, spec: dict) -> bool:
 def get_models(
     actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "publisher", "auditor", "administrator", "agent_service"))
 ):
-    return {"models": [{"id": "wan22-ti2v-5b", "operation": "wan22_t2v", "status": "requires_workflow_registration"}]}
+    return {"models": [{"id": "wan22-ti2v-5b", "operation": "wan22_t2v", "status": "requires_local_gpu_profile_and_approved_workflow"}]}

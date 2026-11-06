@@ -22,18 +22,19 @@ services:
       PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
+      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
       DB_PASSWORD: ${DB_PASSWORD:-forge}
       WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
-    volumes:
-      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
     networks: [control, ai-net]
+    volumes:
+      - ${FORGE_DATA:-/srv/video-forge}/artifacts:/artifacts
     restart: unless-stopped
 
   worker:
@@ -52,8 +53,9 @@ services:
       PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
+      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
       DB_PASSWORD: ${DB_PASSWORD:-forge}

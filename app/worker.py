@@ -1,18 +1,29 @@
-import os
-import json
 import hashlib
+import json
+import math
+import os
+import shutil
 import subprocess
 import time
 import uuid
+from fractions import Fraction
 from pathlib import Path
-import httpx
+
 from redis import Redis
 from rq import Worker
-from .core import SessionLocal, ARTIFACT_ROOT, REDIS_URL, transition, Job
+
+from .comfyui import ComfyUIAdapter, WorkflowRegistry
+from .config import get_settings
+from .core import ARTIFACT_ROOT, REDIS_URL, SessionLocal, Job, transition
 from .rendering import RenderEngine
 
-COMFYUI_URL = os.environ.get('COMFYUI_URL', 'http://comfyui:8188')
-WORKFLOW = Path('/workflows/wan22-t2v-api.json')
+WORKFLOW = Path("/workflows/wan22-t2v-api.json")
+GPU_LOCK_NAME = "oju-video-forge:comfyui:generation"
+GPU_LOCK_SECONDS = 7200
+GPU_WAIT_SECONDS = 3000
+GPU_INPUTS = {"positive_prompt", "seed", "width", "height", "frames", "fps"}
+MAX_WORKFLOW_BYTES = 16 * 1024 * 1024
+
 
 
 class JobCancelled(Exception):
@@ -59,11 +70,173 @@ def _run_ffmpeg(job_id, args, timeout):
 
 
 def sha256(path):
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b''):
-            h.update(chunk)
-    return h.hexdigest()
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_generation_spec(spec):
+    if not isinstance(spec, dict):
+        raise ValueError("Invalid generation request")
+    prompt = spec.get("prompt")
+    if (type(prompt) is not str or not prompt.strip() or len(prompt) > 1000
+            or any(not char.isprintable() and char not in "\n\t" for char in prompt)):
+        raise ValueError("Invalid generation prompt")
+    bounds = {
+        "width": (256, 1280),
+        "height": (144, 720),
+        "frames": (17, 81),
+        "fps": (8, 24),
+        "seed": (0, 2**32 - 1),
+    }
+    values = {}
+    for field, (lower, upper) in bounds.items():
+        value = spec.get(field)
+        if type(value) is not int or not lower <= value <= upper:
+            raise ValueError("Invalid generation settings")
+        values[field] = value
+    if (values["width"] % 16 or values["height"] % 16
+            or (values["frames"] - 1) % 4 or values["fps"] not in {8, 16, 24}):
+        raise ValueError("Unsupported generation settings")
+    return {
+        "positive_prompt": prompt.strip(),
+        "seed": values["seed"],
+        "width": values["width"],
+        "height": values["height"],
+        "frames": values["frames"],
+        "fps": values["fps"],
+    }
+
+
+def _workflow_registration():
+    if WORKFLOW.is_symlink() or not WORKFLOW.is_file():
+        raise RuntimeError("Approved ComfyUI workflow is unavailable")
+    if WORKFLOW.stat().st_size > MAX_WORKFLOW_BYTES:
+        raise RuntimeError("Approved ComfyUI workflow exceeds the size limit")
+    try:
+        graph = json.loads(WORKFLOW.read_text(encoding="utf-8"))
+        raw_mapping = json.loads(os.environ.get("WAN_NODE_MAPPING", "{}"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise RuntimeError("Approved ComfyUI workflow configuration is invalid") from exc
+    if not isinstance(raw_mapping, dict) or set(raw_mapping) != GPU_INPUTS:
+        raise RuntimeError("WAN_NODE_MAPPING must bind every supported generation input")
+    registry = WorkflowRegistry()
+    registry.register("wan22_t2v", graph, raw_mapping)
+    return registry
+
+
+def _verify_generated_mp4(output, spec):
+    path = output.local_path
+    if (path.suffix.lower() != ".mp4" or path.is_symlink() or not path.is_file()
+            or not output.ffprobe_validated):
+        raise RuntimeError("ComfyUI output is not a verified MP4")
+    size = path.stat().st_size
+    if not 0 < size <= 512 * 1024 * 1024 or size != output.size_bytes:
+        raise RuntimeError("ComfyUI output size is invalid")
+    if sha256(path) != output.sha256:
+        raise RuntimeError("ComfyUI output checksum does not match")
+    probe = output.media_probe
+    if not isinstance(probe, dict):
+        raise RuntimeError("ComfyUI output metadata is invalid")
+    format_data = probe.get("format")
+    streams = probe.get("streams")
+    if not isinstance(format_data, dict) or not isinstance(streams, list):
+        raise RuntimeError("ComfyUI output metadata is invalid")
+    format_names = format_data.get("format_name")
+    if not isinstance(format_names, str) or "mp4" not in format_names.split(","):
+        raise RuntimeError("ComfyUI output is not an MP4 container")
+    videos = [stream for stream in streams if isinstance(stream, dict)
+              and stream.get("codec_type") == "video"]
+    if len(videos) != 1:
+        raise RuntimeError("ComfyUI output must contain one video stream")
+    video = videos[0]
+    if video.get("codec_name") not in {"h264", "hevc", "av1", "mpeg4"}:
+        raise RuntimeError("ComfyUI output uses an unsupported video codec")
+    if video.get("width") != spec["width"] or video.get("height") != spec["height"]:
+        raise RuntimeError("ComfyUI output dimensions do not match the request")
+    try:
+        frame_rate = float(Fraction(video.get("avg_frame_rate")))
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
+        raise RuntimeError("ComfyUI output frame rate is invalid") from exc
+    if not math.isfinite(frame_rate) or abs(frame_rate - spec["fps"]) > 0.01:
+        raise RuntimeError("ComfyUI output frame rate does not match the request")
+    duration = format_data.get("duration")
+    try:
+        seconds = float(duration)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError("ComfyUI output duration is invalid") from exc
+    expected = spec["frames"] / spec["fps"]
+    tolerance = max(2 / spec["fps"], 0.1)
+    if not math.isfinite(seconds) or not expected - tolerance <= seconds <= expected + tolerance:
+        raise RuntimeError("ComfyUI output duration does not match the request")
+
+
+def _generate_wan22(job, output_dir):
+    spec = _validate_generation_spec(job.spec)
+    registry = _workflow_registration()
+    work_dir = output_dir / ".comfyui"
+    settings = get_settings()
+    redis_client = Redis.from_url(REDIS_URL)
+    lock = None
+    outputs = []
+    acquired = False
+    destination = output_dir / "generated.mp4"
+    provenance_path = output_dir / "provenance.json"
+    try:
+        work_dir.mkdir(mode=0o700)
+        lock = redis_client.lock(
+            GPU_LOCK_NAME, timeout=GPU_LOCK_SECONDS, blocking_timeout=GPU_WAIT_SECONDS
+        )
+        acquired = lock.acquire(blocking=True)
+        if not acquired:
+            raise RuntimeError("GPU generation capacity is busy")
+        with ComfyUIAdapter(
+            settings.comfyui_url,
+            registry,
+            work_dir,
+            max_wait_seconds=GPU_WAIT_SECONDS,
+            max_output_bytes=512 * 1024 * 1024,
+            max_total_output_bytes=512 * 1024 * 1024,
+            max_output_count=1,
+        ) as adapter:
+            submission = adapter.submit("wan22_t2v", spec)
+            adapter.wait_for_completion(submission.prompt_id, timeout=GPU_WAIT_SECONDS)
+            outputs = adapter.retrieve_outputs(submission)
+        if len(outputs) != 1:
+            raise RuntimeError("ComfyUI must return exactly one video")
+        output = outputs[0]
+        _verify_generated_mp4(output, spec)
+        output_provenance = output.provenance()
+        output_provenance["local_filename"] = "generated.mp4"
+        os.replace(output.local_path, destination)
+        provenance = {
+            "schema_version": 1,
+            "job_id": job.id,
+            "operation": job.operation,
+            "prompt_sha256": hashlib.sha256(spec["positive_prompt"].encode("utf-8")).hexdigest(),
+            "generation": {key: spec[key] for key in ("seed", "width", "height", "frames", "fps")},
+            "output": output_provenance,
+        }
+        with provenance_path.open("x", encoding="utf-8") as destination_file:
+            json.dump(provenance, destination_file, sort_keys=True, allow_nan=False)
+            destination_file.write("\n")
+        return f"{job.id}/generated.mp4"
+    except Exception:
+        destination.unlink(missing_ok=True)
+        provenance_path.unlink(missing_ok=True)
+        raise
+    finally:
+        for output in outputs:
+            output.local_path.unlink(missing_ok=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+        try:
+            if acquired and lock is not None:
+                lock.release()
+        finally:
+            redis_client.close()
+
 
 
 def _cleanup_render_output(inputs, result):
@@ -135,51 +308,25 @@ def execute(job_id: str):
                 return
             output_dir = ARTIFACT_ROOT / job.id
             output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
-            spec = job.spec
             if job.operation == 'render_test':
-                dest = output_dir / 'test.mp4'
+                dest = output_dir / "test.mp4"
                 _run_ffmpeg(job.id, [
-                    'ffmpeg','-nostdin','-y','-f','lavfi','-i',
-                    'testsrc2=size=640x360:rate=24','-t','5',
-                    '-an','-c:v','libx264','-pix_fmt','yuv420p',
-                    '-movflags','+faststart',str(dest)
+                    'ffmpeg', '-nostdin', '-y', '-f', 'lavfi', '-i',
+                    'testsrc2=size=640x360:rate=24', '-t', '5',
+                    '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                    '-movflags', '+faststart', str(dest),
                 ], timeout=120)
-                (output_dir / 'SHA256SUMS').write_text(f'{sha256(dest)}  test.mp4\n')
+                (output_dir / "SHA256SUMS").write_text(f"{sha256(dest)}  test.mp4\n")
                 _finish_or_cancel(
-                    db, job, 'awaiting_review', artifact=f'{job.id}/test.mp4'
+                    db, job, 'awaiting_review', artifact=f"{job.id}/test.mp4"
                 )
             elif job.operation == 'wan22_t2v':
-                if _cancel_requested(job_id):
-                    raise JobCancelled()
-                if not WORKFLOW.is_file():
-                    raise RuntimeError('Approved API workflow missing; import and validate before GPU gate')
-                graph = json.loads(WORKFLOW.read_text())
-                # These exact IDs are established by an administrator after API export.
-                mapping = json.loads(os.environ.get('WAN_NODE_MAPPING', '{}'))
-                if not {'positive_prompt','seed'} <= mapping.keys():
-                    raise RuntimeError('WAN_NODE_MAPPING not configured')
-                for field, value in (('positive_prompt', spec['prompt']), ('seed', spec['seed'])):
-                    node, key = mapping[field]
-                    if node not in graph or key not in graph[node]['inputs']:
-                        raise RuntimeError('Invalid approved node mapping')
-                    graph[node]['inputs'][key] = value
-                with httpx.Client(timeout=30) as client:
-                    r = client.post(COMFYUI_URL + '/prompt', json={'prompt': graph, 'client_id':'video-forge'})
-                    r.raise_for_status()
-                    prompt_id = r.json()['prompt_id']
-                if _cancel_requested(job_id):
-                    raise JobCancelled()
-                (output_dir / 'comfy-prompt.json').write_text(json.dumps({'prompt_id':prompt_id}, indent=2))
-                # The initial gate verifies submission; no claim of completed video until
-                # a history/output reconciler validates and copies produced files.
-                _finish_or_cancel(
-                    db,
-                    job,
-                    'submitted_to_comfyui',
-                    artifact=f'{job.id}/comfy-prompt.json',
-                )
+                if not get_settings().comfyui_enabled:
+                    raise RuntimeError("ComfyUI generation is disabled")
+                artifact = _generate_wan22(job, output_dir)
+                _finish_or_cancel(db, job, 'awaiting_review', artifact=artifact)
             else:
-                raise RuntimeError('Unsupported operation')
+                raise RuntimeError("Unsupported operation")
         except JobCancelled:
             db.refresh(job)
             if job.status == 'running':
@@ -199,13 +346,19 @@ def execute(job_id: str):
             if job.status == 'cancel_requested':
                 transition(db, job, 'cancelled', 'worker')
                 return
-            error = (f'{type(exc).__name__}: timeline render failed'
-                     if job.operation == 'render_timeline_v1'
-                     else type(exc).__name__)
+            error = (
+                "ComfyUI generation failed; inspect restricted worker diagnostics."
+                if job.operation == "wan22_t2v"
+                else f'{type(exc).__name__}: timeline render failed'
+                if job.operation == 'render_timeline_v1'
+                else type(exc).__name__
+            )
             if not transition(db, job, 'failed', 'worker', error=error):
                 if job.status == 'cancel_requested':
                     transition(db, job, 'cancelled', 'worker')
                     return
+            if job.operation == "wan22_t2v":
+                raise RuntimeError("ComfyUI generation failed") from None
             raise
 
 
