@@ -19,6 +19,21 @@ def sha256(path):
             h.update(chunk)
     return h.hexdigest()
 
+
+def _cleanup_render_output(inputs, result):
+    try:
+        path = Path(result.path)
+        workspace = path.parent
+        if (path.name != 'output.mp4' or not workspace.name.startswith('render-')
+                or workspace.is_symlink()
+                or workspace.parent.resolve(strict=True) != inputs.resolve(strict=True)):
+            return
+        path.unlink(missing_ok=True)
+        workspace.rmdir()
+    except (AttributeError, OSError, RuntimeError, TypeError):
+        pass
+
+
 def execute(job_id: str):
     with SessionLocal() as db:
         job = db.get(Job, job_id)
@@ -36,6 +51,9 @@ def execute(job_id: str):
             db.commit()
         else:
             transition(db, job, 'running', 'worker')
+        result = None
+        provenance_path = None
+        provenance_created = False
         try:
             if job.operation == 'render_timeline_v1':
                 if str(uuid.UUID(job.id)) != job.id:
@@ -51,6 +69,7 @@ def execute(job_id: str):
                                                   separators=(',', ':')))
                 provenance_path = output_dir / 'provenance.json'
                 fd = os.open(provenance_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                provenance_created = True
                 with os.fdopen(fd, 'w', encoding='utf-8') as file:
                     json.dump(result.provenance, file, sort_keys=True, indent=2)
                 transition(db, job, 'awaiting_review', 'worker',
@@ -93,6 +112,14 @@ def execute(job_id: str):
             else:
                 raise RuntimeError('Unsupported operation')
         except Exception as exc:
+            if job.operation == 'render_timeline_v1':
+                if result is not None:
+                    _cleanup_render_output(inputs, result)
+                if provenance_created:
+                    try:
+                        provenance_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
             error = (f'{type(exc).__name__}: timeline render failed'
                      if job.operation == 'render_timeline_v1'
                      else f'{type(exc).__name__}: {str(exc)[:300]}')

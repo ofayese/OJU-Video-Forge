@@ -68,6 +68,73 @@ def test_worker_failure_records_failure(staged_job, monkeypatch):
         assert list(db.scalars(select(Audit.action).order_by(Audit.id))) == ["running", "failed"]
 
 
+def test_provenance_open_failure_removes_renderer_output_and_preserves_existing_sidecar(
+        staged_job, monkeypatch):
+    sessions, job_id, inputs = staged_job
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+    workspace = inputs / "render-test"
+    workspace.mkdir()
+    output = workspace / "output.mp4"
+    output.write_bytes(b"rendered")
+    staged_media = inputs / "source.mp4"
+    staged_media.write_bytes(b"staged")
+    provenance = inputs.parent / "provenance.json"
+    provenance.write_bytes(b"existing")
+    monkeypatch.setattr(
+        rendering.RenderEngine, "render",
+        lambda *_: SimpleNamespace(path=output, provenance={"output_sha256": "test"}),
+    )
+    original_open = worker.os.open
+
+    def fail_provenance_open(path, *args, **kwargs):
+        if path == provenance:
+            raise OSError("write denied")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(worker.os, "open", fail_provenance_open)
+    with pytest.raises(OSError, match="write denied"):
+        worker.execute(job_id)
+
+    assert not output.exists()
+    assert not workspace.exists()
+    assert staged_media.read_bytes() == b"staged"
+    assert provenance.read_bytes() == b"existing"
+    with sessions() as db:
+        assert db.get(Job, job_id).status == "failed"
+
+
+def test_provenance_write_failure_removes_partial_sidecar_and_renderer_output(
+        staged_job, monkeypatch):
+    sessions, job_id, inputs = staged_job
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+    workspace = inputs / "render-test"
+    workspace.mkdir()
+    output = workspace / "output.mp4"
+    output.write_bytes(b"rendered")
+    staged_media = inputs / "source.mp4"
+    staged_media.write_bytes(b"staged")
+    provenance = inputs.parent / "provenance.json"
+    monkeypatch.setattr(
+        rendering.RenderEngine, "render",
+        lambda *_: SimpleNamespace(path=output, provenance={"output_sha256": "test"}),
+    )
+
+    def fail_provenance_write(value, file, **kwargs):
+        file.write("{")
+        raise OSError("write failed")
+
+    monkeypatch.setattr(worker.json, "dump", fail_provenance_write)
+    with pytest.raises(OSError, match="write failed"):
+        worker.execute(job_id)
+
+    assert not output.exists()
+    assert not workspace.exists()
+    assert staged_media.read_bytes() == b"staged"
+    assert not provenance.exists()
+    with sessions() as db:
+        assert db.get(Job, job_id).status == "failed"
+
+
 def test_worker_preserves_valid_unicode_timeline(staged_job, monkeypatch):
     sessions, job_id, inputs = staged_job
     with sessions() as db:
