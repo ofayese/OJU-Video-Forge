@@ -185,6 +185,20 @@ current_gates:
     remaining_gaps:
       - "Tests passed 63, skipped 1, warning 1; full authenticated upload-to-render-to-retrieval workflow remains unimplemented/unverified."
       - "The FFmpeg/FFprobe fixture is skipped because the executables are unavailable; no live database migration or GPU workflow was run."
+  - gate_id: local-auth-project-authorization
+    requirement: "Local password sessions and project membership roles are enforced by the versioned API."
+    status: PASS
+    evidence_reference:
+      - "docs/authentication-projects-v1.md"
+      - "tests/test_auth_projects.py"
+      - "alembic/versions/0002_local_auth_projects.py"
+    commit_sha: "642d851971e2e6451b92fa91fe7cff639a59fe1d"
+    test_command: "PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m pytest -q -p no:cacheprovider; PYTHONPATH=. /tmp/ovf-auth-venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json; DATABASE_URL=sqlite:////tmp/ovf-auth-migration.db PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m alembic -c alembic.ini upgrade head; /tmp/ovf-auth-venv/bin/ruff check app tests alembic scripts; /tmp/ovf-auth-venv/bin/python -m compileall -q app tests alembic"
+    execution_environment: "Linux sandbox, Python 3.12.3, isolated venv installed from requirements-dev.lock.txt; API tests used in-memory SQLite and migration used disposable SQLite."
+    exit_code: 0
+    validation_date: "2026-11-06"
+    remaining_gaps:
+      - "PostgreSQL migration/integration was not run; full authenticated upload-to-render-to-artifact workflow remains separately PARTIAL."
   - gate_id: gpu-inference
     requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
     status: BLOCKED
