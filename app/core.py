@@ -41,7 +41,7 @@ JOB_STATUSES = {
 
 JOB_TRANSITIONS = {
     "dispatch_pending": {"queued", "running", "cancelled"},
-    "queued": {"running", "cancelled"},
+    "queued": {"running", "failed", "cancelled"},
     "running": {
         "cancel_requested",
         "awaiting_review",

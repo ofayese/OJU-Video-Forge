@@ -27,6 +27,7 @@ from app.core import (
 from app.dispatcher import (
     STALE_WORKER_SECONDS,
     dispatch_outbox,
+    recover_undelivered_jobs,
     recover_stale_jobs,
 )
 
@@ -139,6 +140,74 @@ def test_submission_commits_job_and_outbox_before_dispatch_and_retries(monkeypat
         assert job.dispatch_error is None
         assert outbox.status == "dispatched"
         assert outbox.dispatched_at is not None
+
+
+@pytest.mark.parametrize("fail_delivery", [False, True])
+def test_expired_dispatch_attempt_cannot_settle_newer_claim(
+    monkeypatch, fail_delivery
+):
+    job_id = _new_job()
+
+    class QueueWithNewerClaim:
+        def fetch_job(self, _job_id):
+            with SessionLocal() as db:
+                outbox = db.get(DispatchOutbox, job_id)
+                outbox.attempts += 1
+                outbox.lease_expires_at = datetime.now(timezone.utc) + timedelta(
+                    seconds=60
+                )
+                db.commit()
+            if fail_delivery:
+                raise ConnectionError("redis unavailable")
+            return object()
+
+    monkeypatch.setattr("app.dispatcher.queue", QueueWithNewerClaim)
+    assert dispatch_outbox(job_id) is False
+    with SessionLocal() as db:
+        outbox = db.get(DispatchOutbox, job_id)
+        assert outbox.status == "dispatching"
+        assert outbox.attempts == 2
+        assert db.get(Job, job_id).status == "dispatch_pending"
+
+
+def test_queued_jobs_with_failed_or_stale_missing_deliveries_are_recovered(
+    monkeypatch,
+):
+    failed_id = _new_job("queued")
+    missing_id = _new_job("queued")
+    recent_missing_id = _new_job("queued")
+    waiting_id = _new_job("queued")
+    with SessionLocal() as db:
+        for job_id in (failed_id, missing_id, recent_missing_id, waiting_id):
+            db.get(DispatchOutbox, job_id).status = "dispatched"
+        db.get(Job, missing_id).updated_at = datetime.now(timezone.utc) - timedelta(
+            seconds=STALE_WORKER_SECONDS + 1
+        )
+        db.commit()
+
+    class Delivery:
+        def __init__(self, status):
+            self.status = status
+
+        def get_status(self, refresh=True):
+            return self.status
+
+    class QueueWithDeliveries:
+        def fetch_job(self, job_id):
+            if job_id == failed_id:
+                return Delivery("failed")
+            if job_id == waiting_id:
+                return Delivery("queued")
+            return None
+
+    monkeypatch.setattr("app.dispatcher.queue", QueueWithDeliveries)
+    assert recover_undelivered_jobs() == 2
+    with SessionLocal() as db:
+        assert db.get(Job, failed_id).status == "failed"
+        assert db.get(Job, missing_id).status == "failed"
+        assert db.get(Job, recent_missing_id).status == "queued"
+        assert db.get(Job, waiting_id).status == "queued"
+        assert db.get(Job, failed_id).error == "worker_delivery_lost"
 
 
 def test_duplicate_delivery_after_dispatcher_restart_reuses_rq_job():
@@ -257,3 +326,63 @@ def test_worker_claim_cannot_overwrite_a_concurrent_cancellation(api_client):
 
         assert transition(worker_db, stale_job, "running", "worker") is False
         assert stale_job.status == "cancelled"
+
+
+def test_worker_retries_claim_after_dispatcher_queues_job(monkeypatch, tmp_path):
+    job_id = _new_job("dispatch_pending")
+    from app import worker
+
+    original_transition = worker.transition
+    ffmpeg_called = False
+
+    def transition_with_dispatch_race(db, job, status, actor, **kwargs):
+        if status == "running" and job.status == "dispatch_pending":
+            with SessionLocal() as dispatcher_db:
+                dispatcher_job = dispatcher_db.get(Job, job_id)
+                original_transition(
+                    dispatcher_db, dispatcher_job, "queued", "dispatcher"
+                )
+        return original_transition(db, job, status, actor, **kwargs)
+
+    def fake_ffmpeg(_job_id, args, timeout):
+        assert timeout == 120
+        nonlocal ffmpeg_called
+        ffmpeg_called = True
+        from pathlib import Path
+
+        Path(args[-1]).write_bytes(b"video")
+
+    monkeypatch.setattr(worker, "transition", transition_with_dispatch_race)
+    monkeypatch.setattr(worker, "_run_ffmpeg", fake_ffmpeg)
+    monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path)
+    worker.execute(job_id)
+
+    assert ffmpeg_called
+    with SessionLocal() as db:
+        assert db.get(Job, job_id).status == "awaiting_review"
+
+
+def test_worker_acknowledges_cancellation_winning_failure_transition(
+    monkeypatch, api_client, tmp_path
+):
+    job_id = _new_job("queued")
+    from app import worker
+
+    original_transition = worker.transition
+
+    def cancel_before_failure(db, job, status, actor, **kwargs):
+        if status == "failed":
+            response = api_client.post(f"/v1/jobs/{job_id}/cancel")
+            assert response.status_code == 200
+        return original_transition(db, job, status, actor, **kwargs)
+
+    def fail_ffmpeg(*_args):
+        raise RuntimeError("render failed")
+
+    monkeypatch.setattr(worker, "transition", cancel_before_failure)
+    monkeypatch.setattr(worker, "_run_ffmpeg", fail_ffmpeg)
+    monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path)
+    worker.execute(job_id)
+
+    with SessionLocal() as db:
+        assert db.get(Job, job_id).status == "cancelled"

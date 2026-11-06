@@ -65,6 +65,7 @@ def dispatch_outbox(job_id: str) -> bool:
                 .where(
                     DispatchOutbox.job_id == job_id,
                     DispatchOutbox.status == "dispatching",
+                    DispatchOutbox.attempts == attempts,
                 )
                 .values(
                     status="pending",
@@ -109,7 +110,7 @@ def dispatch_outbox(job_id: str) -> bool:
         job = db.get(Job, job_id)
         if outbox is None:
             return False
-        if outbox.status != "dispatching":
+        if outbox.status != "dispatching" or outbox.attempts != attempts:
             return False
         outbox.status = "dispatched"
         outbox.lease_expires_at = None
@@ -168,10 +169,57 @@ def recover_stale_jobs() -> int:
     return recovered
 
 
+def recover_undelivered_jobs(limit: int = 100) -> int:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_WORKER_SECONDS)
+    with SessionLocal() as db:
+        candidates = db.execute(
+            select(Job.id)
+            .join(DispatchOutbox, DispatchOutbox.job_id == Job.id)
+            .where(
+                Job.status == "queued",
+                DispatchOutbox.status == "dispatched",
+            )
+            .order_by(Job.updated_at)
+            .limit(limit)
+        ).scalars().all()
+
+    if not candidates:
+        return 0
+
+    work_queue = queue()
+    recovered = 0
+    for job_id in candidates:
+        delivery = work_queue.fetch_job(job_id)
+        delivery_status = None
+        if delivery is not None:
+            delivery_status = delivery.get_status(refresh=True)
+            delivery_status = getattr(delivery_status, "value", delivery_status)
+        if delivery is not None and delivery_status != "failed":
+            continue
+
+        with SessionLocal() as db:
+            job = db.get(Job, job_id)
+            if (
+                job is None
+                or job.status != "queued"
+                or (delivery is None and job.updated_at >= cutoff)
+            ):
+                continue
+            recovered += transition(
+                db,
+                job,
+                "failed",
+                "recovery",
+                error="worker_delivery_lost",
+            )
+    return recovered
+
+
 def run() -> None:
     while True:
         try:
             dispatch_due()
+            recover_undelivered_jobs()
             recover_stale_jobs()
         except Exception as exc:
             logger.error("Dispatcher cycle failed (%s)", type(exc).__name__)

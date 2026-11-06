@@ -40,6 +40,12 @@ API failure or dispatcher restart does not lose committed work. A job that remai
 with `worker_lost`. A retry of such a failure creates a new job and preserves the
 original terminal record.
 
+The dispatcher also reconciles queued jobs whose outbox is already marked
+`dispatched`. An explicitly failed RQ delivery is marked `failed` with
+`worker_delivery_lost`; a missing RQ delivery is only failed after the same stale
+worker grace period. Jobs with a queued or active RQ delivery remain queued. These
+failures can be retried through the API, which creates a new job.
+
 Cancellation before dispatch closes the outbox and marks the job cancelled.
 Cancellation during FFmpeg execution is checked while the bounded subprocess runs.
 For ComfyUI work the worker checks before submission and after the submission
