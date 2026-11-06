@@ -105,6 +105,48 @@ def test_decision_and_immutable_history(setup, decision):
             with pytest.raises(DBAPIError, match="immutable"):
                 db.execute(text(sql))
             db.rollback()
+        original = db.scalar(select(Review))
+        replacements = (
+            {
+                "id": original.id,
+                "job_id": job_id,
+                "actor": "replacement",
+                "at": original.at,
+                "artifact_id": original.artifact_id,
+                "artifact_sha256": original.artifact_sha256,
+                "expected_version": original.version,
+                "version": original.version + 1,
+                "decision": "rejected",
+            },
+            {
+                "id": original.id + 1,
+                "job_id": job_id,
+                "actor": "replacement",
+                "at": original.at,
+                "artifact_id": original.artifact_id,
+                "artifact_sha256": original.artifact_sha256,
+                "expected_version": original.expected_version,
+                "version": original.version,
+                "decision": "rejected",
+            },
+        )
+        for replacement in replacements:
+            with pytest.raises(DBAPIError, match="immutable"):
+                db.execute(
+                    text(
+                        "INSERT OR REPLACE INTO job_reviews "
+                        "(id,job_id,actor,at,artifact_id,artifact_sha256,expected_version,version,decision) "
+                        "VALUES (:id,:job_id,:actor,:at,:artifact_id,:artifact_sha256,"
+                        ":expected_version,:version,:decision)"
+                    ),
+                    replacement,
+                )
+            db.rollback()
+            assert tuple(db.execute(text(
+                "SELECT id,actor,expected_version,version,decision FROM job_reviews"
+            )).one()) == (
+                original.id, original.actor, original.expected_version, original.version, decision,
+            )
     # Repeat worker deliveries cannot overwrite terminal decisions.
     worker.execute(job_id)
     with sessions() as db:
