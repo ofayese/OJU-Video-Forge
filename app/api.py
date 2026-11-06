@@ -390,3 +390,82 @@ def reject_agent_proposal(
     db: Session = Depends(db_session),
 ):
     return resolve_agent_proposal(project_id, proposal_id, actor, db, "rejected")
+
+
+@app.post(
+    "/v1/projects/{project_id}/agent/proposals/{proposal_id}/redispatch",
+    response_model=AgentDecisionResult,
+)
+def redispatch_agent_job(
+    project_id: str,
+    proposal_id: str,
+    actor: Actor = Depends(require_roles("producer", "reviewer", "administrator")),
+    db: Session = Depends(db_session),
+):
+    reject_agent_service(actor)
+    membership = project_membership(db, project_id, actor)
+    if membership.role not in {"owner", "reviewer"}:
+        raise HTTPException(403, "Project permission denied")
+    proposal = db.get(AgentProposal, proposal_id)
+    if not proposal or proposal.project_id != project_id:
+        raise HTTPException(404, "Proposal not found")
+    if proposal.status != "approved" or not proposal.job_id:
+        raise HTTPException(409, "Proposal has no approved job to redispatch")
+    job = db.get(Job, proposal.job_id)
+    if not job or job.project_id != project_id:
+        raise HTTPException(409, "Approved job not found")
+    if job.status != "dispatch_pending":
+        raise HTTPException(409, "Job is not awaiting dispatch")
+
+    job.status = "queued"
+    db.add(Audit(job_id=job.id, actor=actor.name, action="redispatching"))
+    db.add(
+        AgentAudit(
+            project_id=project_id,
+            proposal_id=proposal.id,
+            job_id=job.id,
+            actor=actor.name,
+            action="redispatch_requested",
+        )
+    )
+    db.commit()
+    try:
+        queue().enqueue("app.worker.execute", job.id, job_id=job.id, job_timeout=3600)
+    except Exception:
+        db.refresh(job)
+        if job.status == "queued":
+            job.status = "dispatch_pending"
+            db.add(Audit(job_id=job.id, actor="system", action="dispatch_pending"))
+            db.add(
+                AgentAudit(
+                    project_id=project_id,
+                    proposal_id=proposal.id,
+                    job_id=job.id,
+                    actor="system",
+                    action="dispatch_pending",
+                )
+            )
+            db.commit()
+    else:
+        db.add(
+            AgentAudit(
+                project_id=project_id,
+                proposal_id=proposal.id,
+                job_id=job.id,
+                actor=actor.name,
+                action="redispatched",
+            )
+        )
+        db.commit()
+
+    return AgentDecisionResult(
+        id=proposal.id,
+        status=proposal.status,
+        job=JobResult(
+            id=job.id,
+            operation=job.operation,
+            status=job.status,
+            artifact=job.artifact,
+            error=job.error,
+        ),
+    )

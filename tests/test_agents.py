@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -226,6 +227,93 @@ def test_agent_service_cannot_create_projects_or_bypass_approval(agent_api):
     with test_sessions() as db:
         assert db.scalars(select(Job)).all() == []
         assert db.get(ProjectMembership, (project_id, "owner")) is not None
+
+
+def test_integration_identity_can_submit_jobs_when_agents_are_disabled(
+    agent_api, monkeypatch
+):
+    client, state, _, enqueued, test_sessions = agent_api
+    settings = Settings(
+        agents_enabled=False,
+        forge_openwebui_token="openwebui-token",
+    )
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
+    actor = auth.LocalAuthProvider().authenticate(
+        HTTPAuthorizationCredentials(scheme="Bearer", credentials="openwebui-token")
+    )
+    state["actor"] = actor
+    monkeypatch.setattr(api, "get_settings", lambda: settings)
+
+    response = client.post("/v1/jobs", json={"operation": "render_test"})
+
+    assert response.status_code == 202
+    assert "agent_service" not in actor.roles
+    assert len(enqueued) == 1
+    assert enqueued[0][0] == ("app.worker.execute", response.json()["id"])
+    with test_sessions() as db:
+        assert db.get(Job, response.json()["id"]).status == "queued"
+
+
+def test_approved_dispatch_pending_job_can_be_redispatched(agent_api, monkeypatch):
+    client, state, _, enqueued, test_sessions = agent_api
+    project_id = create_project(client)
+    add_editor = client.put(
+        f"/v1/projects/{project_id}/members",
+        json={"actor": "editor", "role": "editor"},
+    )
+    assert add_editor.status_code == 200
+    state["actor"] = Actor(name="editor", roles=["producer"])
+    proposal = client.post(
+        f"/v1/projects/{project_id}/agent/proposals",
+        json={"task": "make a render"},
+    ).json()
+    state["actor"] = Actor(name="owner", roles=["producer"])
+
+    class FailingQueue:
+        def enqueue(self, *args, **kwargs):
+            raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(api, "queue", lambda: FailingQueue())
+    approval = client.post(
+        f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/approve"
+    )
+    assert approval.status_code == 200
+    job_id = approval.json()["job"]["id"]
+    assert approval.json()["job"]["status"] == "dispatch_pending"
+
+    class RecoveringQueue:
+        def enqueue(self, *args, **kwargs):
+            enqueued.append((args, kwargs))
+
+    monkeypatch.setattr(api, "queue", lambda: RecoveringQueue())
+    state["actor"] = Actor(name="owner", roles=["producer"])
+    redispatch = client.post(
+        f"/v1/projects/{project_id}/agent/proposals/{proposal['id']}/redispatch"
+    )
+
+    assert redispatch.status_code == 200
+    assert redispatch.json()["status"] == "approved"
+    assert redispatch.json()["job"]["id"] == job_id
+    assert redispatch.json()["job"]["status"] == "queued"
+    assert enqueued == [
+        (("app.worker.execute", job_id), {"job_id": job_id, "job_timeout": 3600})
+    ]
+    with test_sessions() as db:
+        assert len(db.scalars(select(Job)).all()) == 1
+        assert [
+            event.action
+            for event in db.scalars(
+                select(AgentAudit)
+                .where(AgentAudit.proposal_id == proposal["id"])
+                .order_by(AgentAudit.id)
+            )
+        ] == [
+            "proposed",
+            "approved",
+            "dispatch_pending",
+            "redispatch_requested",
+            "redispatched",
+        ]
 
 
 def test_authorized_rejection_is_audited_without_dispatch(agent_api):
