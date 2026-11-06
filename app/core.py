@@ -69,6 +69,12 @@ class Review(Base):
 def install_review_guards(connection):
     """Append-only evidence, including protection against direct SQL mutation."""
     if connection.dialect.name == "sqlite":
+        connection.execute(DDL(
+            "CREATE TRIGGER job_reviews_no_replace BEFORE INSERT ON job_reviews "
+            "WHEN EXISTS (SELECT 1 FROM job_reviews WHERE id = NEW.id "
+            "OR (job_id = NEW.job_id AND version = NEW.version)) "
+            "BEGIN SELECT RAISE(ABORT, 'Review evidence is immutable'); END"
+        ))
         for action in ("UPDATE", "DELETE"):
             connection.execute(DDL(
                 f"CREATE TRIGGER job_reviews_no_{action.lower()} BEFORE {action} ON job_reviews "
