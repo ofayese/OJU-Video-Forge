@@ -232,7 +232,7 @@ current_gates:
       - "No Windows validation was run on this commit; GPU readiness remains separately BLOCKED."
       - "Trivy HIGH DS-0002 for the ComfyUI container remains open under issue #16."
       - "GitHub Frontend CI run 42278655804 failed on a separate dependency-update PR: @vitejs/plugin-react@6.2.1 requires Vite 8 while that PR resolved Vite 6.4.5; disposition is pending outside this change."
-      - "GitHub Actions/CodeQL and clean-checkout scans for this release change have not completed."
+      - "PR #37 GitHub Actions report action_required for backend run 42280276816, frontend run 42280276663, infrastructure run 42280276619, and security run 42280276756; no CI pass can be claimed until these workflows are authorized and complete. The local CodeQL checker skipped this documentation-only change."
   - gate_id: future-migration
     requirement: "Migration readiness to another environment is separately validated and explicitly authorized."
     status: BLOCKED
