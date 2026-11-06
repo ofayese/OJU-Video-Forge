@@ -40,8 +40,8 @@ class Audit(Base):
     action: Mapped[str] = mapped_column(String(64))
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-def queue():
-    return Queue('video', connection=Redis.from_url(REDIS_URL), default_timeout=3600)
+def queue(name='video'):
+    return Queue(name, connection=Redis.from_url(REDIS_URL), default_timeout=3600)
 
 def transition(db, job, status, actor, error=None, artifact=None):
     job.status = status

@@ -1,4 +1,8 @@
 services:
+  api:
+    environment:
+      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-true}
+
   comfyui:
     profiles: [gpu]
     deploy:
@@ -8,5 +12,7 @@ services:
             - capabilities: ["gpu"]
 
   worker:
+    command: ["rq", "worker", "video", "gpu", "--url", "redis://redis:6379/0"]
     environment:
       COMFYUI_URL: http://comfyui:8188
+      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-true}

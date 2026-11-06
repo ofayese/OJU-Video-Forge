@@ -65,6 +65,25 @@ export class ApiClient {
     return (await response.json()) as T;
   }
 
+  private async requestBlob(path: string, token: string): Promise<Blob> {
+    const headers = new Headers();
+    headers.set("Authorization", ["Bearer", token].join(" "));
+
+    let response: Response;
+    try {
+      response = await this.fetcher(`${this.baseUrl}${path}`, { headers });
+    } catch {
+      throw new ApiError("Unable to reach the API. Check the API URL and connection.", 0);
+    }
+
+    if (!response.ok) {
+      const errorMessage = await this.readError(response);
+      if (response.status === 401) this.unauthorizedHandler?.();
+      throw new ApiError(errorMessage, response.status);
+    }
+    return response.blob();
+  }
+
   private async readError(response: Response): Promise<string> {
     try {
       const body: unknown = await response.json();
@@ -112,6 +131,13 @@ export class ApiClient {
 
   async getJob(jobId: string, token: string): Promise<VideoJob> {
     return this.request<VideoJob>(`/v1/jobs/${encodeURIComponent(jobId)}`, {}, token);
+  }
+
+  async getArtifact(jobId: string, token: string): Promise<Blob> {
+    return this.requestBlob(
+      `/v1/jobs/${encodeURIComponent(jobId)}/artifact`,
+      token,
+    );
   }
 }
 

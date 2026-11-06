@@ -11,7 +11,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("ApiClient", () => {
   it("uses the documented model route and bearer authorization", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ models: [{ id: "wan22-ti2v-5b", operation: "wan22_t2v", status: "requires_workflow_registration" }] }),
+      jsonResponse({ models: [{ id: "wan22-ti2v-5b", operation: "wan22_t2v", status: "requires_local_gpu_profile_and_approved_workflow" }] }),
     );
     const client = new ApiClient("http://localhost:8000", fetcher);
 
@@ -34,6 +34,20 @@ describe("ApiClient", () => {
     await client.getJob("job/one", "token");
 
     expect(fetcher.mock.calls[0]?.[0]).toBe("http://localhost:8000/v1/jobs/job%2Fone");
+  });
+
+  it("downloads an artifact through the owner-authorized API route", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("video"));
+    const client = new ApiClient("http://localhost:8000", fetcher);
+
+    const artifact = await client.getArtifact("job/one", "session-token");
+
+    expect(await artifact.text()).toBe("video");
+    const request = fetcher.mock.calls[0];
+    expect(request?.[0]).toBe("http://localhost:8000/v1/jobs/job%2Fone/artifact");
+    expect(new Headers(request?.[1]?.headers).get("Authorization")).toBe(
+      ["Bearer", "session-token"].join(" "),
+    );
   });
 
   it("notifies the app and rejects when a session has expired", async () => {

@@ -185,6 +185,8 @@ function Workspace({
   const [job, setJob] = useState<VideoJob | null>(null);
   const [jobError, setJobError] = useState("");
   const [jobLoading, setJobLoading] = useState(false);
+  const [artifactError, setArtifactError] = useState("");
+  const [artifactLoading, setArtifactLoading] = useState(false);
 
   async function refreshWorkspace() {
     setLoading(true);
@@ -233,6 +235,26 @@ function Workspace({
       setJobError(errorText(error));
     } finally {
       setJobLoading(false);
+    }
+  }
+
+  async function downloadArtifact(job: VideoJob) {
+    setArtifactLoading(true);
+    setArtifactError("");
+    try {
+      const blob = await api.getArtifact(job.id, token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "video.mp4";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      setArtifactError(errorText(error));
+    } finally {
+      setArtifactLoading(false);
     }
   }
 
@@ -340,10 +362,25 @@ function Workspace({
                 <div><dt>Job</dt><dd>{job.id}</dd></div>
                 <div><dt>Operation</dt><dd>{job.operation}</dd></div>
                 <div><dt>Status</dt><dd><span className="tag">{job.status}</span></dd></div>
-                {job.artifact && <div><dt>Artifact</dt><dd>{job.artifact}</dd></div>}
+                {job.artifact && (
+                  <div>
+                    <dt>Artifact</dt>
+                    <dd>
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => void downloadArtifact(job)}
+                        disabled={artifactLoading}
+                      >
+                        {artifactLoading ? "Downloading…" : "Download video"}
+                      </button>
+                    </dd>
+                  </div>
+                )}
                 {job.error && <div><dt>Reported error</dt><dd>{job.error}</dd></div>}
               </dl>
             )}
+            {artifactError && <p className="notice error" role="alert">{artifactError}</p>}
           </section>
         </section>
         <footer className="footer-note">Live API responses only · no sample production data</footer>
