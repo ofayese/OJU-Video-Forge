@@ -31,9 +31,13 @@ class AgentAdapter(Protocol):
     def propose(self, task: str, tools: tuple[str, ...]) -> object: ...
 
 
+class AgentUnavailable(RuntimeError):
+    pass
+
+
 class DisabledAgentAdapter:
     def propose(self, task: str, tools: tuple[str, ...]) -> object:
-        raise RuntimeError("Agent adapter is disabled")
+        raise AgentUnavailable("Agent adapter is disabled")
 
 
 def validate_agent_output(value: object) -> AgentOutput:

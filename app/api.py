@@ -1,12 +1,18 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from .agents import ALLOWED_TOOLS, AgentOutput, get_agent_adapter, validate_agent_output
+from .agents import (
+    ALLOWED_TOOLS,
+    AgentUnavailable,
+    get_agent_adapter,
+    validate_agent_output,
+)
 from .auth import Actor, require_roles
 from .config import get_settings
 from .core import AgentAudit, AgentProposal, Audit, Job, Project, ProjectMembership, SessionLocal, queue
@@ -43,6 +49,17 @@ class ProjectResult(BaseModel):
     name: str
 
 
+class ProjectMemberCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor: str = Field(min_length=1, max_length=128)
+    role: Literal["editor", "reviewer"]
+
+
+class ProjectMemberResult(BaseModel):
+    actor: str
+    role: str
+
+
 class AgentTask(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task: str = Field(min_length=1, max_length=4000)
@@ -74,6 +91,11 @@ def project_membership(db: Session, project_id: str, actor: Actor) -> ProjectMem
     return membership
 
 
+def reject_agent_service(actor: Actor) -> None:
+    if "agent_service" in actor.roles:
+        raise HTTPException(403, "Human user required")
+
+
 @app.get("/health/live", include_in_schema=False)
 def live():
     return {"ok": True}
@@ -85,6 +107,7 @@ def create_job(
     actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
     db: Session = Depends(db_session),
 ):
+    reject_agent_service(actor)
     if payload.operation == "wan22_t2v" and not payload.prompt.strip():
         raise HTTPException(422, "Prompt required for AI generation")
     job = Job(
@@ -130,6 +153,7 @@ def create_project(
     actor: Actor = Depends(require_roles("producer", "administrator")),
     db: Session = Depends(db_session),
 ):
+    reject_agent_service(actor)
     project = Project(id=str(uuid.uuid4()), name=payload.name.strip(), created_by=actor.name)
     if not project.name:
         raise HTTPException(422, "Project name is required")
@@ -137,6 +161,36 @@ def create_project(
     db.add(ProjectMembership(project_id=project.id, actor=actor.name, role="owner"))
     db.commit()
     return ProjectResult(id=project.id, name=project.name)
+
+
+@app.put(
+    "/v1/projects/{project_id}/members",
+    response_model=ProjectMemberResult,
+)
+def add_project_member(
+    project_id: str,
+    payload: ProjectMemberCreate,
+    actor: Actor = Depends(require_roles("producer", "administrator")),
+    db: Session = Depends(db_session),
+):
+    reject_agent_service(actor)
+    membership = project_membership(db, project_id, actor)
+    if membership.role != "owner":
+        raise HTTPException(403, "Project owner required")
+    if payload.actor == actor.name:
+        raise HTTPException(422, "Cannot change your own project role")
+    member = db.get(ProjectMembership, (project_id, payload.actor))
+    if member:
+        member.role = payload.role
+    else:
+        member = ProjectMembership(
+            project_id=project_id,
+            actor=payload.actor,
+            role=payload.role,
+        )
+        db.add(member)
+    db.commit()
+    return ProjectMemberResult(actor=member.actor, role=member.role)
 
 
 @app.get("/v1/projects", response_model=list[ProjectResult])
@@ -163,6 +217,7 @@ def create_agent_proposal(
     actor: Actor = Depends(require_roles("producer", "administrator")),
     db: Session = Depends(db_session),
 ):
+    reject_agent_service(actor)
     if not get_settings().agents_enabled:
         raise HTTPException(503, "Agent adapter is disabled")
     membership = project_membership(db, project_id, actor)
@@ -170,9 +225,9 @@ def create_agent_proposal(
         raise HTTPException(403, "Project permission denied")
     try:
         raw_output = get_agent_adapter().propose(payload.task, ALLOWED_TOOLS)
-    except Exception as exc:
-        if str(exc) == "Agent adapter is disabled":
-            raise HTTPException(503, "Agent adapter is unavailable") from None
+    except AgentUnavailable:
+        raise HTTPException(503, "Agent adapter is unavailable") from None
+    except Exception:
         raise HTTPException(502, "Agent proposal failed") from None
     try:
         output = validate_agent_output(raw_output)
@@ -226,9 +281,6 @@ def resolve_agent_proposal(
     if decision == "approved" and proposal.proposer == actor.name:
         raise HTTPException(403, "Proposers cannot approve their own proposals")
 
-    proposal.status = decision
-    proposal.approver = actor.name
-    proposal.resolved_at = datetime.now(timezone.utc)
     job_result = None
     job_id = None
     if decision == "approved":
@@ -251,7 +303,6 @@ def resolve_agent_proposal(
             spec={"operation": output.tool_calls[0].arguments.operation},
         )
         db.add(job)
-        proposal.job_id = job.id
         job_id = job.id
         job_result = JobResult(
             id=job.id,
@@ -260,6 +311,23 @@ def resolve_agent_proposal(
             artifact=None,
             error=None,
         )
+    transition_result = db.execute(
+        update(AgentProposal)
+        .where(
+            AgentProposal.id == proposal.id,
+            AgentProposal.project_id == project_id,
+            AgentProposal.status == "pending",
+        )
+        .values(
+            status=decision,
+            approver=actor.name,
+            resolved_at=datetime.now(timezone.utc),
+            job_id=job_id,
+        )
+    )
+    if transition_result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, "Proposal is no longer pending")
     db.add(
         AgentAudit(
             project_id=project_id,

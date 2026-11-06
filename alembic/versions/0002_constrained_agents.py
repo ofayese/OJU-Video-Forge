@@ -23,7 +23,14 @@ def upgrade():
         sa.Column('actor', sa.String(128), primary_key=True),
         sa.Column('role', sa.String(32), nullable=False),
     )
-    op.add_column('jobs', sa.Column('project_id', sa.String(40), sa.ForeignKey('projects.id'), nullable=True))
+    with op.batch_alter_table('jobs') as batch:
+        batch.add_column(sa.Column('project_id', sa.String(40), nullable=True))
+        batch.create_foreign_key(
+            'fk_jobs_project_id_projects',
+            'projects',
+            ['project_id'],
+            ['id'],
+        )
     op.create_index('ix_jobs_project_id', 'jobs', ['project_id'])
     op.create_table(
         'agent_proposals',
@@ -60,6 +67,8 @@ def downgrade():
     op.drop_index('ix_agent_proposals_project_id', table_name='agent_proposals')
     op.drop_table('agent_proposals')
     op.drop_index('ix_jobs_project_id', table_name='jobs')
-    op.drop_column('jobs', 'project_id')
+    with op.batch_alter_table('jobs') as batch:
+        batch.drop_constraint('fk_jobs_project_id_projects', type_='foreignkey')
+        batch.drop_column('project_id')
     op.drop_table('project_memberships')
     op.drop_table('projects')

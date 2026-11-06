@@ -19,3 +19,12 @@ same approval boundaries as human contributors.
 
 See [VS Code custom agent documentation](https://code.visualstudio.com/docs/copilot/customization/custom-agents)
 and [custom instruction documentation](https://code.visualstudio.com/docs/copilot/customization/custom-instructions).
+
+## Application agent boundary
+
+The application agent adapter is disabled unless `AGENTS_ENABLED=true` and an adapter
+is explicitly installed. Its only registered action is proposing a deterministic
+`render_test` job. Proposals are project-scoped, validated, stored without the task
+prompt, and require a distinct project owner or reviewer to approve before job
+dispatch. Agent service identities cannot approve; arbitrary tools, shell commands,
+media access, and direct job execution are not exposed.

@@ -22,7 +22,7 @@ class Base(DeclarativeBase):
 class Job(Base):
     __tablename__ = 'jobs'
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
-    project_id: Mapped[str | None] = mapped_column(ForeignKey('projects.id'), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey('projects.id', name='fk_jobs_project_id_projects'), nullable=True, index=True)
     owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default='queued')
