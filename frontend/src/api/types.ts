@@ -53,6 +53,7 @@ export interface VideoJob {
   id: string;
   operation?: string;
   status: string;
+  artifact?: string | null;
   artifact_id?: string | null;
   error?: string | null;
 }
