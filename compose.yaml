@@ -1,0 +1,115 @@
+name: oju-video-forge
+
+x-common: &common
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  init: true
+
+services:
+  api:
+    build: {context: ., dockerfile: services/api/Dockerfile}
+    <<: *common
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
+      AD_ENABLED: ${AD_ENABLED:-false}
+      AZURE_ENABLED: ${AZURE_ENABLED:-false}
+      EXTERNAL_ACCESS_ENABLED: ${EXTERNAL_ACCESS_ENABLED:-false}
+      AD_DOMAIN: ${AD_DOMAIN:-ojuidc.olutech.systems}
+      PUBLIC_APP_FQDN: ${PUBLIC_APP_FQDN:-video.olutechsys.com}
+      PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
+      COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
+      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
+      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
+      DB_PASSWORD: ${DB_PASSWORD:-forge}
+      WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [control, ai-net]
+    restart: unless-stopped
+
+  worker:
+    build: {context: ., dockerfile: services/worker/Dockerfile}
+    <<: *common
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
+      AD_ENABLED: ${AD_ENABLED:-false}
+      AZURE_ENABLED: ${AZURE_ENABLED:-false}
+      EXTERNAL_ACCESS_ENABLED: ${EXTERNAL_ACCESS_ENABLED:-false}
+      AD_DOMAIN: ${AD_DOMAIN:-ojuidc.olutech.systems}
+      PUBLIC_APP_FQDN: ${PUBLIC_APP_FQDN:-video.olutechsys.com}
+      PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
+      COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
+      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
+      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
+      DB_PASSWORD: ${DB_PASSWORD:-forge}
+      WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
+    volumes:
+      - ${FORGE_DATA:-/srv/video-forge}/artifacts:/artifacts
+      - ./config/workflows:/workflows:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [control, inference]
+    restart: unless-stopped
+
+  comfyui:
+    profiles: [gpu]
+    build: {context: ., dockerfile: services/comfyui/Dockerfile}
+    <<: *common
+    environment:
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    volumes:
+      - ${FORGE_DATA:-/srv/video-forge}/models:/opt/ComfyUI/models
+      - ${FORGE_DATA:-/srv/video-forge}/comfy-input:/opt/ComfyUI/input
+      - ${FORGE_DATA:-/srv/video-forge}/comfy-output:/opt/ComfyUI/output
+    networks: [inference]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    <<: *common
+    environment:
+      POSTGRES_DB: forge
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-forge}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    networks: [control]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U forge -d forge"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    <<: *common
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    networks: [control]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  control: {internal: true}
+  inference: {internal: true}
+  ai-net: {external: true}
+
+volumes:
+  pgdata: {}
+  redisdata: {}

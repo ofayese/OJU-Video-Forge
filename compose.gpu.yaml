@@ -1,0 +1,12 @@
+services:
+  comfyui:
+    profiles: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+
+  worker:
+    environment:
+      COMFYUI_URL: http://comfyui:8188

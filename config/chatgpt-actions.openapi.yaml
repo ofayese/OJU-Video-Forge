@@ -1,0 +1,78 @@
+openapi: 3.1.0
+info:
+  title: OJU Video Forge Agent API
+  version: 0.1.0
+  description: Job submission and status only. Publishing is intentionally unavailable to agents.
+servers:
+  - url: https://video-api.olutechsys.com
+    description: Public application API target; DNS, TLS, and gateway deployment are not yet verified.
+security:
+  - bearerAuth: []
+paths:
+  /v1/jobs:
+    post:
+      operationId: submitVideoJob
+      summary: Submit a video job for review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJob'
+      responses:
+        '202':
+          description: Queued or dispatch pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResult'
+  /v1/jobs/{job_id}:
+    get:
+      operationId: getVideoJob
+      summary: Inspect your video job status
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResult'
+  /v1/models:
+    get:
+      operationId: listVideoModels
+      summary: List model candidates
+      responses:
+        '200':
+          description: Available model information
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    CreateJob:
+      type: object
+      additionalProperties: false
+      required: [operation]
+      properties:
+        operation: {type: string, enum: [render_test, wan22_t2v]}
+        prompt: {type: string, maxLength: 1000, default: ''}
+        width: {type: integer, enum: [512, 768, 832], default: 512}
+        height: {type: integer, enum: [288, 448, 480], default: 288}
+        frames: {type: integer, minimum: 17, maximum: 81, default: 33}
+        fps: {type: integer, enum: [8, 16, 24], default: 16}
+        seed: {type: integer, minimum: 0, maximum: 4294967295, default: 42}
+    JobResult:
+      type: object
+      required: [id, operation, status]
+      properties:
+        id: {type: string}
+        operation: {type: string}
+        status: {type: string}
+        artifact: {type: string, nullable: true}
+        error: {type: string, nullable: true}

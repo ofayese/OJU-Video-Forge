@@ -1,0 +1,86 @@
+observed_date: "2026-11-05"
+overall_status: "PARTIALLY_IMPLEMENTED_BLOCKED"
+scope: "Read-only baseline for the local workspace host; no remote hosts contacted."
+blockers:
+  - "The requested recoverable local checkpoint was not created because permission was denied; no alternate archive was attempted."
+  - "The backend auth/project source-edit request was denied because the checkpoint was absent; no alternate write path will be attempted."
+  - "The frontend dependency installation request was denied because it suppressed dependency auditing; no alternate installer will be used."
+  - "No initial Git commit exists; repository files are untracked."
+  - "ComfyUI refused connections on localhost:8188; compatible video model/workflow was not established."
+gates:
+  - id: 1
+    name: "Repository and environment"
+    status: "PARTIAL"
+    evidence:
+      - "Branch main and untracked worktree observed; HEAD did not resolve."
+      - "Host reported hostname ere and Windows 11; organizational identity is not independently confirmed."
+      - "RTX 5070 Ti with 16,303 MiB VRAM and Docker Desktop observed."
+      - "Base+development and base+GPU Docker Compose configurations validate; no services were started."
+      - "Base+development and base+GPU Docker Compose configurations validate; no services were started."
+    missing:
+      - "Recoverable checkpoint"
+      - "Verified organizational ERE identity and CUDA toolkit compatibility"
+  - id: 2
+    name: "Application foundation"
+    status: "NOT_VERIFIED"
+    evidence:
+      - "Existing audit reported python -m pytest -q: 2 passed."
+      - "Frontend files were added, but typecheck/test/build did not pass because dependencies were missing."
+    missing:
+      - "API/frontend startup"
+      - "Application PostgreSQL and Redis health"
+      - "Operational local authentication"
+  - id: 3
+    name: "Deterministic rendering"
+    status: "PARTIAL"
+    evidence:
+      - "Targeted tests: 60 passed, 1 failed, 1 skipped; failure is a Windows CRLF/LF assertion."
+    missing:
+      - "Media upload and timeline workflow"
+      - "Rendered MP4, FFprobe result, SHA-256 and authorized retrieval"
+  - id: 4
+    name: "GPU inference"
+    status: "BLOCKED"
+    evidence:
+      - "Local ComfyUI endpoint refused connections."
+      - "New adapter syntax compilation passed; no adapter tests or worker integration."
+    missing:
+      - "ComfyUI/model/workflow compatibility"
+      - "Retrieved, validated, checksummed and registered AI video artifact"
+  - id: 5
+    name: "Product functionality"
+    status: "PARTIAL"
+    evidence:
+      - "New frontend files exist; checks did not pass because declared packages were not installed."
+    missing:
+      - "Project/media frontend, timeline editing, audio/captions, job UI, review workflow"
+  - id: 6
+    name: "Security and resilience"
+    status: "NOT_VERIFIED"
+    missing:
+      - "Authorization, isolation, restart recovery, audit integrity, backup restore, vulnerability scan"
+  - id: 7
+    name: "Local release readiness"
+    status: "NOT_VERIFIED"
+    missing:
+      - "Complete automated tests, vulnerability triage, reproducible install and operations evidence"
+test_evidence:
+  baseline_command: "python -m pytest -q"
+  baseline_result: "2 passed"
+  render_command: "python -m pytest -q -p no:cacheprovider tests/test_rendering.py tests/test_contract.py"
+  render_exit_code: 1
+  render_result: "60 passed, 1 failed, 1 skipped; the failure expected LF but received Windows CRLF in a subprocess output assertion."
+  comfyui_syntax_command: "python -m py_compile app/comfyui.py"
+  comfyui_syntax_exit_code: 0
+  limitations: "No integration or end-to-end test. A later full-suite run was denied; no retry was attempted."
+  compose_commands:
+    - command: "docker compose -f compose.yaml -f compose.dev.yaml config --quiet"
+      exit_code: 0
+      result: "configuration valid; services not started"
+    - command: "docker compose -f compose.yaml -f compose.gpu.yaml config --quiet"
+      exit_code: 0
+      result: "configuration valid; GPU runtime not verified"
+  frontend:
+    commands: ["npm run typecheck", "npm test", "npm run build"]
+    result: "did not pass; missing React/Vitest dependencies and TypeScript errors"
+    dependency_installation: "denied because the attempted install suppressed dependency auditing; no retry"
