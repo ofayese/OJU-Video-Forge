@@ -5,6 +5,8 @@
 ## Included
 
 - Docker Compose API, RQ worker, Redis, PostgreSQL, optional ComfyUI profile.
+- Local account sessions and backend-enforced project membership/roles under `/v1`;
+  see [the API contract](docs/authentication-projects-v1.md).
 - Working deterministic FFmpeg `render_test` operation (once infrastructure is deployed).
 - Optional Wan 2.2 ComfyUI generation through a registered API-format workflow,
   private output retrieval, MP4/FFprobe validation, checksum provenance, and
@@ -117,11 +119,12 @@ are not preserved when the container is removed.
 ## Gaps before production
 
 - OAuth/OIDC JWT validation with JWKS, external reverse-proxy hardening and HTTPS.
-- True end-user identities (current service tokens distinguish only service clients).
 - Dispatch reconciler, idempotency constraint, robust cancellations and limits.
+- GPU output reconciliation and checksum/FFprobe verification.
+- Signed artifact download, backup automation and retention.
 - Real GPU/model end-to-end validation and evidence; the adapter contract tests do
   not establish model, workflow, driver, or hardware compatibility.
-- Tenant/project RBAC, signed artifact download, backup automation and retention.
+- Tenant-wide RBAC beyond local project membership, backup automation and retention.
 - Pin and scan all images and dependencies; audit log export and alerting.
 - Durable outbox and deployment smoke/negative tests.
 
@@ -141,10 +144,12 @@ and registered separately.
 
 ## Known gaps in this v0.1 scaffold
 
-- No public gateway, TLS, or per-user OAuth. Do NOT publish `api` directly to the internet.
-- Wan generation remains disabled by default and requires an administrator-approved
-  local workflow, full node mapping, private ComfyUI, and compatible models.
+- No public gateway, TLS, or external OAuth/OIDC. Do NOT publish `api` directly to the internet.
+- Local password sessions do not provide external identity federation.
+- WAN job submission remains an integration stub; generation is disabled by default
+  and requires an administrator-approved workflow, full node mapping, private
+  ComfyUI, and compatible models.
 - Rendering only supports a deterministic test clip, not arbitrary multimedia editing.
-- DB reconciliation, event hashing, idempotency, cancellation, review workflows,
-  quotas, backup/restore, and project-level artifact access are not implemented.
+- The complete authenticated project-to-render-to-authorized-artifact workflow,
+  database reconciliation, event hashing, quotas, and backup/restore are incomplete.
 - No real GPU/model run or Docker service integration was executed here.

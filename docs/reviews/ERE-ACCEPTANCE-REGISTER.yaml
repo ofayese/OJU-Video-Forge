@@ -188,10 +188,24 @@ current_gates:
     exit_code: 0
     validation_date: "2026-11-06"
     remaining_gaps:
-      - "The API/worker do not implement local user/project creation, media upload, rendering of uploaded media, or authorized artifact retrieval; the complete workflow is not implemented."
-      - "The FFmpeg/FFprobe integration fixture was skipped because those executables are unavailable on this host."
-      - "This Linux run does not validate Windows behavior; prior Windows results are historical and apply to their recorded commit."
+      - "The complete authenticated project-to-render-to-authorized-artifact workflow remains incomplete."
+      - "The FFmpeg/FFprobe fixture is skipped because the executables are unavailable."
+      - "This Linux run does not validate Windows behavior; prior Windows results apply to their recorded commit."
       - "GPU inference and recovery/backup-restore remain separate unverified gates."
+  - gate_id: local-auth-project-authorization
+    requirement: "Local password sessions and project membership roles are enforced by the versioned API."
+    status: PASS
+    evidence_reference:
+      - "docs/authentication-projects-v1.md"
+      - "tests/test_auth_projects.py"
+      - "alembic/versions/0005_local_auth_projects.py"
+    commit_sha: "642d851971e2e6451b92fa91fe7cff639a59fe1d"
+    test_command: "PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m pytest -q -p no:cacheprovider; PYTHONPATH=. /tmp/ovf-auth-venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json; DATABASE_URL=sqlite:////tmp/ovf-auth-migration.db PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m alembic -c alembic.ini upgrade head; /tmp/ovf-auth-venv/bin/ruff check app tests alembic scripts; /tmp/ovf-auth-venv/bin/python -m compileall -q app tests alembic"
+    execution_environment: "Linux sandbox, Python 3.12.3, isolated venv installed from requirements-dev.lock.txt; API tests used in-memory SQLite and migration used disposable SQLite."
+    exit_code: 0
+    validation_date: "2026-11-06"
+    remaining_gaps:
+      - "PostgreSQL migration/integration was not run; full authenticated upload-to-render-to-artifact workflow remains separately PARTIAL."
   - gate_id: gpu-inference
     requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
     status: BLOCKED
