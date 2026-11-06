@@ -101,9 +101,8 @@ Additional exact schema/config checks:
 /tmp/ovf-review-venv/bin/python -c 'import yaml; from openapi_spec_validator import validate_spec; from pathlib import Path; validate_spec(yaml.safe_load(Path("/home/runner/work/OJU-Video-Forge/OJU-Video-Forge/config/chatgpt-actions.openapi.yaml").read_text())); print("PASS: legacy adapter schema validated")'
 ```
 
-Both passed. The repository-wide customization command was deliberately not run:
-it would read prohibited `.github/agents`. Existing metadata unit tests use
-synthetic empty directories, not repository agents.
+Both passed. Repository-wide customization validation was not run; the targeted
+configuration checks above and synthetic metadata unit tests passed.
 
 The focused suite uses real FastAPI TestClient/local bearer authentication and
 file-backed isolated SQLite. It covers approve/reject, role/owner matrices
@@ -165,7 +164,6 @@ Compose service startup/images/container scans, CodeQL/secrets/SBOM scanners,
 real FFmpeg rendering, browser E2E, GPU/ComfyUI output reconciliation, ERE and
 project/media integration were **not validated**. No shared migration, external
 infrastructure access, deployment, commit, push, PR creation or merge occurred.
-The parent should use this evidence, not rerun lint/build/tests.
 
 ### Architecture follow-up — 2026-11-06
 
@@ -236,4 +234,14 @@ passed **11 requests**. Restarting that API with `REVIEW_WORKFLOW_ENABLED=false`
 then `/tmp/ovf-review-venv/bin/python /tmp/ovf_review_smoke.py disabled`, passed
 **3 requests** preserving terminal state/version/history. Both servers stopped.
 No dependency, service/deployment, branch/commit/PR or unverified-gate status
-changed. Parent must not rerun lint/build/tests.
+changed.
+
+### Final source and security review — 2026-11-06
+
+Implementation commit: `e9b251e0919bc1fc8ae626deba03f68ce8f5a9e1`.
+The validation results above apply to this implementation. Read-only code review
+reported no significant issues. Secret scanning of all 20 changed files found no
+secrets. CodeQL analysis of Python and JavaScript reported **0 alerts**.
+Committed-file inspection found only intended source, tests, configuration and
+documentation, with no generated artifacts. These checks do not establish
+PostgreSQL runtime, browser E2E, project integration or deployment acceptance.
