@@ -168,7 +168,7 @@ def get_project(
 
 
 @app.post("/v1/projects/{project_id}/audio", response_model=AudioAssetResult, status_code=201)
-async def upload_audio(
+def upload_audio(
     project_id: str,
     upload: UploadFile = File(...),
     actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
@@ -176,14 +176,14 @@ async def upload_audio(
 ):
     project = _owned_project(db, project_id, actor)
     try:
-        content = await upload.read(MAX_AUDIO_BYTES + 1)
+        content = upload.file.read(MAX_AUDIO_BYTES + 1)
         if len(content) > MAX_AUDIO_BYTES:
             raise HTTPException(413, "Audio exceeds the supported size")
         metadata = validate_audio(content)
     except AudioWorkflowError as exc:
         raise HTTPException(422, str(exc)) from exc
     finally:
-        await upload.close()
+        upload.file.close()
 
     asset_id = str(uuid.uuid4())
     relative_path = f"projects/{project.id}/audio/{asset_id}.wav"
