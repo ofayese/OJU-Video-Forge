@@ -48,9 +48,8 @@ create, enumerate, or access local-user projects.
 ## Schema and compatibility
 
 The account/session/project routes are versioned under `/v1`. Apply Alembic revision
-`0002` after `0001` to add local users, revocable sessions, projects, and memberships.
-The existing service-token and job routes remain available; the migration does not
-delete or rewrite existing jobs.
+`0005` after `0004` to add local users, revocable sessions, and project memberships
+to the existing project schema. Existing projects and job records are preserved.
 
 The OpenAPI document is available at `/openapi.json`. Generate it with:
 

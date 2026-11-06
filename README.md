@@ -8,11 +8,14 @@
 - Local account sessions and backend-enforced project membership/roles under `/v1`;
   see [the API contract](docs/authentication-projects-v1.md).
 - Working deterministic FFmpeg `render_test` operation (once infrastructure is deployed).
-- Wan 2.2 ComfyUI prompt **submission adapter only**. This does not claim a completed video;
-  an administrator must import an approved ComfyUI *API-format* graph and implement an
-  output reconciler before Gate D can pass.
+- Optional Wan 2.2 ComfyUI generation through a registered API-format workflow,
+  private output retrieval, MP4/FFprobe validation, checksum provenance, and
+  owner-authorized artifact download. GPU/model support is not validated by this code.
 - Alembic initial migration and basic contract tests.
 - API spec auto-generated at `/openapi.json` after startup.
+- Project-owned WAV uploads and asynchronous SRT/WebVTT export; speech model steps
+  remain `NOT_VERIFIED` until optional local providers are configured. See the
+  [audio workflow contract](docs/audio-workflow-contract-v1.md).
 
 ## Contributing and validation
 
@@ -30,9 +33,8 @@ Use Docker Desktop WSL2 backend with GPU support. Keep `$FORGE_DATA` inside the 
 ext4 filesystem, not under `/mnt/c`.
 
 ```bash
-sudo mkdir -p /srv/video-forge/{artifacts,models,comfy-input,comfy-output}
+sudo mkdir -p /srv/video-forge/artifacts
 sudo chown -R 10001:10001 /srv/video-forge/artifacts
-# Ensure model directories are writable by the configured ComfyUI image user.
 docker network inspect ai-net >/dev/null || docker network create ai-net
 cp .env.example .env
 # Generate separate DB and bearer secrets; edit .env; chmod 600 .env
@@ -72,13 +74,47 @@ an external gateway, or public access.
 
 ## AI gate
 
+The optional `gpu` profile runs ComfyUI as UID/GID `10001:10001`, with all
+Linux capabilities dropped and no published port. Before enabling it, inspect
+`${FORGE_DATA:-/srv/video-forge}/{models,comfy-input,comfy-output}` and arrange
+for UID 10001 to traverse the parent directories, read model files, and write
+to the input and output directories. ComfyUI may also need to create model
+subdirectories on startup, so the models directory must be writable. For new,
+empty directories an administrator can create them with:
+
+```bash
+sudo install -d -o 10001 -g 10001 -m 750 \
+  "${FORGE_DATA:-/srv/video-forge}/models" \
+  "${FORGE_DATA:-/srv/video-forge}/comfy-input" \
+  "${FORGE_DATA:-/srv/video-forge}/comfy-output"
+```
+
+For existing data, inspect ownership and permissions first; grant only the
+necessary access to the relevant directories and model files using targeted
+ownership, group permissions, or ACLs. Do not recursively change ownership or
+permissions of existing data. Account for user-namespace remapping if enabled.
+Disable the GPU profile to roll back; preserve existing models and media.
+Temporary files and previews are stored in the container's writable home and
+are not preserved when the container is removed.
+
 1. Pin approved ComfyUI git revision and NVIDIA-compatible PyTorch image digest.
 2. Download official Wan 2.2 TI2V 5B FP16, UMT5 FP8 and Wan 2.2 VAE into model paths.
 3. From ComfyUI export an API-format workflow to
-   `config/workflows/wan22-t2v-api.json` and map exact node IDs.
-4. Add a reconciler that checks `/history/{prompt_id}`, retrieves only allowlisted
-   output filenames using ComfyUI `/view`, validates media and archives it.
-5. Reject promotion until a full MP4 and evidence bundle is produced.
+   `config/workflows/wan22-t2v-api.json`. Configure `WAN_NODE_MAPPING` for
+   `positive_prompt`, `seed`, `width`, `height`, `frames`, and `fps` using exact
+   `[node_id, input_name]` pairs from that workflow. No graph or model is bundled.
+4. For an explicitly approved local GPU run, set `COMFYUI_ENABLED=true` and start
+   with `docker compose --profile gpu -f compose.yaml -f compose.gpu.yaml up -d`.
+   The GPU queue is separate from CPU rendering and a Redis lock limits generation
+   to one job at a time across workers.
+5. The worker polls `/history/{prompt_id}`, downloads at most one output through
+   ComfyUI `/view`, requires FFprobe-validated MP4 metadata, and writes private
+   checksum/provenance evidence. The owner retrieves it from the authenticated
+   `/v1/jobs/{job_id}/artifact` endpoint; downloads and up to three explicit
+   retry-by-new-job attempts are audited.
+6. Run a real generation only on the approved local environment and record the
+   output/evidence separately. A configuration check or CPU-only test is not GPU
+   readiness evidence.
 
 ## Gaps before production
 
@@ -86,6 +122,9 @@ an external gateway, or public access.
 - Dispatch reconciler, idempotency constraint, robust cancellations and limits.
 - GPU output reconciliation and checksum/FFprobe verification.
 - Signed artifact download, backup automation and retention.
+- Real GPU/model end-to-end validation and evidence; the adapter contract tests do
+  not establish model, workflow, driver, or hardware compatibility.
+- Tenant-wide RBAC beyond local project membership, backup automation and retention.
 - Pin and scan all images and dependencies; audit log export and alerting.
 - Durable outbox and deployment smoke/negative tests.
 
@@ -106,8 +145,11 @@ and registered separately.
 ## Known gaps in this v0.1 scaffold
 
 - No public gateway, TLS, or external OAuth/OIDC. Do NOT publish `api` directly to the internet.
-- WAN job submission is an integration stub, not a completed video renderer.
+- Local password sessions do not provide external identity federation.
+- WAN job submission remains an integration stub; generation is disabled by default
+  and requires an administrator-approved workflow, full node mapping, private
+  ComfyUI, and compatible models.
 - Rendering only supports a deterministic test clip, not arbitrary multimedia editing.
-- DB reconciliation, event hashing, idempotency, cancellation, review workflows,
-  quotas, backup/restore and artifact serving are not implemented.
-- Test coverage is static/unit only; no Docker or GPU test was executed here.
+- The complete authenticated project-to-render-to-authorized-artifact workflow,
+  database reconciliation, event hashing, quotas, and backup/restore are incomplete.
+- No real GPU/model run or Docker service integration was executed here.

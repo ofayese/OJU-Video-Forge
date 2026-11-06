@@ -142,7 +142,44 @@ def test_local_user_cannot_read_service_owned_job(
         headers=authorization("service-token"),
     )
     assert service_response.status_code == 200
-    assert service_response.json()["artifact"] == "/private/artifact.mp4"
+    assert service_response.json()["status"] == "failed"
+    assert service_response.json()["error"] == "private service error"
+    assert service_response.json()["artifact"] is None
+
+
+def test_service_token_cannot_access_local_user_project(
+    api_client: tuple[TestClient, sessionmaker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = api_client
+    monkeypatch.setattr(
+        auth,
+        "get_settings",
+        lambda: Settings(forge_openwebui_token="service-token"),
+    )
+    register(client, "openwebui")
+    user_headers = authorization(login(client, "openwebui"))
+    service_headers = authorization("service-token")
+    project = client.post(
+        "/v1/projects",
+        headers=user_headers,
+        json={"name": "Private local project"},
+    ).json()
+
+    assert client.get(
+        f"/v1/projects/{project['id']}",
+        headers=user_headers,
+    ).status_code == 200
+    assert client.get(
+        f"/v1/projects/{project['id']}",
+        headers=service_headers,
+    ).status_code == 404
+    assert client.get("/v1/projects", headers=service_headers).json() == []
+    assert client.post(
+        "/v1/jobs",
+        headers=service_headers,
+        json={"operation": "render_test", "project_id": project["id"]},
+    ).status_code == 404
 
 
 def test_project_membership_roles_and_isolation(

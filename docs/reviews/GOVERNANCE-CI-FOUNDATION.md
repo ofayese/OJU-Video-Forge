@@ -95,3 +95,39 @@ configuration job will remain failing until the finding is fixed.
 - Governance pull request publication and final merge readiness.
 
 ADR-OVF-001 and ADR-OVF-002 remain **PROPOSED**.
+
+## ComfyUI non-root follow-up (sandbox, 2026-11-06)
+
+This follow-up was run in a Linux amd64 sandbox, not ERE, with Docker Engine
+28.0.4, Compose 2.38.2, Python 3.12.3, and Trivy 0.76.2. It does not replace
+the historical ERE results above.
+
+| Command | Result |
+|---|---|
+| `docker build -f services/comfyui/Dockerfile -t oju-comfyui:nonroot .` | Exit 0; image `sha256:199dfce48cd4c5cbc1a5fbde2d7b6ae18ba02dcec9f16be4a0baa1b790efd255`, upstream ComfyUI commit `63e5bf594339f676b4b15e072529873e3448409e` |
+| `docker buildx build --check --file services/comfyui/Dockerfile .` | Exit 0; no warnings |
+| `docker compose -f compose.yaml -f compose.gpu.yaml --profile gpu config -q` | Exit 0; configuration only |
+| `docker run --rm --mount type=bind,source="$PWD",target=/src,readonly aquasec/trivy:0.76.2 config --exit-code 1 --severity HIGH,CRITICAL /src/services/comfyui/Dockerfile` | Exit 0; no HIGH/CRITICAL misconfigurations. Download of updated checks failed due to DNS; embedded checks were used. |
+| `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.2 image --exit-code 1 --severity HIGH,CRITICAL oju-comfyui:nonroot` | Exit 1; vulnerability database download failed due to DNS. Image vulnerabilities remain unverified. |
+| `/tmp/ovf-comfy-venv/bin/python -m pytest -q tests` | Exit 0; 70 passed, 1 skipped, 1 Starlette TestClient deprecation warning. The venv used `pip install --require-hashes -r requirements-dev.lock.txt`. |
+| `/tmp/ovf-comfy-venv/bin/ruff check tests/test_comfyui_container.py` | Exit 0 |
+| `docker run --rm --cap-drop ALL --security-opt no-new-privileges oju-comfyui:nonroot python main.py --cpu --quick-test-for-ci --temp-directory /home/forge --previews-directory /home/forge/previews` | Exit 1; upstream `comfy-kitchen` 0.2.41 uses a type unsupported by PyTorch 2.6.0's custom-op schema. Startup and inference remain unverified; Gate D still requires compatible, pinned versions. |
+
+The following synthetic mount test exited 0, reporting UID/GID `10001:10001`,
+`CapEff: 0000000000000000`, and `mount-check-passed`. It uses only temporary
+files and does not change existing model or media permissions:
+
+```bash
+set -eu
+D=$(mktemp -d /tmp/ovf-comfy-test.XXXXXX)
+chmod 755 "$D"
+mkdir "$D/models" "$D/input" "$D/output"
+printf 'synthetic-model\n' > "$D/models/model.txt"
+docker run --rm --user 0:0 --entrypoint sh --mount "type=bind,source=$D,target=/mnt" oju-comfyui:nonroot -c 'chown 10001:10001 /mnt/models /mnt/input /mnt/output && chmod 750 /mnt/models /mnt/input /mnt/output'
+docker run --rm --cap-drop ALL --security-opt no-new-privileges --entrypoint sh --mount "type=bind,source=$D/models,target=/opt/ComfyUI/models" --mount "type=bind,source=$D/input,target=/opt/ComfyUI/input" --mount "type=bind,source=$D/output,target=/opt/ComfyUI/output" oju-comfyui:nonroot -c 'set -eu; id; test "$(id -u)" = 10001; test "$(id -g)" = 10001; grep CapEff /proc/self/status; test "$(cat models/model.txt)" = synthetic-model; echo synthetic-input > input/test.txt; echo synthetic-output > output/test.txt; mkdir -p /home/forge/temp /home/forge/previews; echo mount-check-passed'
+docker run --rm --user 0:0 --entrypoint sh --mount "type=bind,source=$D,target=/mnt" oju-comfyui:nonroot -c 'rm -rf /mnt/models /mnt/input /mnt/output'
+rmdir "$D"
+```
+
+No GPU generation was attempted. Neither the successful build, Compose check,
+nor mount test demonstrates GPU or model support.

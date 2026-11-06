@@ -22,8 +22,9 @@ services:
       PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
+      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
       DB_PASSWORD: ${DB_PASSWORD:-forge}
@@ -31,6 +32,8 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
+    volumes:
+      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/artifacts}
     networks: [control, ai-net]
     restart: unless-stopped
 
@@ -50,19 +53,38 @@ services:
       PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/srv/video-forge/artifacts}
+      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
       COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
+      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
       DB_PASSWORD: ${DB_PASSWORD:-forge}
       WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
     volumes:
-      - ${FORGE_DATA:-/srv/video-forge}/artifacts:/artifacts
+      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/artifacts}
       - ./config/workflows:/workflows:ro
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
     networks: [control, inference]
+    restart: unless-stopped
+
+  dispatcher:
+    build: {context: ., dockerfile: services/api/Dockerfile}
+    <<: *common
+    command: ["python", "-m", "app.dispatcher"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
+      DB_PASSWORD: ${DB_PASSWORD:-forge}
+      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
+      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [control]
     restart: unless-stopped
 
   comfyui:
