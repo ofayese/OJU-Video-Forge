@@ -371,7 +371,8 @@ class RenderEngine:
                     raise RenderError("Media tool did not report its version")
                 versions[name] = {
                     "version": version.decode("utf-8", errors="replace").splitlines()[0],
-                    "build_sha256": hashlib.sha256(version).hexdigest(),
+                    "version_output_sha256": hashlib.sha256(version).hexdigest(),
+                    "executable_sha256": _file_sha256(Path(tool), deadline),
                 }
             for path, clip in zip(paths, spec["clips"]):
                 probe = self._probe(path, cwd, deadline)

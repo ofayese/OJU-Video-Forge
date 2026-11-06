@@ -1,6 +1,7 @@
 import json
 import shutil
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -65,6 +66,32 @@ def test_worker_failure_records_failure(staged_job, monkeypatch):
         assert job.status == "failed"
         assert job.error == "RuntimeError: timeline render failed"
         assert list(db.scalars(select(Audit.action).order_by(Audit.id))) == ["running", "failed"]
+
+
+def test_worker_preserves_valid_unicode_timeline(staged_job, monkeypatch):
+    sessions, job_id, inputs = staged_job
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        timeline = dict(job.spec["timeline"])
+        timeline["captions"] = [
+            {"text": "😀" * 200, "start_ms": index * 10, "end_ms": (index + 1) * 10}
+            for index in range(70)
+        ]
+        job.spec = {"timeline": timeline}
+        db.commit()
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+
+    def render(engine, payload):
+        assert rendering.parse_timeline(payload) == timeline
+        path = engine.root / "output.mp4"
+        path.write_bytes(b"test")
+        return SimpleNamespace(path=path, provenance={"output_sha256": worker.sha256(path)})
+
+    monkeypatch.setattr(rendering.RenderEngine, "render", render)
+    worker.execute(job_id)
+    with sessions() as db:
+        assert db.get(Job, job_id).status == "awaiting_review"
+    assert (inputs.parent / "provenance.json").is_file()
 
 
 def test_symlinked_staging_is_rejected(staged_job, tmp_path):

@@ -47,7 +47,8 @@ def execute(job_id: str):
                         or not inputs.resolve(strict=True).is_relative_to(root / job.id)):
                     raise ValueError('Invalid staged input directory')
                 engine = RenderEngine(inputs, font='font.ttf' if (inputs / 'font.ttf').exists() else None)
-                result = engine.render(json.dumps(job.spec['timeline'], ensure_ascii=True))
+                result = engine.render(json.dumps(job.spec['timeline'], ensure_ascii=False,
+                                                  separators=(',', ':')))
                 with (output_dir / 'provenance.json').open('x', encoding='utf-8') as file:
                     json.dump(result.provenance, file, sort_keys=True, indent=2)
                 transition(db, job, 'awaiting_review', 'worker',

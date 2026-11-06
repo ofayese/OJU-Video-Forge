@@ -7,6 +7,9 @@ codec names. It imports no API, database, worker, or network client.
 `RenderResult.provenance` also records the canonical timeline SHA-256, SHA-256 of
 each resolved input and configured font, preset name and version, FFmpeg and
 FFprobe version lines and full version-output hashes, and output SHA-256.
+It also hashes the executables; dynamically linked codec libraries and the
+container/runtime image are not identified by these hashes and must be pinned
+and recorded separately by deployment.
 
 ```json
 {
