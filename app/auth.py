@@ -101,7 +101,7 @@ class LocalAuthProvider(AuthProvider):
 
         supplied = credentials.credentials.strip()
         for service_name, token in self._token_map.items():
-            if token and hmac.compare_digest(supplied, token):
+            if token and hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
                 base_roles = [
                     "viewer",
                     "producer",
