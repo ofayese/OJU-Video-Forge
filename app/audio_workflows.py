@@ -67,7 +67,7 @@ def validate_audio(data: bytes) -> dict[str, int | str]:
                 raise AudioWorkflowError("Unsupported WAV audio metadata")
             if len(audio.readframes(frames)) != frames * channels * sample_width:
                 raise AudioWorkflowError("WAV audio data is truncated")
-    except (wave.Error, EOFError, ZeroDivisionError) as exc:
+    except (wave.Error, EOFError, ZeroDivisionError, RuntimeError) as exc:
         raise AudioWorkflowError("Invalid PCM WAV audio") from exc
     return {"media_type": "audio/wav", "channels": channels,
             "sample_rate": sample_rate, "duration_ms": duration_ms}

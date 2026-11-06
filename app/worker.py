@@ -322,6 +322,7 @@ def execute(job_id: str):
             if job.status == 'cancel_requested':
                 transition(db, job, 'cancelled', 'worker')
         except Exception as exc:
+            db.rollback()
             db.refresh(job)
             if job.operation == 'render_timeline_v1':
                 if result is not None and inputs is not None:
