@@ -4,7 +4,17 @@ import hashlib
 import subprocess
 from pathlib import Path
 import httpx
-from .core import SessionLocal, ARTIFACT_ROOT, transition, Job
+from redis import Redis
+from rq import Queue, Worker
+
+from .core import (
+    REDIS_URL,
+    SessionLocal,
+    ARTIFACT_ROOT,
+    recover_jobs,
+    transition,
+    Job,
+)
 
 COMFYUI_URL = os.environ.get('COMFYUI_URL', 'http://comfyui:8188')
 WORKFLOW = Path('/workflows/wan22-t2v-api.json')
@@ -23,8 +33,13 @@ def execute(job_id: str):
             return
         transition(db, job, 'running', 'worker')
         try:
-            output_dir = ARTIFACT_ROOT / job.id
-            output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
+            if Path(job.id).name != job.id or job.id in {'.', '..'}:
+                raise RuntimeError('Invalid artifact identifier')
+            artifact_root = ARTIFACT_ROOT.resolve()
+            output_dir = artifact_root / job.id
+            if output_dir.is_symlink() or output_dir.resolve().parent != artifact_root:
+                raise RuntimeError('Invalid artifact directory')
+            output_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
             spec = job.spec
             if job.operation == 'render_test':
                 dest = output_dir / 'test.mp4'
@@ -59,6 +74,21 @@ def execute(job_id: str):
                 transition(db, job, 'submitted_to_comfyui', 'worker', artifact=f'{job.id}/comfy-prompt.json')
             else:
                 raise RuntimeError('Unsupported operation')
-        except Exception as exc:
-            transition(db, job, 'failed', 'worker', error=f'{type(exc).__name__}: {str(exc)[:300]}')
-            raise
+        except Exception:
+            try:
+                transition(db, job, 'failed', 'worker', error='Job execution failed; details withheld')
+            except Exception:
+                pass
+            raise RuntimeError('job execution failed') from None
+
+
+def main():
+    connection = Redis.from_url(REDIS_URL)
+    job_queue = Queue('video', connection=connection, default_timeout=3600)
+    with SessionLocal() as db:
+        recover_jobs(db, job_queue)
+    Worker([job_queue], connection=connection).work()
+
+
+if __name__ == '__main__':
+    main()

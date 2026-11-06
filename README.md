@@ -82,11 +82,19 @@ an external gateway, or public access.
 
 - OAuth/OIDC JWT validation with JWKS, external reverse-proxy hardening and HTTPS.
 - True end-user identities (current service tokens distinguish only service clients).
-- Dispatch reconciler, idempotency constraint, robust cancellations and limits.
+- Durable outbox/idempotency constraint, concurrent-worker recovery coordination,
+  robust cancellation and product quotas.
 - GPU output reconciliation and checksum/FFprobe verification.
 - Tenant/project RBAC, signed artifact download, backup automation and retention.
 - Pin and scan all images and dependencies; audit log export and alerting.
 - Durable outbox and deployment smoke/negative tests.
+
+## Local operations
+
+The API readiness semantics, bounded single-worker recovery, local resource/log
+limits, and synthetic backup/restore procedure are documented in the
+[local resilience runbook](docs/operations/LOCAL-BACKUP-RESTORE.md). They do not
+configure a backup destination or authorize shared-environment operations.
 
 ## Rollback
 
@@ -107,6 +115,8 @@ and registered separately.
 - No public gateway, TLS, or per-user OAuth. Do NOT publish `api` directly to the internet.
 - WAN job submission is an integration stub, not a completed video renderer.
 - Rendering only supports a deterministic test clip, not arbitrary multimedia editing.
-- DB reconciliation, event hashing, idempotency, cancellation, review workflows,
-  quotas, backup/restore and artifact serving are not implemented.
-- Test coverage is static/unit only; no Docker or GPU test was executed here.
+- Full database/job lifecycle reconciliation, event hashing, idempotency, cancellation, review workflows,
+  quotas, automated backups, artifact/media restore, and artifact serving are not
+  implemented.
+- Disposable PostgreSQL/Redis failure-restart and synthetic restore checks do not
+  validate full API/worker recovery or GPU operation.

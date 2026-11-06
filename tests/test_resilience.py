@@ -1,0 +1,273 @@
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app import api, core, worker
+from app.core import Audit, Base, Job
+
+
+class FakeRQJob:
+    def __init__(self, status):
+        self.status = status
+
+    def get_status(self, refresh=False):
+        return self.status
+
+
+class FakeQueue:
+    def __init__(self, jobs=None):
+        self.jobs = jobs or {}
+        self.enqueued = []
+
+    def fetch_job(self, job_id):
+        return self.jobs.get(job_id)
+
+    def enqueue(self, function, job_id_arg, *, job_id, job_timeout):
+        self.enqueued.append((function, job_id_arg, job_id, job_timeout))
+        self.jobs[job_id] = FakeRQJob("queued")
+
+
+@pytest.fixture
+def database(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'resilience.sqlite'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+    with factory() as db:
+        yield db
+    engine.dispose()
+
+
+def add_job(db, *, status, recovery_count=0, job_id="job-1", operation="render_test"):
+    job = Job(
+        id=job_id,
+        owner="synthetic-owner",
+        operation=operation,
+        status=status,
+        spec={"prompt": "private synthetic prompt"},
+        recovery_count=recovery_count,
+    )
+    db.add(job)
+    db.commit()
+    return job
+
+
+def test_readiness_requires_only_local_database_and_redis(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    class Connection:
+        def exec_driver_sql(self, statement):
+            assert statement == "SELECT 1"
+
+    class Engine:
+        def connect(self):
+            return self
+
+        def __enter__(self):
+            return Connection()
+
+        def __exit__(self, *args):
+            return False
+
+    class RedisConnection:
+        def ping(self):
+            return True
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(api, "engine", Engine())
+    monkeypatch.setattr(api.Redis, "from_url", lambda *args, **kwargs: RedisConnection())
+    response = TestClient(api.app).get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ready": True,
+        "required": {"database": True, "redis": True},
+        "optional": {"gpu": "not_required", "cloud": "not_required"},
+    }
+
+
+def test_readiness_fails_when_required_dependency_is_down(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    class BrokenEngine:
+        def connect(self):
+            raise OSError("private connection detail")
+
+    monkeypatch.setattr(api, "engine", BrokenEngine())
+    monkeypatch.setattr(api.Redis, "from_url", lambda *args, **kwargs: object())
+    response = TestClient(api.app).get("/health/ready")
+
+    assert response.status_code == 503
+    assert "private connection detail" not in response.text
+    assert response.json()["optional"]["gpu"] == "not_required"
+
+
+def test_recovery_requeues_interrupted_job_once(database):
+    job = add_job(database, status="running")
+    queue = FakeQueue()
+
+    assert core.recover_jobs(database, queue) == 1
+    assert job.status == "dispatch_pending"
+    assert job.recovery_count == 1
+    assert queue.enqueued == [
+        ("app.worker.execute", job.id, "job-1:recovery:1", 3600)
+    ]
+    assert core.recover_jobs(database, queue) == 0
+    assert database.query(Audit).filter_by(action="interrupted_recovery").count() == 1
+
+
+def test_recovery_dispatches_persisted_pending_job(database):
+    job = add_job(database, status="dispatch_pending")
+    queue = FakeQueue()
+
+    assert core.recover_jobs(database, queue) == 1
+    assert job.recovery_count == 0
+    assert queue.enqueued == [("app.worker.execute", job.id, job.id, 3600)]
+
+
+def test_recovery_requeues_running_job_with_stale_started_delivery(database):
+    job = add_job(database, status="running")
+    queue = FakeQueue({job.id: FakeRQJob("started")})
+
+    assert core.recover_jobs(database, queue) == 1
+    assert job.recovery_count == 1
+    assert queue.enqueued == [
+        ("app.worker.execute", job.id, "job-1:recovery:1", 3600)
+    ]
+
+
+def test_recovery_does_not_duplicate_queued_delivery_or_restart_terminal_job(database):
+    queued = add_job(database, status="queued")
+    terminal = add_job(database, status="awaiting_review", job_id="job-2")
+    queue = FakeQueue({queued.id: FakeRQJob("queued")})
+
+    assert core.recover_jobs(database, queue) == 0
+    assert queued.status == "queued"
+    assert terminal.status == "awaiting_review"
+    assert queue.enqueued == []
+
+
+def test_recovery_exhaustion_fails_without_exposing_prompt(database):
+    job = add_job(database, status="running", recovery_count=1)
+    queue = FakeQueue()
+
+    assert core.recover_jobs(database, queue) == 0
+    assert job.status == "failed"
+    assert job.error == "Interrupted job recovery limit exceeded"
+    assert "private synthetic prompt" not in job.error
+    assert queue.enqueued == []
+
+
+def test_recovery_does_not_repeat_non_idempotent_operation(database):
+    job = add_job(database, status="running", operation="wan22_t2v")
+    queue = FakeQueue()
+
+    assert core.recover_jobs(database, queue) == 0
+    assert job.status == "failed"
+    assert job.error == "Interrupted operation requires explicit resubmission"
+    assert queue.enqueued == []
+
+
+def test_restored_job_owner_boundary_remains_enforced(monkeypatch, database):
+    from fastapi.testclient import TestClient
+
+    from app.auth import Actor, get_current_actor
+
+    factory = sessionmaker(database.get_bind(), expire_on_commit=False)
+    job = add_job(database, status="awaiting_review")
+
+    def synthetic_session():
+        with factory() as session:
+            yield session
+
+    monkeypatch.setitem(api.app.dependency_overrides, api.db_session, synthetic_session)
+    actor = Actor(name="synthetic-owner", roles=["viewer"])
+    monkeypatch.setitem(api.app.dependency_overrides, get_current_actor, lambda: actor)
+    client = TestClient(api.app)
+
+    assert client.get(f"/v1/jobs/{job.id}").status_code == 200
+    actor.name = "different-synthetic-owner"
+    assert client.get(f"/v1/jobs/{job.id}").status_code == 404
+
+
+def test_worker_failure_persists_only_sanitized_error(monkeypatch, database, tmp_path):
+    factory = sessionmaker(database.get_bind(), expire_on_commit=False)
+    job = add_job(database, status="queued", operation="unsupported")
+
+    @contextmanager
+    def session_context():
+        with factory() as session:
+            yield session
+
+    monkeypatch.setattr(worker, "SessionLocal", session_context)
+    monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path)
+
+    with pytest.raises(RuntimeError, match="job execution failed"):
+        worker.execute(job.id)
+
+    database.refresh(job)
+    assert job.status == "failed"
+    assert job.error == "Job execution failed; details withheld"
+    assert "private synthetic prompt" not in job.error
+
+
+def test_interrupted_render_can_reuse_its_private_output_directory(
+    monkeypatch, database, tmp_path
+):
+    import hashlib
+
+    factory = sessionmaker(database.get_bind(), expire_on_commit=False)
+    job = add_job(database, status="dispatch_pending")
+    output_dir = tmp_path / "artifacts" / job.id
+    output_dir.mkdir(parents=True)
+    (output_dir / "test.mp4").write_bytes(b"partial output")
+
+    @contextmanager
+    def session_context():
+        with factory() as session:
+            yield session
+
+    def fake_ffmpeg(args, **kwargs):
+        Path(args[-1]).write_bytes(b"complete synthetic output")
+
+    monkeypatch.setattr(worker, "SessionLocal", session_context)
+    monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path / "artifacts")
+    monkeypatch.setattr(worker.subprocess, "run", fake_ffmpeg)
+
+    worker.execute(job.id)
+
+    database.refresh(job)
+    output = output_dir / "test.mp4"
+    assert job.status == "awaiting_review"
+    assert output.read_bytes() == b"complete synthetic output"
+    assert (output_dir / "SHA256SUMS").read_text() == (
+        f"{hashlib.sha256(output.read_bytes()).hexdigest()}  test.mp4\n"
+    )
+
+
+def test_worker_hides_error_when_failure_state_cannot_be_saved(monkeypatch, database):
+    factory = sessionmaker(database.get_bind(), expire_on_commit=False)
+    job = add_job(database, status="queued", operation="unsupported")
+
+    @contextmanager
+    def session_context():
+        with factory() as session:
+            yield session
+
+    def fail_transition(db, job, status, actor, **kwargs):
+        if status != "running":
+            raise ValueError("private synthetic prompt")
+
+    monkeypatch.setattr(worker, "SessionLocal", session_context)
+    monkeypatch.setattr(worker, "transition", fail_transition)
+
+    with pytest.raises(RuntimeError, match="job execution failed") as error:
+        worker.execute(job.id)
+
+    assert error.value.__cause__ is None
+    assert error.value.__suppress_context__
+    assert "private synthetic prompt" not in str(error.value)

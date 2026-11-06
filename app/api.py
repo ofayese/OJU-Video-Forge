@@ -1,11 +1,13 @@
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from redis import Redis
 from sqlalchemy.orm import Session
 
 from .auth import Actor, require_roles
-from .core import Audit, Job, SessionLocal, queue
+from .core import Audit, Job, REDIS_URL, SessionLocal, engine, queue
 
 app = FastAPI(title="OJU Video Forge", version="0.1.0", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 
@@ -37,6 +39,42 @@ def db_session():
 @app.get("/health/live", include_in_schema=False)
 def live():
     return {"ok": True}
+
+
+@app.get("/health/ready", include_in_schema=False)
+def ready():
+    dependencies = {"database": False, "redis": False}
+    try:
+        with engine.connect() as connection:
+            connection.exec_driver_sql("SELECT 1")
+        dependencies["database"] = True
+    except Exception:
+        pass
+    redis_client = None
+    try:
+        redis_client = Redis.from_url(
+            REDIS_URL, socket_connect_timeout=1, socket_timeout=1
+        )
+        redis_client.ping()
+        dependencies["redis"] = True
+    except Exception:
+        pass
+    finally:
+        if redis_client is not None:
+            try:
+                redis_client.close()
+            except Exception:
+                pass
+
+    is_ready = all(dependencies.values())
+    return JSONResponse(
+        status_code=200 if is_ready else 503,
+        content={
+            "ready": is_ready,
+            "required": dependencies,
+            "optional": {"gpu": "not_required", "cloud": "not_required"},
+        },
+    )
 
 
 @app.post("/v1/jobs", response_model=JobResult, status_code=202, operation_id="submitVideoJob")
