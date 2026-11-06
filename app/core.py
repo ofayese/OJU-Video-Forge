@@ -90,7 +90,7 @@ def recover_jobs(db, job_queue):
             queued_job.get_status(refresh=True) if queued_job is not None else None
         )
         queue_status = getattr(queue_status, "value", queue_status)
-        if queue_status in {"queued", "started"} and job.status != "running":
+        if queue_status == "queued" and job.status != "running":
             continue
 
         interrupted = job.status == "running" or queued_job is not None
