@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from .auth import Actor, require_roles
 from .core import ARTIFACT_ROOT, Audit, Job, MediaArtifact, Project, SessionLocal, queue
@@ -59,26 +60,28 @@ class UploadLimitMiddleware:
                 if total > limit:
                     await self._too_large(send)
                     return
-                body.write(chunk)
+                await run_in_threadpool(body.write, chunk)
                 if not message.get("more_body", False):
                     break
 
-            body.seek(0)
+            await run_in_threadpool(body.seek, 0)
             finished = False
 
             async def replay():
                 nonlocal finished
                 if finished:
                     return {"type": "http.disconnect"}
-                chunk = body.read(65536)
+                chunk, position = await run_in_threadpool(
+                    lambda: (body.read(65536), body.tell())
+                )
                 if not chunk:
                     finished = True
                     return {"type": "http.request", "body": b"", "more_body": False}
-                return {"type": "http.request", "body": chunk, "more_body": body.tell() < total}
+                return {"type": "http.request", "body": chunk, "more_body": position < total}
 
             await self.app(scope, replay, send)
         finally:
-            body.close()
+            await run_in_threadpool(body.close)
 
     @staticmethod
     async def _too_large(send):
@@ -204,7 +207,7 @@ def _manifest(artifact: MediaArtifact) -> MediaArtifactManifest:
     status_code=201,
     operation_id="uploadProjectMedia",
 )
-async def upload_project_media(
+def upload_project_media(
     project_id: str,
     file: UploadFile = File(),
     actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
@@ -231,7 +234,7 @@ async def upload_project_media(
         with destination.open("xb") as output:
             created = True
             os.chmod(destination, 0o600)
-            while chunk := await file.read(65536):
+            while chunk := file.file.read(65536):
                 size += len(chunk)
                 if size > MAX_UPLOAD_BYTES:
                     raise HTTPException(413, "Media exceeds the configured size limit")
@@ -263,6 +266,15 @@ async def upload_project_media(
 @app.get(
     "/v1/projects/{project_id}/artifacts/{artifact_id}",
     operation_id="getProjectArtifact",
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                content_type: {"schema": {"type": "string", "format": "binary"}}
+                for content_type in MEDIA_TYPES.values()
+            }
+        }
+    },
 )
 def get_project_artifact(
     project_id: str,

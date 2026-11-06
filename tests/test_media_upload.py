@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
-from app.api import app, db_session
+from app.api import MEDIA_TYPES, app, db_session
 from app.auth import Actor, get_current_actor
 from app.core import Base
 
@@ -44,6 +44,18 @@ def upload(client, project_id, filename="sample.mp4", data=b"synthetic media", c
     return client.post(
         f"/v1/projects/{project_id}/media",
         files={"file": (filename, data, content_type)},
+    )
+
+
+def test_artifact_openapi_declares_binary_media_types():
+    response_content = app.openapi()["paths"][
+        "/v1/projects/{project_id}/artifacts/{artifact_id}"
+    ]["get"]["responses"]["200"]["content"]
+
+    assert set(response_content) == set(MEDIA_TYPES.values())
+    assert all(
+        media["schema"] == {"type": "string", "format": "binary"}
+        for media in response_content.values()
     )
 
 
@@ -148,3 +160,19 @@ def test_request_body_limit_rejects_oversized_multipart(media_api, monkeypatch):
     response = upload(client, project_id, data=b"more than the complete request limit")
 
     assert response.status_code == 413
+
+
+def test_upload_replays_request_body_larger_than_spool_threshold(media_api):
+    client, _, _ = media_api
+    project_id = create_project(client)
+    content = b"x" * (1024 * 1024 + 1)
+
+    uploaded = upload(client, project_id, data=content)
+
+    assert uploaded.status_code == 201
+    artifact_id = uploaded.json()["id"]
+    retrieved = client.get(
+        f"/v1/projects/{project_id}/artifacts/{artifact_id}"
+    )
+    assert retrieved.status_code == 200
+    assert retrieved.content == content
