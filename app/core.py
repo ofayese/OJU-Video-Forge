@@ -315,7 +315,7 @@ def install_review_guards(connection):
             ))
     elif connection.dialect.name == "postgresql":
         connection.execute(DDL(
-            "CREATE FUNCTION deny_review_mutation() RETURNS trigger LANGUAGE plpgsql AS "
+            "CREATE OR REPLACE FUNCTION deny_review_mutation() RETURNS trigger LANGUAGE plpgsql AS "
             "$$ BEGIN RAISE EXCEPTION 'Review evidence is immutable'; END; $$"
         ))
         connection.execute(DDL(
