@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -27,7 +28,12 @@ def test_customization_validation_rejects_list_apply_to(tmp_path, monkeypatch):
         validate_repository.validate_customizations()
 
 
-def test_customization_validation_accepts_repository_frontmatter():
+def test_customization_validation_accepts_repository_frontmatter(tmp_path, monkeypatch):
+    github = tmp_path / ".github"
+    shutil.copytree(ROOT / ".github" / "instructions", github / "instructions")
+    (github / "agents").mkdir()
+    monkeypatch.setattr(validate_repository, "GITHUB", github)
+
     validate_repository.validate_customizations()
 
 
