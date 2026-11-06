@@ -1,9 +1,7 @@
 ---
 name: Frontend Engineering
 description: "Use for React, TypeScript, Vite, API client, frontend tests, and user-facing accessibility."
-applyTo:
-  - "frontend/**/*.ts"
-  - "frontend/**/*.tsx"
+applyTo: "frontend/**/*.ts, frontend/**/*.tsx"
 ---
 
 # Frontend guidance

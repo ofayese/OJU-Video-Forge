@@ -1,12 +1,7 @@
 ---
 name: Test and Validation Standards
 description: "Use when adding or changing tests, validation scripts, acceptance gates, or CI workflows."
-applyTo:
-  - "tests/**"
-  - "frontend/**/*.test.ts"
-  - "frontend/**/*.test.tsx"
-  - "scripts/**"
-  - ".github/workflows/**"
+applyTo: "tests/**, frontend/**/*.test.ts, frontend/**/*.test.tsx, scripts/**, .github/workflows/**"
 ---
 
 # Test guidance

@@ -1,11 +1,7 @@
 ---
 name: Deterministic Rendering
 description: "Use for FFmpeg, FFprobe, media storage, timeline contracts, render workers, and artifact generation."
-applyTo:
-  - "app/rendering.py"
-  - "app/worker.py"
-  - "tests/test_rendering.py"
-  - "docs/rendering-contract-v1.md"
+applyTo: "app/rendering.py, app/worker.py, tests/test_rendering.py, docs/rendering-contract-v1.md"
 ---
 
 # Rendering guidance
