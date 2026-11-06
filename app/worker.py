@@ -210,6 +210,7 @@ def execute(job_id: str):
             else:
                 raise RuntimeError('Unsupported operation')
         except Exception as exc:
+            db.rollback()
             if job.operation == "audio_workflow":
                 if isinstance(exc, ModelProviderUnavailable):
                     error = "provider_unavailable; NOT_VERIFIED"
