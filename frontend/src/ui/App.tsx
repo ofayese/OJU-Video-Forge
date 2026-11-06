@@ -461,7 +461,7 @@ function Workspace({
             <div className="panel-heading">
               <div><p className="eyebrow">ACTIVITY</p><h2 id="jobs-heading">Render status</h2></div>
               {job && (
-                <button className="secondary" type="button" onClick={() => void checkJobStatus()} disabled={checkingJob}>
+                <button className="secondary" type="button" onClick={() => void checkJobStatus()} disabled={projectActionsBusy}>
                   {checkingJob ? "Checking…" : "Check status"}
                 </button>
               )}
