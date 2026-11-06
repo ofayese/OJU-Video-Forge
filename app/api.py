@@ -372,7 +372,7 @@ def resolve_agent_proposal(
 def approve_agent_proposal(
     project_id: str,
     proposal_id: str,
-    actor: Actor = Depends(require_roles("reviewer", "administrator")),
+    actor: Actor = Depends(require_roles("producer", "reviewer", "administrator")),
     db: Session = Depends(db_session),
 ):
     return resolve_agent_proposal(project_id, proposal_id, actor, db, "approved")
@@ -385,7 +385,7 @@ def approve_agent_proposal(
 def reject_agent_proposal(
     project_id: str,
     proposal_id: str,
-    actor: Actor = Depends(require_roles("reviewer", "administrator")),
+    actor: Actor = Depends(require_roles("producer", "reviewer", "administrator")),
     db: Session = Depends(db_session),
 ):
     return resolve_agent_proposal(project_id, proposal_id, actor, db, "rejected")
