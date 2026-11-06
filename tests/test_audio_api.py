@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import api, worker
+from app import api, dispatcher, worker
 from app.auth import Actor, get_current_actor
 from app.core import AudioAsset, Base, Job, WorkflowArtifact
 
@@ -35,6 +35,9 @@ class QueueStub:
             raise RuntimeError("queue unavailable")
         self.job_ids.append(kwargs["job_id"])
 
+    def fetch_job(self, _job_id):
+        return None
+
 
 @pytest.fixture
 def workflow_app(tmp_path, monkeypatch):
@@ -50,7 +53,8 @@ def workflow_app(tmp_path, monkeypatch):
     root = tmp_path / "private"
     monkeypatch.setattr(api, "ARTIFACT_ROOT", root)
     monkeypatch.setattr(worker, "ARTIFACT_ROOT", root)
-    monkeypatch.setattr(api, "queue", lambda: queue)
+    monkeypatch.setattr(dispatcher, "queue", lambda: queue)
+    monkeypatch.setattr(dispatcher, "SessionLocal", sessions)
     monkeypatch.setattr(worker, "SessionLocal", sessions)
 
     def session_override():

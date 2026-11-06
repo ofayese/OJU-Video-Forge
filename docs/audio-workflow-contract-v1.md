@@ -77,7 +77,7 @@ and timeline v1 remain unchanged when these optional steps are not used.
 
 ## Migration and validation
 
-Apply Alembic revision `0002` after `0001` on a fresh isolated database. Unit/API
+Apply Alembic revision `0004` after `0003` on a fresh isolated database. Unit/API
 tests use synthetic PCM WAV and subtitle fixtures; they do not require PostgreSQL,
 Redis, FFmpeg, GPU, or model downloads. A successful local test does not verify a
 real speech model or production deployment.
