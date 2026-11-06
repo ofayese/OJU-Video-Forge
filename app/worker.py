@@ -2,9 +2,12 @@ import os
 import json
 import hashlib
 import subprocess
+import uuid
 from pathlib import Path
 import httpx
-from .core import SessionLocal, ARTIFACT_ROOT, transition, Job
+from sqlalchemy import update
+from .core import SessionLocal, ARTIFACT_ROOT, transition, Job, Audit
+from .rendering import RenderEngine
 
 COMFYUI_URL = os.environ.get('COMFYUI_URL', 'http://comfyui:8188')
 WORKFLOW = Path('/workflows/wan22-t2v-api.json')
@@ -21,8 +24,35 @@ def execute(job_id: str):
         job = db.get(Job, job_id)
         if not job or job.status not in ('queued','dispatch_pending'):
             return
-        transition(db, job, 'running', 'worker')
+        if job.operation == 'render_timeline_v1':
+            claimed = db.execute(
+                update(Job).where(Job.id == job_id, Job.status.in_(('queued', 'dispatch_pending')))
+                .values(status='running')
+            ).rowcount
+            if not claimed:
+                db.rollback()
+                return
+            db.add(Audit(job_id=job_id, actor='worker', action='running'))
+            db.commit()
+        else:
+            transition(db, job, 'running', 'worker')
         try:
+            if job.operation == 'render_timeline_v1':
+                if str(uuid.UUID(job.id)) != job.id:
+                    raise ValueError('Invalid job identity')
+                root = ARTIFACT_ROOT.resolve(strict=True)
+                output_dir = root / job.id
+                inputs = output_dir / 'inputs'
+                if (output_dir.is_symlink() or inputs.is_symlink()
+                        or not inputs.resolve(strict=True).is_relative_to(root / job.id)):
+                    raise ValueError('Invalid staged input directory')
+                engine = RenderEngine(inputs, font='font.ttf' if (inputs / 'font.ttf').exists() else None)
+                result = engine.render(json.dumps(job.spec['timeline'], ensure_ascii=True))
+                with (output_dir / 'provenance.json').open('x', encoding='utf-8') as file:
+                    json.dump(result.provenance, file, sort_keys=True, indent=2)
+                transition(db, job, 'awaiting_review', 'worker',
+                           artifact=str(result.path.relative_to(root)))
+                return
             output_dir = ARTIFACT_ROOT / job.id
             output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
             spec = job.spec
@@ -60,5 +90,8 @@ def execute(job_id: str):
             else:
                 raise RuntimeError('Unsupported operation')
         except Exception as exc:
-            transition(db, job, 'failed', 'worker', error=f'{type(exc).__name__}: {str(exc)[:300]}')
+            error = (f'{type(exc).__name__}: timeline render failed'
+                     if job.operation == 'render_timeline_v1'
+                     else f'{type(exc).__name__}: {str(exc)[:300]}')
+            transition(db, job, 'failed', 'worker', error=error)
             raise
