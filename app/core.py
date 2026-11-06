@@ -73,7 +73,7 @@ MAX_INTERRUPTED_RECOVERIES = 1
 
 def _queue_job_id(job):
     if job.recovery_count:
-        return f"{job.id}:recovery:{job.recovery_count}"
+        return f"{job.id}-recovery-{job.recovery_count}"
     return job.id
 
 
