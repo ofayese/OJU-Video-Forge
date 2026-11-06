@@ -224,7 +224,12 @@ def test_interrupted_render_can_reuse_its_private_output_directory(
     job = add_job(database, status="dispatch_pending")
     output_dir = tmp_path / "artifacts" / job.id
     output_dir.mkdir(parents=True)
-    (output_dir / "test.mp4").write_bytes(b"partial output")
+    protected_video = tmp_path / "protected-video"
+    protected_video.write_bytes(b"unrelated video data")
+    (output_dir / "test.mp4").symlink_to(protected_video)
+    protected_checksum = tmp_path / "protected-checksum"
+    protected_checksum.write_text("unrelated checksum data")
+    (output_dir / "SHA256SUMS").symlink_to(protected_checksum)
 
     @contextmanager
     def session_context():
@@ -243,10 +248,15 @@ def test_interrupted_render_can_reuse_its_private_output_directory(
     database.refresh(job)
     output = output_dir / "test.mp4"
     assert job.status == "awaiting_review"
+    assert not output.is_symlink()
     assert output.read_bytes() == b"complete synthetic output"
-    assert (output_dir / "SHA256SUMS").read_text() == (
+    checksum = output_dir / "SHA256SUMS"
+    assert not checksum.is_symlink()
+    assert checksum.read_text() == (
         f"{hashlib.sha256(output.read_bytes()).hexdigest()}  test.mp4\n"
     )
+    assert protected_video.read_bytes() == b"unrelated video data"
+    assert protected_checksum.read_text() == "unrelated checksum data"
 
 
 def test_worker_hides_error_when_failure_state_cannot_be_saved(monkeypatch, database):

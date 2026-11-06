@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 import subprocess
+import tempfile
 from pathlib import Path
 import httpx
 from redis import Redis
@@ -43,13 +44,18 @@ def execute(job_id: str):
             spec = job.spec
             if job.operation == 'render_test':
                 dest = output_dir / 'test.mp4'
-                subprocess.run([
-                    'ffmpeg','-nostdin','-y','-f','lavfi','-i',
-                    'testsrc2=size=640x360:rate=24','-t','5',
-                    '-an','-c:v','libx264','-pix_fmt','yuv420p',
-                    '-movflags','+faststart',str(dest)
-                ], check=True, timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                (output_dir / 'SHA256SUMS').write_text(f'{sha256(dest)}  test.mp4\n')
+                with tempfile.TemporaryDirectory(prefix='.work-', dir=output_dir) as work_dir:
+                    temp_dest = Path(work_dir) / 'test.mp4'
+                    subprocess.run([
+                        'ffmpeg','-nostdin','-y','-f','lavfi','-i',
+                        'testsrc2=size=640x360:rate=24','-t','5',
+                        '-an','-c:v','libx264','-pix_fmt','yuv420p',
+                        '-movflags','+faststart',str(temp_dest)
+                    ], check=True, timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                    checksum = Path(work_dir) / 'SHA256SUMS'
+                    checksum.write_text(f'{sha256(temp_dest)}  test.mp4\n')
+                    os.replace(temp_dest, dest)
+                    os.replace(checksum, output_dir / 'SHA256SUMS')
                 transition(db, job, 'awaiting_review', 'worker', artifact=f'{job.id}/test.mp4')
             elif job.operation == 'wan22_t2v':
                 if not WORKFLOW.is_file():
@@ -68,7 +74,10 @@ def execute(job_id: str):
                     r = client.post(COMFYUI_URL + '/prompt', json={'prompt': graph, 'client_id':'video-forge'})
                     r.raise_for_status()
                     prompt_id = r.json()['prompt_id']
-                (output_dir / 'comfy-prompt.json').write_text(json.dumps({'prompt_id':prompt_id}, indent=2))
+                with tempfile.TemporaryDirectory(prefix='.work-', dir=output_dir) as work_dir:
+                    temp_prompt = Path(work_dir) / 'comfy-prompt.json'
+                    temp_prompt.write_text(json.dumps({'prompt_id':prompt_id}, indent=2))
+                    os.replace(temp_prompt, output_dir / 'comfy-prompt.json')
                 # The initial gate verifies submission; no claim of completed video until
                 # a history/output reconciler validates and copies produced files.
                 transition(db, job, 'submitted_to_comfyui', 'worker', artifact=f'{job.id}/comfy-prompt.json')
