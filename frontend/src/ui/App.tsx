@@ -238,10 +238,10 @@ function Workspace({
     setUploading(true);
     setUploadError("");
     setRenderError("");
-    setJob(null);
-    setArtifactBlob(null);
     try {
       const uploaded = await api.uploadMedia(selectedProjectId, file, token);
+      setJob(null);
+      setArtifactBlob(null);
       setMedia(uploaded);
       setIdempotencyKey("");
       form.reset();
