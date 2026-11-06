@@ -8,4 +8,4 @@ COPY requirements.lock.txt .
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock.txt
 COPY app/ ./app/
 USER forge
-CMD ["rq","worker","video","--url","redis://redis:6379/0"]
+CMD ["python","-m","app.worker"]

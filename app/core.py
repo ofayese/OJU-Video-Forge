@@ -3,7 +3,19 @@ from pathlib import Path
 
 from redis import Redis
 from rq import Queue
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, create_engine
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    update,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import get_settings
@@ -16,38 +28,197 @@ ARTIFACT_ROOT = Path(settings.artifact_root)
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
+JOB_STATUSES = {
+    "dispatch_pending",
+    "queued",
+    "running",
+    "cancel_requested",
+    "awaiting_review",
+    "submitted_to_comfyui",
+    "failed",
+    "cancelled",
+}
+
+JOB_TRANSITIONS = {
+    "dispatch_pending": {"queued", "running", "cancelled"},
+    "queued": {"running", "failed", "cancelled"},
+    "running": {
+        "cancel_requested",
+        "awaiting_review",
+        "submitted_to_comfyui",
+        "failed",
+    },
+    "cancel_requested": {"cancelled", "failed"},
+}
+
+
 class Base(DeclarativeBase):
     pass
 
-class Job(Base):
-    __tablename__ = 'jobs'
+class Project(Base):
+    __tablename__ = "projects"
+
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class MediaArtifact(Base):
+    __tablename__ = "media_artifacts"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("projects.id"), nullable=False, index=True
+    )
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("projects.id"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+    __table_args__ = (
+        UniqueConstraint("owner", "idempotency_key", name="uq_jobs_owner_idempotency"),
+        CheckConstraint(
+            "status IN ('dispatch_pending', 'queued', 'running', 'cancel_requested', "
+            "'awaiting_review', 'submitted_to_comfyui', 'failed', 'cancelled')",
+            name="ck_jobs_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    project_id: Mapped[str | None] = mapped_column(
+        String(40), ForeignKey("projects.id"), nullable=True, index=True
+    )
+    media_id: Mapped[str | None] = mapped_column(
+        String(40), ForeignKey("media_assets.id"), nullable=True, index=True
+    )
+    retry_of_job_id: Mapped[str | None] = mapped_column(
+        String(40), ForeignKey("jobs.id"), nullable=True, index=True
+    )
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default='queued')
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     spec: Mapped[dict] = mapped_column(JSON, nullable=False)
     artifact: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatch_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dispatch_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class DispatchOutbox(Base):
+    __tablename__ = "dispatch_outbox"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'dispatching', 'dispatched', 'cancelled')",
+            name="ck_dispatch_outbox_status",
+        ),
+    )
+
+    job_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("jobs.id"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
 
 class Audit(Base):
-    __tablename__ = 'audit_events'
+    __tablename__ = "audit_events"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    job_id: Mapped[str] = mapped_column(String(40), ForeignKey('jobs.id'), index=True)
+    job_id: Mapped[str] = mapped_column(
+        String(40), ForeignKey("jobs.id"), index=True
+    )
     actor: Mapped[str] = mapped_column(String(128))
     action: Mapped[str] = mapped_column(String(64))
-    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
-def queue(name='video'):
-    return Queue(name, connection=Redis.from_url(REDIS_URL), default_timeout=3600)
+
+def queue(name: str = "video"):
+    return Queue(
+        name,
+        connection=Redis.from_url(
+            REDIS_URL, socket_connect_timeout=5, socket_timeout=5
+        ),
+        default_timeout=3600,
+    )
 
 def transition(db, job, status, actor, error=None, artifact=None):
+    current_status = job.status
+    if current_status == status:
+        return True
+    if status not in JOB_TRANSITIONS.get(current_status, set()):
+        raise ValueError(f"Invalid job transition: {current_status} -> {status}")
+    updated_at = datetime.now(timezone.utc)
+    values = {"status": status, "updated_at": updated_at}
+    if error is not None:
+        values["error"] = error[:2000]
+    if artifact is not None:
+        values["artifact"] = artifact
+    result = db.execute(
+        update(Job)
+        .where(Job.id == job.id, Job.status == current_status)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        db.refresh(job)
+        return False
     job.status = status
+    job.updated_at = updated_at
     if error is not None:
         job.error = error[:2000]
     if artifact is not None:
         job.artifact = artifact
     db.add(Audit(job_id=job.id, actor=actor, action=status))
     db.commit()
+    return True

@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 from app import api
 from app.auth import Actor, get_current_actor
 from app.config import Settings
-from app.core import Audit, Base, Job
+from app.core import Audit, Base, DispatchOutbox, Job
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def test_artifact_download_is_owner_only_audited_and_hides_storage_key(api_conte
     assert client.get(f"/v1/jobs/{job_id}/artifact").status_code == 404
 
 
-def test_retry_creates_audited_job_and_uses_operation_queue(api_context, monkeypatch):
+def test_retry_creates_audited_job_and_dispatches_from_outbox(api_context, monkeypatch):
     client, sessions, _set_actor, _root = api_context
     original_id = "failed-job"
     with sessions() as db:
@@ -98,10 +98,14 @@ def test_retry_creates_audited_job_and_uses_operation_queue(api_context, monkeyp
         def __init__(self, name):
             self.name = name
 
+        def fetch_job(self, _job_id):
+            return None
+
         def enqueue(self, *args, **kwargs):
             enqueued.append((self.name, args, kwargs))
 
-    monkeypatch.setattr(api, "queue", lambda name: QueueStub(name))
+    monkeypatch.setattr("app.dispatcher.SessionLocal", sessions)
+    monkeypatch.setattr("app.dispatcher.queue", lambda name="video": QueueStub(name))
     response = client.post(f"/v1/jobs/{original_id}/retry")
 
     assert response.status_code == 202
@@ -110,6 +114,7 @@ def test_retry_creates_audited_job_and_uses_operation_queue(api_context, monkeyp
     assert enqueued[0][0] == "video"
     with sessions() as db:
         assert db.get(Job, retried_id).status == "queued"
+        assert db.get(DispatchOutbox, retried_id).status == "dispatched"
         assert db.query(Audit).filter_by(
             job_id=original_id, action="retry_requested"
         ).count() == 1
@@ -120,30 +125,40 @@ def test_gpu_job_is_persisted_before_gpu_queue_dispatch(api_context, monkeypatch
     dispatches = []
 
     class QueueStub:
+        def __init__(self, name):
+            self.name = name
+
+        def fetch_job(self, _job_id):
+            return None
+
         def enqueue(self, function, *args, **kwargs):
             job_id = kwargs["job_id"]
             assert args == (job_id,)
             with sessions() as db:
                 job = db.get(Job, job_id)
                 assert job is not None
-                assert job.status == "queued"
+                assert job.status == "dispatch_pending"
                 assert job.operation == "wan22_t2v"
-            dispatches.append((function, args, kwargs))
+                assert db.get(DispatchOutbox, job_id).status == "dispatching"
+            dispatches.append((self.name, function, args, kwargs))
 
-    def queue_stub(name):
-        dispatches.append(name)
-        return QueueStub()
-
-    monkeypatch.setattr(api, "queue", queue_stub)
+    monkeypatch.setattr("app.dispatcher.SessionLocal", sessions)
+    monkeypatch.setattr(
+        "app.dispatcher.queue", lambda name="video": QueueStub(name)
+    )
     response = client.post(
         "/v1/jobs",
         json={"operation": "wan22_t2v", "prompt": "synthetic prompt"},
     )
 
     assert response.status_code == 202
-    assert dispatches[0] == "gpu"
-    assert dispatches[1][0] == "app.worker.execute"
-    assert dispatches[1][2]["job_timeout"] == 7200
+    assert dispatches[0][0] == "gpu"
+    assert dispatches[0][1] == "app.worker.execute"
+    assert dispatches[0][3]["job_timeout"] == 7200
+    with sessions() as db:
+        job_id = response.json()["id"]
+        assert db.get(Job, job_id).status == "queued"
+        assert db.get(DispatchOutbox, job_id).status == "dispatched"
 
 
 def test_retry_limit_is_three_audited_attempts(api_context):
