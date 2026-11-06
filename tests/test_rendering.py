@@ -222,7 +222,7 @@ def test_subprocess_policy_and_bounded_stdout(tmp_path):
     # Real local Python subprocess exercises the runner, not real media rendering.
     import sys
     with patch.object(r.subprocess, "Popen", wraps=subprocess.Popen) as popen:
-        assert r._run([sys.executable, "-c", "print('ok')"], tmp_path, 5) == b"ok\n"
+        assert r._run([sys.executable, "-c", "print('ok', end='')"], tmp_path, 5) == b"ok"
         assert popen.call_args.kwargs["shell"] is False
         assert popen.call_args.kwargs["cwd"] == str(tmp_path)
         assert popen.call_args.kwargs["stdin"] == subprocess.DEVNULL
