@@ -142,6 +142,17 @@ class RenderResult:
     fps: int
     video_codec: str
     audio_codec: str | None
+    provenance: dict | None = None
+
+
+def _file_sha256(path: Path, deadline: float) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            if time.monotonic() >= deadline:
+                raise RenderError("Render deadline exceeded")
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _run(args: list[str], cwd: Path, timeout: float) -> bytes:
@@ -349,6 +360,20 @@ class RenderEngine:
         cwd.chmod(0o700)
         success = False
         try:
+            inputs = list(dict.fromkeys(paths + ([audio_path] if audio_path else [])
+                                        + ([self.font] if self.font else [])))
+            identities = {str(path.relative_to(self.root)): _file_sha256(path, deadline)
+                          for path in inputs}
+            versions = {}
+            for name, tool in (("ffmpeg", self.ffmpeg), ("ffprobe", self.ffprobe)):
+                version = _run([tool, "-version"], cwd, min(15, deadline - time.monotonic()))
+                if not version.splitlines():
+                    raise RenderError("Media tool did not report its version")
+                versions[name] = {
+                    "version": version.decode("utf-8", errors="replace").splitlines()[0],
+                    "version_output_sha256": hashlib.sha256(version).hexdigest(),
+                    "executable_sha256": _file_sha256(Path(tool), deadline),
+                }
             for path, clip in zip(paths, spec["clips"]):
                 probe = self._probe(path, cwd, deadline)
                 stream = self._stream(probe, "video")
@@ -390,13 +415,24 @@ class RenderEngine:
                                         or audio[0].get("channels") != 2
                                         or audio[0].get("sample_rate") != "48000"))):
                 raise RenderError("Output metadata does not match timeline profile")
-            digest = hashlib.sha256()
-            with dest.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    digest.update(chunk)
-            result = RenderResult(dest, digest.hexdigest(), dest.stat().st_size,
+            if any(_file_sha256(path, deadline) != identities[str(path.relative_to(self.root))]
+                   for path in inputs):
+                raise RenderError("Input changed during render")
+            output_hash = _file_sha256(dest, deadline)
+            canonical = json.dumps(spec, sort_keys=True, separators=(",", ":"),
+                                   ensure_ascii=True).encode("ascii")
+            provenance = {
+                "version": 1,
+                "timeline_sha256": hashlib.sha256(canonical).hexdigest(),
+                "inputs_sha256": identities,
+                "preset": spec["output"]["profile"],
+                "preset_version": 1,
+                "tools": versions,
+                "output_sha256": output_hash,
+            }
+            result = RenderResult(dest, output_hash, dest.stat().st_size,
                                   duration, width, height, fps, "h264",
-                                  "aac" if audio_path else None)
+                                  "aac" if audio_path else None, provenance)
             success = True
             return result
         finally:

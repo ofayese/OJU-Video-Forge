@@ -3,11 +3,13 @@ import json
 import hashlib
 import subprocess
 import time
+import uuid
 from pathlib import Path
 import httpx
 from redis import Redis
 from rq import Worker
 from .core import SessionLocal, ARTIFACT_ROOT, REDIS_URL, transition, Job
+from .rendering import RenderEngine
 
 COMFYUI_URL = os.environ.get('COMFYUI_URL', 'http://comfyui:8188')
 WORKFLOW = Path('/workflows/wan22-t2v-api.json')
@@ -64,6 +66,20 @@ def sha256(path):
     return h.hexdigest()
 
 
+def _cleanup_render_output(inputs, result):
+    try:
+        path = Path(result.path)
+        workspace = path.parent
+        if (path.name != 'output.mp4' or not workspace.name.startswith('render-')
+                or workspace.is_symlink()
+                or workspace.parent.resolve(strict=True) != inputs.resolve(strict=True)):
+            return
+        path.unlink(missing_ok=True)
+        workspace.rmdir()
+    except (AttributeError, OSError, RuntimeError, TypeError):
+        pass
+
+
 def _finish_or_cancel(db, job, status, artifact=None):
     if not transition(db, job, status, 'worker', artifact=artifact):
         if job.status == 'cancel_requested':
@@ -81,9 +97,42 @@ def execute(job_id: str):
         while not transition(db, job, 'running', 'worker'):
             if job.status not in ('queued', 'dispatch_pending'):
                 return
+        result = None
+        provenance_path = None
+        provenance_created = False
+        inputs = None
         try:
             if _cancel_requested(job_id):
                 raise JobCancelled()
+            if job.operation == 'render_timeline_v1':
+                if str(uuid.UUID(job.id)) != job.id:
+                    raise ValueError('Invalid job identity')
+                root = ARTIFACT_ROOT.resolve(strict=True)
+                output_dir = root / job.id
+                inputs = output_dir / 'inputs'
+                if (output_dir.is_symlink() or inputs.is_symlink()
+                        or not inputs.resolve(strict=True).is_relative_to(root / job.id)):
+                    raise ValueError('Invalid staged input directory')
+                engine = RenderEngine(inputs, font='font.ttf' if (inputs / 'font.ttf').exists() else None)
+                result = engine.render(json.dumps(job.spec['timeline'], ensure_ascii=False,
+                                                  separators=(',', ':')))
+                provenance_path = output_dir / 'provenance.json'
+                fd = os.open(provenance_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                provenance_created = True
+                with os.fdopen(fd, 'w', encoding='utf-8') as file:
+                    json.dump(result.provenance, file, sort_keys=True, indent=2)
+                _finish_or_cancel(
+                    db, job, 'awaiting_review',
+                    artifact=str(result.path.relative_to(root)),
+                )
+                if job.status == 'cancelled':
+                    _cleanup_render_output(inputs, result)
+                    if provenance_created:
+                        try:
+                            provenance_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                return
             output_dir = ARTIFACT_ROOT / job.id
             output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
             spec = job.spec
@@ -139,10 +188,21 @@ def execute(job_id: str):
                 transition(db, job, 'cancelled', 'worker')
         except Exception as exc:
             db.refresh(job)
+            if job.operation == 'render_timeline_v1':
+                if result is not None and inputs is not None:
+                    _cleanup_render_output(inputs, result)
+                if provenance_created:
+                    try:
+                        provenance_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
             if job.status == 'cancel_requested':
                 transition(db, job, 'cancelled', 'worker')
                 return
-            if not transition(db, job, 'failed', 'worker', error=type(exc).__name__):
+            error = (f'{type(exc).__name__}: timeline render failed'
+                     if job.operation == 'render_timeline_v1'
+                     else type(exc).__name__)
+            if not transition(db, job, 'failed', 'worker', error=error):
                 if job.status == 'cancel_requested':
                     transition(db, job, 'cancelled', 'worker')
                     return

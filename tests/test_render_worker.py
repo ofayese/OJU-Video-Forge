@@ -1,0 +1,195 @@
+import json
+import shutil
+import uuid
+from types import SimpleNamespace
+
+import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+
+from app import rendering, worker
+from app.core import Audit, Base, Job
+
+
+@pytest.fixture
+def staged_job(tmp_path, monkeypatch):
+    database = create_engine("sqlite://")
+    Base.metadata.create_all(database)
+    sessions = sessionmaker(database, expire_on_commit=False)
+    monkeypatch.setattr(worker, "SessionLocal", sessions)
+    monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path)
+    job_id = str(uuid.uuid4())
+    inputs = tmp_path / job_id / "inputs"
+    inputs.mkdir(parents=True)
+    timeline = {"version": 1, "clips": [{"path": "clip.mp4", "in_ms": 0, "out_ms": 1000}],
+                "output": {"profile": "preview", "format": "mp4"}}
+    with sessions() as db:
+        db.add(Job(id=job_id, owner="owner", operation="render_timeline_v1",
+                   status="queued", spec={"timeline": timeline}))
+        db.commit()
+    yield sessions, job_id, inputs
+    database.dispose()
+
+
+def test_invalid_timeline_records_failure(staged_job, monkeypatch):
+    sessions, job_id, _ = staged_job
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        job.spec = {"timeline": {"version": 2}}
+        db.commit()
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+    with pytest.raises(rendering.RenderError, match="required"):
+        worker.execute(job_id)
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        assert job.status == "failed"
+        assert job.error == "RenderError: timeline render failed"
+        assert job.artifact is None
+        assert list(db.scalars(select(Audit.action).order_by(Audit.id))) == ["running", "failed"]
+    worker.execute(job_id)
+    with sessions() as db:
+        assert len(list(db.scalars(select(Audit)))) == 2
+
+
+def test_worker_failure_records_failure(staged_job, monkeypatch):
+    sessions, job_id, _ = staged_job
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+
+    def fail(*args):
+        raise RuntimeError("private detail")
+
+    monkeypatch.setattr(rendering.RenderEngine, "render", fail)
+    with pytest.raises(RuntimeError):
+        worker.execute(job_id)
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        assert job.status == "failed"
+        assert job.error == "RuntimeError: timeline render failed"
+        assert list(db.scalars(select(Audit.action).order_by(Audit.id))) == ["running", "failed"]
+
+
+def test_provenance_open_failure_removes_renderer_output_and_preserves_existing_sidecar(
+        staged_job, monkeypatch):
+    sessions, job_id, inputs = staged_job
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+    workspace = inputs / "render-test"
+    workspace.mkdir()
+    output = workspace / "output.mp4"
+    output.write_bytes(b"rendered")
+    staged_media = inputs / "source.mp4"
+    staged_media.write_bytes(b"staged")
+    provenance = inputs.parent / "provenance.json"
+    provenance.write_bytes(b"existing")
+    monkeypatch.setattr(
+        rendering.RenderEngine, "render",
+        lambda *_: SimpleNamespace(path=output, provenance={"output_sha256": "test"}),
+    )
+    original_open = worker.os.open
+
+    def fail_provenance_open(path, *args, **kwargs):
+        if path == provenance:
+            raise OSError("write denied")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(worker.os, "open", fail_provenance_open)
+    with pytest.raises(OSError, match="write denied"):
+        worker.execute(job_id)
+
+    assert not output.exists()
+    assert not workspace.exists()
+    assert staged_media.read_bytes() == b"staged"
+    assert provenance.read_bytes() == b"existing"
+    with sessions() as db:
+        assert db.get(Job, job_id).status == "failed"
+
+
+def test_provenance_write_failure_removes_partial_sidecar_and_renderer_output(
+        staged_job, monkeypatch):
+    sessions, job_id, inputs = staged_job
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+    workspace = inputs / "render-test"
+    workspace.mkdir()
+    output = workspace / "output.mp4"
+    output.write_bytes(b"rendered")
+    staged_media = inputs / "source.mp4"
+    staged_media.write_bytes(b"staged")
+    provenance = inputs.parent / "provenance.json"
+    monkeypatch.setattr(
+        rendering.RenderEngine, "render",
+        lambda *_: SimpleNamespace(path=output, provenance={"output_sha256": "test"}),
+    )
+
+    def fail_provenance_write(value, file, **kwargs):
+        file.write("{")
+        raise OSError("write failed")
+
+    monkeypatch.setattr(worker.json, "dump", fail_provenance_write)
+    with pytest.raises(OSError, match="write failed"):
+        worker.execute(job_id)
+
+    assert not output.exists()
+    assert not workspace.exists()
+    assert staged_media.read_bytes() == b"staged"
+    assert not provenance.exists()
+    with sessions() as db:
+        assert db.get(Job, job_id).status == "failed"
+
+
+def test_worker_preserves_valid_unicode_timeline(staged_job, monkeypatch):
+    sessions, job_id, inputs = staged_job
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        timeline = dict(job.spec["timeline"])
+        timeline["captions"] = [
+            {"text": "😀" * 200, "start_ms": index * 10, "end_ms": (index + 1) * 10}
+            for index in range(70)
+        ]
+        job.spec = {"timeline": timeline}
+        db.commit()
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+
+    def render(engine, payload):
+        assert rendering.parse_timeline(payload) == timeline
+        path = engine.root / "output.mp4"
+        path.write_bytes(b"test")
+        return SimpleNamespace(path=path, provenance={"output_sha256": worker.sha256(path)})
+
+    monkeypatch.setattr(rendering.RenderEngine, "render", render)
+    worker.execute(job_id)
+    with sessions() as db:
+        assert db.get(Job, job_id).status == "awaiting_review"
+    assert (inputs.parent / "provenance.json").is_file()
+
+
+def test_symlinked_staging_is_rejected(staged_job, tmp_path):
+    sessions, job_id, inputs = staged_job
+    inputs.rmdir()
+    inputs.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(ValueError, match="staged"):
+        worker.execute(job_id)
+    with sessions() as db:
+        assert db.get(Job, job_id).status == "failed"
+
+
+@pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
+                    reason="Local FFmpeg and FFprobe are not available")
+def test_real_worker_render_records_provenance(staged_job):
+    sessions, job_id, inputs = staged_job
+    rendering._run([shutil.which("ffmpeg"), "-nostdin", "-n", "-v", "error",
+                    "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24",
+                    "-t", "1", "-an", "-c:v", "libx264", "-threads", "1",
+                    "-pix_fmt", "yuv420p", "clip.mp4"], inputs, 30)
+    worker.execute(job_id)
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        assert job.status == "awaiting_review"
+        artifact = worker.ARTIFACT_ROOT / job.artifact
+        provenance = json.loads((inputs.parent / "provenance.json").read_text())
+        assert artifact.is_file()
+        assert provenance["output_sha256"] == worker.sha256(artifact)
+        assert provenance["inputs_sha256"]["clip.mp4"] == worker.sha256(inputs / "clip.mp4")
+        assert provenance["tools"]["ffmpeg"]["version"].startswith("ffmpeg version ")
+        assert list(db.scalars(select(Audit.action).order_by(Audit.id))) == ["running", "awaiting_review"]
+    worker.execute(job_id)
+    with sessions() as db:
+        assert len(list(db.scalars(select(Audit)))) == 2
