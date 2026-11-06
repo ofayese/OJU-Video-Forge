@@ -244,6 +244,7 @@ def create_agent_proposal(
         status="pending",
     )
     db.add(proposal)
+    db.flush()
     db.add(
         AgentAudit(
             project_id=project_id,
