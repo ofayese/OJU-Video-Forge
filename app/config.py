@@ -19,6 +19,7 @@ class Settings(BaseModel):
     ad_enabled: bool = False
     azure_enabled: bool = False
     external_access_enabled: bool = False
+    agents_enabled: bool = False
     ad_domain: str = "ojuidc.olutech.systems"
     public_app_fqdn: str = "video.olutechsys.com"
     public_api_fqdn: str = "video-api.olutechsys.com"
@@ -56,6 +57,7 @@ class Settings(BaseModel):
             "ad_enabled": os.getenv("AD_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "azure_enabled": os.getenv("AZURE_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "external_access_enabled": os.getenv("EXTERNAL_ACCESS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+            "agents_enabled": os.getenv("AGENTS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "ad_domain": os.getenv("AD_DOMAIN", "ojuidc.olutech.systems"),
             "public_app_fqdn": os.getenv("PUBLIC_APP_FQDN", "video.olutechsys.com"),
             "public_api_fqdn": os.getenv("PUBLIC_API_FQDN", "video-api.olutechsys.com"),

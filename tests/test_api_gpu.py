@@ -27,7 +27,7 @@ def api_context(tmp_path, monkeypatch):
     def set_actor(name):
         api.app.dependency_overrides[get_current_actor] = lambda: Actor(
             name=name,
-            roles=["viewer", "producer", "reviewer", "administrator", "agent_service"],
+            roles=["viewer", "producer", "reviewer", "administrator"],
         )
 
     api.app.dependency_overrides[api.db_session] = db_override

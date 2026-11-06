@@ -27,6 +27,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from .agents import (
+    ALLOWED_TOOLS,
+    AgentUnavailable,
+    get_agent_adapter,
+    validate_agent_output,
+)
 from .auth import (
     SESSION_LIFETIME,
     AccountInput,
@@ -50,8 +56,10 @@ from .core import (
     AudioAsset,
     Audit,
     AuthSession,
-    DispatchOutbox,
     Job,
+    AgentAudit,
+    AgentProposal,
+    DispatchOutbox,
     MediaArtifact,
     MediaAsset,
     Project,
@@ -203,6 +211,24 @@ class JobResult(BaseModel):
     dispatch_error: str | None = None
 
 
+class AgentTask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task: str = Field(min_length=1, max_length=4000)
+
+
+class AgentProposalResult(BaseModel):
+    id: str
+    project_id: str
+    tool: str
+    status: str
+
+
+class AgentDecisionResult(BaseModel):
+    id: str
+    status: str
+    job: JobResult | None = None
+
+
 class ProjectResult(BaseModel):
     id: str
     name: str
@@ -282,7 +308,7 @@ class ProjectMemberResult(BaseModel):
 
 
 class ProjectMemberInput(BaseModel):
-    role: Literal["viewer", "editor"]
+    role: Literal["viewer", "editor", "reviewer"]
 
 
 def require_project_role(
@@ -327,6 +353,11 @@ def _artifact_url(job: Job) -> str | None:
     if job.operation == "audio_workflow":
         return job.artifact
     return f"/v1/jobs/{job.id}/artifact" if job.status == "awaiting_review" and job.artifact else None
+
+
+def reject_agent_service(actor: Actor) -> None:
+    if "agent_service" in actor.roles:
+        raise HTTPException(403, "Human user required")
 
 
 @app.get("/health/live", include_in_schema=False)
@@ -422,6 +453,7 @@ def create_project(
     ),
     db: Session = Depends(db_session),
 ):
+    reject_agent_service(actor)
     if actor.user_id is None and not {"producer", "administrator", "agent_service"}.intersection(actor.roles):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions")
     project = Project(id=str(uuid.uuid4()), owner=actor.name, name=payload.name)
@@ -1027,6 +1059,7 @@ def create_job(
     db: Session = Depends(db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    reject_agent_service(actor)
     if payload.operation not in {"render_test", "wan22_t2v"}:
         raise HTTPException(422, "Unsupported job operation")
     if payload.operation == "wan22_t2v" and not get_settings().comfyui_enabled:
@@ -1334,4 +1367,255 @@ def _same_job_request(job: Job, payload: CreateJob, spec: dict) -> bool:
 def get_models(
     actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "publisher", "auditor", "administrator", "agent_service"))
 ):
+    return {"models": [{"id": "wan22-ti2v-5b", "operation": "wan22_t2v", "status": "requires_local_gpu_profile_and_approved_workflow"}]}
+
+
+@app.post(
+    "/v1/projects/{project_id}/agent/proposals",
+    response_model=AgentProposalResult,
+    status_code=201,
+)
+def create_agent_proposal(
+    project_id: str,
+    payload: AgentTask,
+    actor: Actor = Depends(require_roles("viewer", "producer", "administrator")),
+    db: Session = Depends(db_session),
+):
+    reject_agent_service(actor)
+    if not get_settings().agents_enabled:
+        raise HTTPException(503, "Agent adapter is disabled")
+    _, project_role = require_project_role(db, actor, project_id, {"owner", "editor"})
+    if project_role not in {"owner", "editor"}:
+        raise HTTPException(403, "Project permission denied")
+    try:
+        raw_output = get_agent_adapter().propose(payload.task, ALLOWED_TOOLS)
+    except AgentUnavailable:
+        raise HTTPException(503, "Agent adapter is unavailable") from None
+    except Exception:
+        raise HTTPException(502, "Agent proposal failed") from None
+    try:
+        output = validate_agent_output(raw_output)
+    except ValueError:
+        raise HTTPException(422, "Malformed agent output") from None
+
+    call = output.tool_calls[0]
+    proposal = AgentProposal(
+        id=str(uuid.uuid4()),
+        project_id=project_id,
+        proposer=actor.name,
+        tool_name=call.name,
+        arguments=call.arguments.model_dump(),
+        status="pending",
+    )
+    db.add(proposal)
+    db.flush()
+    db.add(
+        AgentAudit(
+            project_id=project_id,
+            proposal_id=proposal.id,
+            actor=actor.name,
+            action="proposed",
+        )
+    )
+    db.commit()
+    return AgentProposalResult(
+        id=proposal.id,
+        project_id=project_id,
+        tool=proposal.tool_name,
+        status=proposal.status,
+    )
+
+
+def resolve_agent_proposal(
+    project_id: str,
+    proposal_id: str,
+    actor: Actor,
+    db: Session,
+    decision: str,
+) -> AgentDecisionResult:
+    if "agent_service" in actor.roles:
+        raise HTTPException(403, "Human approval required")
+    require_project_role(db, actor, project_id, {"owner", "reviewer"})
+    proposal = db.get(AgentProposal, proposal_id)
+    if not proposal or proposal.project_id != project_id:
+        raise HTTPException(404, "Proposal not found")
+    if proposal.status != "pending":
+        raise HTTPException(409, "Proposal is no longer pending")
+    if decision == "approved" and proposal.proposer == actor.name:
+        raise HTTPException(403, "Proposers cannot approve their own proposals")
+
+    job_result = None
+    job_id = None
+    if decision == "approved":
+        try:
+            output = validate_agent_output(
+                {
+                    "tool_calls": [
+                        {"name": proposal.tool_name, "arguments": proposal.arguments}
+                    ]
+                }
+            )
+        except ValueError:
+            raise HTTPException(409, "Proposal is no longer valid") from None
+        job = Job(
+            id=str(uuid.uuid4()),
+            project_id=project_id,
+            owner=proposal.proposer,
+            operation=output.tool_calls[0].arguments.operation,
+            status="dispatch_pending",
+            spec={"operation": output.tool_calls[0].arguments.operation},
+        )
+        db.add(job)
+        db.flush()
+        db.add(DispatchOutbox(job_id=job.id, status="pending"))
+        db.add(Audit(job_id=job.id, actor=actor.name, action="dispatch_pending"))
+        job_id = job.id
+    transition_result = db.execute(
+        update(AgentProposal)
+        .where(
+            AgentProposal.id == proposal.id,
+            AgentProposal.project_id == project_id,
+            AgentProposal.status == "pending",
+        )
+        .values(
+            status=decision,
+            approver=actor.name,
+            resolved_at=datetime.now(timezone.utc),
+            job_id=job_id,
+        )
+    )
+    if transition_result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, "Proposal is no longer pending")
+    db.add(
+        AgentAudit(
+            project_id=project_id,
+            proposal_id=proposal.id,
+            job_id=job_id,
+            actor=actor.name,
+            action=decision,
+        )
+    )
+    db.commit()
+
+    if job_id:
+        if not dispatch_outbox(job_id):
+            db.add(
+                AgentAudit(
+                    project_id=project_id,
+                    proposal_id=proposal.id,
+                    job_id=job_id,
+                    actor="dispatcher",
+                    action="dispatch_pending",
+                )
+            )
+            db.commit()
+        job = db.get(Job, job_id)
+        db.refresh(job)
+        job_result = _job_result(job)
+    return AgentDecisionResult(id=proposal.id, status=decision, job=job_result)
+
+
+@app.post(
+    "/v1/projects/{project_id}/agent/proposals/{proposal_id}/approve",
+    response_model=AgentDecisionResult,
+)
+def approve_agent_proposal(
+    project_id: str,
+    proposal_id: str,
+    actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "administrator")),
+    db: Session = Depends(db_session),
+):
+    return resolve_agent_proposal(project_id, proposal_id, actor, db, "approved")
+
+
+@app.post(
+    "/v1/projects/{project_id}/agent/proposals/{proposal_id}/reject",
+    response_model=AgentDecisionResult,
+)
+def reject_agent_proposal(
+    project_id: str,
+    proposal_id: str,
+    actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "administrator")),
+    db: Session = Depends(db_session),
+):
+    return resolve_agent_proposal(project_id, proposal_id, actor, db, "rejected")
+
+
+@app.post(
+    "/v1/projects/{project_id}/agent/proposals/{proposal_id}/redispatch",
+    response_model=AgentDecisionResult,
+)
+def redispatch_agent_job(
+    project_id: str,
+    proposal_id: str,
+    actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "administrator")),
+    db: Session = Depends(db_session),
+):
+    reject_agent_service(actor)
+    require_project_role(db, actor, project_id, {"owner", "reviewer"})
+    proposal = db.get(AgentProposal, proposal_id)
+    if not proposal or proposal.project_id != project_id:
+        raise HTTPException(404, "Proposal not found")
+    if proposal.status != "approved" or not proposal.job_id:
+        raise HTTPException(409, "Proposal has no approved job to redispatch")
+    job = db.get(Job, proposal.job_id)
+    if not job or job.project_id != project_id:
+        raise HTTPException(409, "Approved job not found")
+    if job.status != "dispatch_pending":
+        raise HTTPException(409, "Job is not awaiting dispatch")
+
+    outbox = db.get(DispatchOutbox, job.id)
+    if outbox is None:
+        raise HTTPException(409, "Dispatch intent is unavailable")
+    outbox.status = "pending"
+    outbox.available_at = datetime.now(timezone.utc)
+    outbox.lease_expires_at = None
+    db.add(Audit(job_id=job.id, actor=actor.name, action="dispatch_retry_requested"))
+    db.add(
+        AgentAudit(
+            project_id=project_id,
+            proposal_id=proposal.id,
+            job_id=job.id,
+            actor=actor.name,
+            action="redispatch_requested",
+        )
+    )
+    db.commit()
+    if dispatch_outbox(job.id):
+        db.refresh(job)
+        db.add(
+            AgentAudit(
+                project_id=project_id,
+                proposal_id=proposal.id,
+                job_id=job.id,
+                actor=actor.name,
+                action="redispatched",
+            )
+        )
+        db.commit()
+    else:
+        db.add(
+            AgentAudit(
+                project_id=project_id,
+                proposal_id=proposal.id,
+                job_id=job.id,
+                actor="dispatcher",
+                action="dispatch_pending",
+            )
+        )
+        db.commit()
+    db.refresh(job)
+
+    return AgentDecisionResult(
+        id=proposal.id,
+        status=proposal.status,
+        job=JobResult(
+            id=job.id,
+            operation=job.operation,
+            status=job.status,
+            artifact=job.artifact,
+            error=job.error,
+        ),
+    )
     return {"models": [{"id": "wan22-ti2v-5b", "operation": "wan22_t2v", "status": "requires_local_gpu_profile_and_approved_workflow"}]}

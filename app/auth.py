@@ -108,7 +108,6 @@ class LocalAuthProvider(AuthProvider):
                     "reviewer",
                     "publisher",
                     "auditor",
-                    "agent_service",
                 ]
                 if service_name == "chatgpt":
                     base_roles.insert(0, "administrator")

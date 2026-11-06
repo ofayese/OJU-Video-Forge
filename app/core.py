@@ -252,6 +252,29 @@ class WorkflowArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class AgentProposal(Base):
+    __tablename__ = 'agent_proposals'
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), nullable=False, index=True)
+    proposer: Mapped[str] = mapped_column(String(128), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    arguments: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default='pending')
+    approver: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey('jobs.id'), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class AgentAudit(Base):
+    __tablename__ = 'agent_audit_events'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), nullable=False, index=True)
+    proposal_id: Mapped[str] = mapped_column(ForeignKey('agent_proposals.id'), nullable=False, index=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey('jobs.id'), nullable=True)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
 class Audit(Base):
     __tablename__ = "audit_events"
 
