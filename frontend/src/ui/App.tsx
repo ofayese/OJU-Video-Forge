@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type { Project, User, VideoJob, VideoModel } from "../api/types";
+import { ReviewPanel } from "./ReviewPanel";
 
 const SESSION_KEY = "ovf.session";
 
@@ -28,6 +29,10 @@ function errorText(error: unknown): string {
 }
 
 export function App() {
+  return <><ReviewPanel /><AccountApp /></>;
+}
+
+function AccountApp() {
   const [token, setToken] = useState(readSavedSession);
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(Boolean(token));

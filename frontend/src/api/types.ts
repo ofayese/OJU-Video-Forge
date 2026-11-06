@@ -30,6 +30,34 @@ export interface VideoJob {
   status: string;
   artifact: string | null;
   error: string | null;
+  review_contract_version: number;
+  review_version: number;
+  review_enabled: boolean;
+  can_review: boolean;
+  review_artifact: ArtifactIdentity | null;
+}
+
+export interface ArtifactIdentity {
+  id: string;
+  sha256: string;
+}
+
+export interface ReviewDecision {
+  decision: "approved" | "rejected";
+  expected_version: number;
+  expected_artifact: ArtifactIdentity;
+}
+
+export interface JobReview {
+  contract_version: number;
+  job_id: string;
+  actor: string;
+  at: string;
+  artifact_id: string;
+  artifact_sha256: string;
+  expected_version: number;
+  version: number;
+  decision: "approved" | "rejected";
 }
 
 export interface VideoModel {

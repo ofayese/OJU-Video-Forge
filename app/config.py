@@ -25,6 +25,7 @@ class Settings(BaseModel):
     database_url: str = "postgresql+psycopg://forge:forge@localhost:5432/forge"
     redis_url: str = "redis://localhost:6379/0"
     artifact_root: str = "/artifacts"
+    review_workflow_enabled: bool = True
     comfyui_url: str = "http://comfyui:8188"
     forge_openwebui_token: str = Field(default="")
     forge_chatgpt_token: str = Field(default="")
@@ -61,6 +62,7 @@ class Settings(BaseModel):
             "database_url": os.getenv("DATABASE_URL", "postgresql+psycopg://forge:forge@localhost:5432/forge"),
             "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
             "artifact_root": os.getenv("ARTIFACT_ROOT", "/artifacts"),
+            "review_workflow_enabled": os.getenv("REVIEW_WORKFLOW_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
             "comfyui_url": os.getenv("COMFYUI_URL", "http://comfyui:8188"),
             "forge_openwebui_token": os.getenv("FORGE_OPENWEBUI_TOKEN", ""),
             "forge_chatgpt_token": os.getenv("FORGE_CHATGPT_TOKEN", ""),

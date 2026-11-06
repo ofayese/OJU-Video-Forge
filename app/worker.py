@@ -1,10 +1,12 @@
 import os
 import json
 import hashlib
+import uuid
 import subprocess
 from pathlib import Path
 import httpx
 from .core import SessionLocal, ARTIFACT_ROOT, transition, Job
+from .review import generated_checksum
 
 COMFYUI_URL = os.environ.get('COMFYUI_URL', 'http://comfyui:8188')
 WORKFLOW = Path('/workflows/wan22-t2v-api.json')
@@ -21,7 +23,8 @@ def execute(job_id: str):
         job = db.get(Job, job_id)
         if not job or job.status not in ('queued','dispatch_pending'):
             return
-        transition(db, job, 'running', 'worker')
+        if not transition(db, job, 'running', 'worker'):
+            return
         try:
             output_dir = ARTIFACT_ROOT / job.id
             output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
@@ -34,8 +37,11 @@ def execute(job_id: str):
                     '-an','-c:v','libx264','-pix_fmt','yuv420p',
                     '-movflags','+faststart',str(dest)
                 ], check=True, timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                (output_dir / 'SHA256SUMS').write_text(f'{sha256(dest)}  test.mp4\n')
-                transition(db, job, 'awaiting_review', 'worker', artifact=f'{job.id}/test.mp4')
+                artifact = f'{job.id}/test.mp4'
+                checksum = generated_checksum(job, artifact=artifact)
+                (output_dir / 'SHA256SUMS').write_text(f'{checksum}  test.mp4\n')
+                transition(db, job, 'awaiting_review', 'worker', artifact=artifact,
+                           artifact_id=str(uuid.uuid4()), artifact_sha256=checksum)
             elif job.operation == 'wan22_t2v':
                 if not WORKFLOW.is_file():
                     raise RuntimeError('Approved API workflow missing; import and validate before GPU gate')
