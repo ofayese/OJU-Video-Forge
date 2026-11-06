@@ -19,7 +19,7 @@ ENV_FILES = (
     ROOT / ".env.production.example",
 )
 COMPOSE_FILES = tuple(ROOT.glob("compose*.yaml"))
-ACTION_USE = re.compile(r"^\s*uses:\s+([\w.-]+/[\w.-]+)@([^\s#]+)", re.MULTILINE)
+ACTION_USE = re.compile(r"^\s*(?:-\s+)?uses:\s+([\w.-]+/[\w./-]+)@([^\s#]+)", re.MULTILINE)
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
