@@ -6,9 +6,9 @@
 
 - Docker Compose API, RQ worker, Redis, PostgreSQL, optional ComfyUI profile.
 - Working deterministic FFmpeg `render_test` operation (once infrastructure is deployed).
-- Wan 2.2 ComfyUI prompt **submission adapter only**. This does not claim a completed video;
-  an administrator must import an approved ComfyUI *API-format* graph and implement an
-  output reconciler before Gate D can pass.
+- Optional Wan 2.2 ComfyUI generation through a registered API-format workflow,
+  private output retrieval, MP4/FFprobe validation, checksum provenance, and
+  owner-authorized artifact download. GPU/model support is not validated by this code.
 - Alembic initial migration and basic contract tests.
 - API spec auto-generated at `/openapi.json` after startup.
 - Project-owned WAV uploads and asynchronous SRT/WebVTT export; speech model steps
@@ -76,17 +76,29 @@ an external gateway, or public access.
 1. Pin approved ComfyUI git revision and NVIDIA-compatible PyTorch image digest.
 2. Download official Wan 2.2 TI2V 5B FP16, UMT5 FP8 and Wan 2.2 VAE into model paths.
 3. From ComfyUI export an API-format workflow to
-   `config/workflows/wan22-t2v-api.json` and map exact node IDs.
-4. Add a reconciler that checks `/history/{prompt_id}`, retrieves only allowlisted
-   output filenames using ComfyUI `/view`, validates media and archives it.
-5. Reject promotion until a full MP4 and evidence bundle is produced.
+   `config/workflows/wan22-t2v-api.json`. Configure `WAN_NODE_MAPPING` for
+   `positive_prompt`, `seed`, `width`, `height`, `frames`, and `fps` using exact
+   `[node_id, input_name]` pairs from that workflow. No graph or model is bundled.
+4. For an explicitly approved local GPU run, set `COMFYUI_ENABLED=true` and start
+   with `docker compose --profile gpu -f compose.yaml -f compose.gpu.yaml up -d`.
+   The GPU queue is separate from CPU rendering and a Redis lock limits generation
+   to one job at a time across workers.
+5. The worker polls `/history/{prompt_id}`, downloads at most one output through
+   ComfyUI `/view`, requires FFprobe-validated MP4 metadata, and writes private
+   checksum/provenance evidence. The owner retrieves it from the authenticated
+   `/v1/jobs/{job_id}/artifact` endpoint; downloads and up to three explicit
+   retry-by-new-job attempts are audited.
+6. Run a real generation only on the approved local environment and record the
+   output/evidence separately. A configuration check or CPU-only test is not GPU
+   readiness evidence.
 
 ## Gaps before production
 
 - OAuth/OIDC JWT validation with JWKS, external reverse-proxy hardening and HTTPS.
 - True end-user identities (current service tokens distinguish only service clients).
 - Dispatch reconciler, idempotency constraint, robust cancellations and limits.
-- GPU output reconciliation and checksum/FFprobe verification.
+- Real GPU/model end-to-end validation and evidence; the adapter contract tests do
+  not establish model, workflow, driver, or hardware compatibility.
 - Tenant/project RBAC, signed artifact download, backup automation and retention.
 - Pin and scan all images and dependencies; audit log export and alerting.
 - Durable outbox and deployment smoke/negative tests.
@@ -108,8 +120,9 @@ and registered separately.
 ## Known gaps in this v0.1 scaffold
 
 - No public gateway, TLS, or per-user OAuth. Do NOT publish `api` directly to the internet.
-- WAN job submission is an integration stub, not a completed video renderer.
+- Wan generation remains disabled by default and requires an administrator-approved
+  local workflow, full node mapping, private ComfyUI, and compatible models.
 - Rendering only supports a deterministic test clip, not arbitrary multimedia editing.
 - DB reconciliation, event hashing, idempotency, cancellation, review workflows,
-  quotas, backup/restore and artifact serving are not implemented.
-- Test coverage is static/unit only; no Docker or GPU test was executed here.
+  quotas, backup/restore, and project-level artifact access are not implemented.
+- No real GPU/model run or Docker service integration was executed here.

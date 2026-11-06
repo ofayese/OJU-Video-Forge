@@ -135,11 +135,16 @@ function Workspace({
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [jobs, setJobs] = useState<Record<string, VideoJob>>({});
   const [jobError, setJobError] = useState("");
-  const [checkingJob, setCheckingJob] = useState(false);
   const [artifactError, setArtifactError] = useState("");
+  const [artifactLoading, setArtifactLoading] = useState(false);
+  const [checkingJob, setCheckingJob] = useState(false);
   const [artifactBlob, setArtifactBlob] = useState<Blob | null>(null);
   const [artifactUrl, setArtifactUrl] = useState("");
   const [retrievingArtifact, setRetrievingArtifact] = useState(false);
+  const [legacyJobId, setLegacyJobId] = useState("");
+  const [legacyJob, setLegacyJob] = useState<VideoJob | null>(null);
+  const [legacyJobError, setLegacyJobError] = useState("");
+  const [legacyJobLoading, setLegacyJobLoading] = useState(false);
   const job = jobs[selectedProjectId] ?? null;
   const projectActionsBusy = loading || creating || uploading || submitting || checkingJob || retrievingArtifact;
 
@@ -316,11 +321,45 @@ function Workspace({
     setArtifactBlob(null);
     setRetrievingArtifact(true);
     try {
-      setArtifactBlob(await api.getArtifact(selectedProjectId, job.artifact_id, token));
+      setArtifactBlob(await api.getProjectArtifact(selectedProjectId, job.artifact_id, token));
     } catch (error) {
       setArtifactError(errorText(error));
     } finally {
       setRetrievingArtifact(false);
+    }
+  }
+
+  async function downloadArtifact(job: VideoJob) {
+    setArtifactLoading(true);
+    setArtifactError("");
+    try {
+      const blob = await api.getArtifact(job.id, token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "video.mp4";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (error) {
+      setArtifactError(errorText(error));
+    } finally {
+      setArtifactLoading(false);
+    }
+  }
+
+  async function lookupLegacyJob(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLegacyJobLoading(true);
+    setLegacyJobError("");
+    setLegacyJob(null);
+    try {
+      setLegacyJob(await api.getJob(legacyJobId.trim(), token));
+    } catch (error) {
+      setLegacyJobError(errorText(error));
+    } finally {
+      setLegacyJobLoading(false);
     }
   }
 
@@ -502,6 +541,44 @@ function Workspace({
                   </div>
                 )}
               </>
+            )}
+            {artifactError && <p className="notice error" role="alert">{artifactError}</p>}
+            <form className="inline-form" onSubmit={lookupLegacyJob}>
+              <label className="sr-only" htmlFor="legacy-job-id">Generated job ID</label>
+              <input
+                id="legacy-job-id"
+                value={legacyJobId}
+                onChange={(event) => setLegacyJobId(event.target.value)}
+                placeholder="Look up a generated job ID"
+                required
+              />
+              <button className="secondary" type="submit" disabled={legacyJobLoading || !legacyJobId.trim()}>
+                {legacyJobLoading ? "Looking…" : "Look up generated job"}
+              </button>
+            </form>
+            {legacyJobError && <p className="notice error" role="alert">{legacyJobError}</p>}
+            {legacyJob && (
+              <dl className="job-result" aria-live="polite">
+                <div><dt>Generated job</dt><dd>{legacyJob.id}</dd></div>
+                {legacyJob.operation && <div><dt>Operation</dt><dd>{legacyJob.operation}</dd></div>}
+                <div><dt>Status</dt><dd><span className="tag">{legacyJob.status.replaceAll("_", " ")}</span></dd></div>
+                {legacyJob.error && <div><dt>Reported error</dt><dd>{legacyJob.error}</dd></div>}
+                {legacyJob.artifact && (
+                  <div>
+                    <dt>Artifact</dt>
+                    <dd>
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => void downloadArtifact(legacyJob)}
+                        disabled={artifactLoading}
+                      >
+                        {artifactLoading ? "Downloading…" : "Download video"}
+                      </button>
+                    </dd>
+                  </div>
+                )}
+              </dl>
             )}
           </section>
         </section>

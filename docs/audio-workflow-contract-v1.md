@@ -6,7 +6,8 @@ reads are checked server-side against that owner. Uploads and outputs are stored
 the configured private `ARTIFACT_ROOT` using server-generated path keys. Client
 filenames and paths are never used as storage paths.
 Compose mounts the same host `${FORGE_DATA}/artifacts` directory into both API and
-worker at `/artifacts`; both services use that container-local path.
+worker at `ARTIFACT_ROOT` (default `/artifacts`); both services use that
+container-local path.
 On POSIX, the storage root and generated directories are restricted to mode `0700`
 and files to `0600`; Windows deployments must enforce equivalent ACLs for both
 service identities.

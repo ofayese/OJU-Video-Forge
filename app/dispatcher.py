@@ -10,12 +10,14 @@ from .core import Audit, DispatchOutbox, Job, SessionLocal, queue, transition
 
 logger = logging.getLogger(__name__)
 QUEUE_JOB_TIMEOUT = 3600
+GPU_QUEUE_JOB_TIMEOUT = 7200
 DISPATCH_LEASE_SECONDS = 60
 STALE_WORKER_SECONDS = QUEUE_JOB_TIMEOUT + 300
+GPU_STALE_WORKER_SECONDS = GPU_QUEUE_JOB_TIMEOUT + 300
 
 
 def _utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def dispatch_outbox(job_id: str) -> bool:
@@ -48,7 +50,12 @@ def dispatch_outbox(job_id: str) -> bool:
         db.commit()
 
     try:
-        work_queue = queue()
+        work_queue = queue("gpu") if job.operation == "wan22_t2v" else queue()
+        job_timeout = (
+            GPU_QUEUE_JOB_TIMEOUT
+            if job.operation == "wan22_t2v"
+            else QUEUE_JOB_TIMEOUT
+        )
         existing = work_queue.fetch_job(job_id)
         if existing is None:
             try:
@@ -56,7 +63,7 @@ def dispatch_outbox(job_id: str) -> bool:
                     "app.worker.execute",
                     job_id,
                     job_id=job_id,
-                    job_timeout=QUEUE_JOB_TIMEOUT,
+                    job_timeout=job_timeout,
                 )
             except ValueError:
                 if work_queue.fetch_job(job_id) is None:
@@ -156,13 +163,18 @@ def dispatch_due(limit: int = 100) -> int:
 
 
 def recover_stale_jobs() -> int:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_WORKER_SECONDS)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=STALE_WORKER_SECONDS)
+    gpu_cutoff = now - timedelta(seconds=GPU_STALE_WORKER_SECONDS)
     recovered = 0
     with SessionLocal() as db:
         jobs = db.scalars(
             select(Job).where(
                 Job.status.in_(("running", "cancel_requested")),
-                Job.updated_at < cutoff,
+                or_(
+                    (Job.operation == "wan22_t2v") & (Job.updated_at < gpu_cutoff),
+                    (Job.operation != "wan22_t2v") & (Job.updated_at < cutoff),
+                ),
             )
         ).all()
         for job in jobs:
@@ -175,10 +187,9 @@ def recover_stale_jobs() -> int:
 
 
 def recover_undelivered_jobs(limit: int = 100) -> int:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_WORKER_SECONDS)
     with SessionLocal() as db:
         candidates = db.execute(
-            select(Job.id)
+            select(Job.id, Job.operation)
             .join(DispatchOutbox, DispatchOutbox.job_id == Job.id)
             .where(
                 Job.status == "queued",
@@ -186,14 +197,20 @@ def recover_undelivered_jobs(limit: int = 100) -> int:
             )
             .order_by(Job.updated_at)
             .limit(limit)
-        ).scalars().all()
+        ).all()
 
     if not candidates:
         return 0
 
-    work_queue = queue()
     recovered = 0
-    for job_id in candidates:
+    for job_id, operation in candidates:
+        work_queue = queue("gpu") if operation == "wan22_t2v" else queue()
+        timeout = (
+            GPU_STALE_WORKER_SECONDS
+            if operation == "wan22_t2v"
+            else STALE_WORKER_SECONDS
+        )
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=timeout)
         delivery = work_queue.fetch_job(job_id)
         delivery_status = None
         if delivery is not None:
@@ -207,7 +224,7 @@ def recover_undelivered_jobs(limit: int = 100) -> int:
             if (
                 job is None
                 or job.status != "queued"
-                or (delivery is None and job.updated_at >= cutoff)
+                or (delivery is None and _utc(job.updated_at) >= cutoff)
             ):
                 continue
             recovered += transition(
