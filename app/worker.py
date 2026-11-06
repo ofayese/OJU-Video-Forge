@@ -49,7 +49,9 @@ def execute(job_id: str):
                 engine = RenderEngine(inputs, font='font.ttf' if (inputs / 'font.ttf').exists() else None)
                 result = engine.render(json.dumps(job.spec['timeline'], ensure_ascii=False,
                                                   separators=(',', ':')))
-                with (output_dir / 'provenance.json').open('x', encoding='utf-8') as file:
+                provenance_path = output_dir / 'provenance.json'
+                fd = os.open(provenance_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, 'w', encoding='utf-8') as file:
                     json.dump(result.provenance, file, sort_keys=True, indent=2)
                 transition(db, job, 'awaiting_review', 'worker',
                            artifact=str(result.path.relative_to(root)))
