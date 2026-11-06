@@ -168,7 +168,13 @@ class Audit(Base):
 
 
 def queue():
-    return Queue("video", connection=Redis.from_url(REDIS_URL), default_timeout=3600)
+    return Queue(
+        "video",
+        connection=Redis.from_url(
+            REDIS_URL, socket_connect_timeout=5, socket_timeout=5
+        ),
+        default_timeout=3600,
+    )
 
 
 def transition(db, job, status, actor, error=None, artifact=None):
