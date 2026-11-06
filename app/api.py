@@ -1,15 +1,20 @@
+import asyncio
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from psycopg import AsyncConnection
 from redis import Redis
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from .auth import Actor, require_roles
-from .core import Audit, Job, REDIS_URL, SessionLocal, engine, queue
+from .core import Audit, DATABASE_URL, Job, REDIS_URL, SessionLocal, queue
 
 app = FastAPI(title="OJU Video Forge", version="0.1.0", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
+
+DATABASE_PROBE_TIMEOUT_SECONDS = 1.5
 
 
 class CreateJob(BaseModel):
@@ -41,15 +46,31 @@ def live():
     return {"ok": True}
 
 
+async def _database_ready():
+    try:
+        async with asyncio.timeout(DATABASE_PROBE_TIMEOUT_SECONDS):
+            connection = None
+            try:
+                connection = await AsyncConnection.connect(
+                    make_url(DATABASE_URL)
+                    .set(drivername="postgresql")
+                    .render_as_string(hide_password=False),
+                    connect_timeout=1,
+                    options="-c statement_timeout=1000",
+                )
+                await connection.execute("SELECT 1")
+            finally:
+                if connection is not None:
+                    await connection.close()
+        return True
+    except Exception:
+        return False
+
+
 @app.get("/health/ready", include_in_schema=False)
 def ready():
     dependencies = {"database": False, "redis": False}
-    try:
-        with engine.connect() as connection:
-            connection.exec_driver_sql("SELECT 1")
-        dependencies["database"] = True
-    except Exception:
-        pass
+    dependencies["database"] = asyncio.run(_database_ready())
     redis_client = None
     try:
         redis_client = Redis.from_url(

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -58,18 +59,23 @@ def test_readiness_requires_only_local_database_and_redis(monkeypatch):
     from fastapi.testclient import TestClient
 
     class Connection:
-        def exec_driver_sql(self, statement):
+        closed = False
+
+        async def execute(self, statement):
             assert statement == "SELECT 1"
 
-    class Engine:
-        def connect(self):
-            return self
+        async def close(self):
+            self.closed = True
 
-        def __enter__(self):
-            return Connection()
+    connection = Connection()
 
-        def __exit__(self, *args):
-            return False
+    class AsyncConnection:
+        @staticmethod
+        async def connect(url, *, connect_timeout, options):
+            assert url.startswith("postgresql://")
+            assert connect_timeout == 1
+            assert options == "-c statement_timeout=1000"
+            return connection
 
     class RedisConnection:
         def ping(self):
@@ -78,11 +84,12 @@ def test_readiness_requires_only_local_database_and_redis(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(api, "engine", Engine())
+    monkeypatch.setattr(api, "AsyncConnection", AsyncConnection)
     monkeypatch.setattr(api.Redis, "from_url", lambda *args, **kwargs: RedisConnection())
     response = TestClient(api.app).get("/health/ready")
 
     assert response.status_code == 200
+    assert connection.closed
     assert response.json() == {
         "ready": True,
         "required": {"database": True, "redis": True},
@@ -93,17 +100,42 @@ def test_readiness_requires_only_local_database_and_redis(monkeypatch):
 def test_readiness_fails_when_required_dependency_is_down(monkeypatch):
     from fastapi.testclient import TestClient
 
-    class BrokenEngine:
-        def connect(self):
+    class BrokenConnection:
+        @staticmethod
+        async def connect(*args, **kwargs):
             raise OSError("private connection detail")
 
-    monkeypatch.setattr(api, "engine", BrokenEngine())
+    monkeypatch.setattr(api, "AsyncConnection", BrokenConnection)
     monkeypatch.setattr(api.Redis, "from_url", lambda *args, **kwargs: object())
     response = TestClient(api.app).get("/health/ready")
 
     assert response.status_code == 503
     assert "private connection detail" not in response.text
     assert response.json()["optional"]["gpu"] == "not_required"
+
+
+def test_readiness_closes_database_connection_when_probe_times_out(monkeypatch):
+    class Connection:
+        closed = False
+
+        async def execute(self, statement):
+            await asyncio.Event().wait()
+
+        async def close(self):
+            self.closed = True
+
+    connection = Connection()
+
+    class AsyncConnection:
+        @staticmethod
+        async def connect(*args, **kwargs):
+            return connection
+
+    monkeypatch.setattr(api, "AsyncConnection", AsyncConnection)
+    monkeypatch.setattr(api, "DATABASE_PROBE_TIMEOUT_SECONDS", 0.01)
+
+    assert asyncio.run(api._database_ready()) is False
+    assert connection.closed
 
 
 def test_recovery_requeues_interrupted_job_once(database):
