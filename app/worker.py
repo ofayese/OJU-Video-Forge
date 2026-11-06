@@ -78,8 +78,9 @@ def execute(job_id: str):
         if job.status == 'cancel_requested':
             transition(db, job, 'cancelled', 'worker')
             return
-        if not transition(db, job, 'running', 'worker'):
-            return
+        while not transition(db, job, 'running', 'worker'):
+            if job.status not in ('queued', 'dispatch_pending'):
+                return
         try:
             if _cancel_requested(job_id):
                 raise JobCancelled()
