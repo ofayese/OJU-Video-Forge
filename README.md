@@ -5,6 +5,8 @@
 ## Included
 
 - Docker Compose API, RQ worker, Redis, PostgreSQL, optional ComfyUI profile.
+- Local account sessions and backend-enforced project membership/roles under `/v1`;
+  see [the API contract](docs/authentication-projects-v1.md).
 - Working deterministic FFmpeg `render_test` operation (once infrastructure is deployed).
 - Optional Wan 2.2 ComfyUI generation through a registered API-format workflow,
   private output retrieval, MP4/FFprobe validation, checksum provenance, and
@@ -33,9 +35,8 @@ Use Docker Desktop WSL2 backend with GPU support. Keep `$FORGE_DATA` inside the 
 ext4 filesystem, not under `/mnt/c`.
 
 ```bash
-sudo mkdir -p /srv/video-forge/{artifacts,models,comfy-input,comfy-output}
+sudo mkdir -p /srv/video-forge/artifacts
 sudo chown -R 10001:10001 /srv/video-forge/artifacts
-# Ensure model directories are writable by the configured ComfyUI image user.
 docker network inspect ai-net >/dev/null || docker network create ai-net
 cp .env.example .env
 # Generate separate DB and bearer secrets; edit .env; chmod 600 .env
@@ -75,6 +76,29 @@ an external gateway, or public access.
 
 ## AI gate
 
+The optional `gpu` profile runs ComfyUI as UID/GID `10001:10001`, with all
+Linux capabilities dropped and no published port. Before enabling it, inspect
+`${FORGE_DATA:-/srv/video-forge}/{models,comfy-input,comfy-output}` and arrange
+for UID 10001 to traverse the parent directories, read model files, and write
+to the input and output directories. ComfyUI may also need to create model
+subdirectories on startup, so the models directory must be writable. For new,
+empty directories an administrator can create them with:
+
+```bash
+sudo install -d -o 10001 -g 10001 -m 750 \
+  "${FORGE_DATA:-/srv/video-forge}/models" \
+  "${FORGE_DATA:-/srv/video-forge}/comfy-input" \
+  "${FORGE_DATA:-/srv/video-forge}/comfy-output"
+```
+
+For existing data, inspect ownership and permissions first; grant only the
+necessary access to the relevant directories and model files using targeted
+ownership, group permissions, or ACLs. Do not recursively change ownership or
+permissions of existing data. Account for user-namespace remapping if enabled.
+Disable the GPU profile to roll back; preserve existing models and media.
+Temporary files and previews are stored in the container's writable home and
+are not preserved when the container is removed.
+
 1. Pin approved ComfyUI git revision and NVIDIA-compatible PyTorch image digest.
 2. Download official Wan 2.2 TI2V 5B FP16, UMT5 FP8 and Wan 2.2 VAE into model paths.
 3. From ComfyUI export an API-format workflow to
@@ -97,11 +121,12 @@ an external gateway, or public access.
 ## Gaps before production
 
 - OAuth/OIDC JWT validation with JWKS, external reverse-proxy hardening and HTTPS.
-- True end-user identities (current service tokens distinguish only service clients).
 - Dispatch reconciler, idempotency constraint, robust cancellations and limits.
+- GPU output reconciliation and checksum/FFprobe verification.
+- Signed artifact download, backup automation and retention.
 - Real GPU/model end-to-end validation and evidence; the adapter contract tests do
   not establish model, workflow, driver, or hardware compatibility.
-- Tenant/project RBAC, signed artifact download, backup automation and retention.
+- Tenant-wide RBAC beyond local project membership, backup automation and retention.
 - Pin and scan all images and dependencies; audit log export and alerting.
 - Durable outbox and deployment smoke/negative tests.
 
@@ -194,9 +219,11 @@ and registered separately.
 
 ## Known gaps in this v0.1 scaffold
 
-- No public gateway, TLS, or per-user OAuth. Do NOT publish `api` directly to the internet.
-- Wan generation remains disabled by default and requires an administrator-approved
-  local workflow, full node mapping, private ComfyUI, and compatible models.
+- No public gateway, TLS, or external OAuth/OIDC. Do NOT publish `api` directly to the internet.
+- Local password sessions do not provide external identity federation.
+- WAN job submission remains an integration stub; generation is disabled by default
+  and requires an administrator-approved workflow, full node mapping, private
+  ComfyUI, and compatible models.
 - Rendering only supports a deterministic test clip, not arbitrary multimedia editing.
 - DB reconciliation, event hashing, project review integration, quotas, and
   backup/restore are not implemented.
@@ -204,4 +231,6 @@ and registered separately.
   [testing evidence](docs/development/TESTING-STRATEGY.md). No service/GPU acceptance
   is claimed by these tests.
 - Review is owner-scoped and is not project-integrated or independent human approval.
+- The complete authenticated project-to-render-to-authorized-artifact workflow,
+  database reconciliation, event hashing, quotas, and backup/restore remain incomplete.
 - No real GPU/model run or Docker service integration was executed here.
