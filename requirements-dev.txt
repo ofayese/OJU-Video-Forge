@@ -3,7 +3,8 @@ pip-tools==7.6.2
 colorama==0.4.6
 setuptools==84.2.1
 pytest==9.2.0
-ruff==0.17.3
+# Hold at 0.14.4; 0.17.3 reports 36 existing lint findings. Backend maintainers: revisit by 2026-12-06.
+ruff==0.14.4
 pip-audit==2.10.1
 openapi-spec-validator==0.9.0
 pydantic-settings==2.16.2
