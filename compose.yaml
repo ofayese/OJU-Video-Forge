@@ -65,6 +65,24 @@ services:
     networks: [control, inference]
     restart: unless-stopped
 
+  dispatcher:
+    build: {context: ., dockerfile: services/api/Dockerfile}
+    <<: *common
+    command: ["python", "-m", "app.dispatcher"]
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
+      DB_PASSWORD: ${DB_PASSWORD:-forge}
+      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
+      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [control]
+    restart: unless-stopped
+
   comfyui:
     profiles: [gpu]
     build: {context: ., dockerfile: services/comfyui/Dockerfile}

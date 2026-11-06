@@ -29,13 +29,13 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: forge
+          POSTGRES_DB: forge_test
           POSTGRES_USER: forge
           POSTGRES_PASSWORD: ci-only-not-a-secret
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U forge -d forge"
+          --health-cmd "pg_isready -U forge -d forge_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -50,7 +50,7 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
@@ -64,12 +64,58 @@ jobs:
           pip-audit -r requirements-dev.lock.txt
       - name: Lint, compile, test, and validate OpenAPI
         run: |
+          export PGPASSWORD="$DB_PASSWORD"
+          export DATABASE_URL="postgresql+psycopg://forge@localhost:5432/forge_test"
+          export REDIS_URL="redis://localhost:6379/15"
           ruff check app tests alembic scripts
           python -m compileall -q app tests alembic scripts
           python -m pytest -q -p no:cacheprovider
           python scripts/export_openapi.py --output "$RUNNER_TEMP/openapi.json"
       - name: Validate isolated PostgreSQL migration and Redis connectivity
         run: |
+          export PGPASSWORD="$DB_PASSWORD"
+          export DATABASE_URL="postgresql+psycopg://forge@localhost:5432/forge_test"
+          export REDIS_URL="redis://localhost:6379/15"
+          python -m alembic upgrade 0001
+          python - <<'PY'
+          from datetime import datetime, timezone
+          from sqlalchemy import text
+          from app.core import engine
+
+          now = datetime.now(timezone.utc)
+          with engine.begin() as connection:
+              connection.execute(
+                  text(
+                      "INSERT INTO jobs (id, owner, operation, status, spec, created_at, updated_at) "
+                      "VALUES (:id, :owner, :operation, :status, CAST(:spec AS json), :created, :updated)"
+                  ),
+                  {
+                      "id": "migration-legacy-job",
+                      "owner": "migration-test",
+                      "operation": "render_test",
+                      "status": "queued",
+                      "spec": '{"operation": "render_test"}',
+                      "created": now,
+                      "updated": now,
+                  },
+              )
+              connection.execute(
+                  text(
+                      "INSERT INTO audit_events (job_id, actor, action, at) "
+                      "VALUES (:job_id, :actor, :action, :at)"
+                  ),
+                  {
+                      "job_id": "migration-legacy-job",
+                      "actor": "migration-test",
+                      "action": "queued",
+                      "at": now,
+                  },
+              )
+          PY
           python -m alembic upgrade head
-          python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events'} <= tables, tables"
-          python -c "from redis import Redis; assert Redis.from_url('redis://localhost:6379/0').ping()"
+          python -c "from sqlalchemy import text; from app.core import engine; assert engine.connect().execute(text(\"SELECT status FROM jobs WHERE id='migration-legacy-job'\")).scalar_one() == 'queued'"
+          python -m alembic downgrade 0001
+          python -c "from sqlalchemy import text; from app.core import engine; assert engine.connect().execute(text(\"SELECT count(*) FROM jobs WHERE id='migration-legacy-job'\")).scalar_one() == 1"
+          python -m alembic upgrade head
+          python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events','projects','media_assets','dispatch_outbox'} <= tables, tables"
+          python -c "from redis import Redis; assert Redis.from_url('redis://localhost:6379/15').ping()"
