@@ -18,11 +18,10 @@ describe("ApiClient", () => {
     const result = await client.listModels("session-token");
 
     expect(result.models[0]?.id).toBe("wan22-ti2v-5b");
-    expect(fetcher).toHaveBeenCalledWith(
-      "http://localhost:8000/v1/models",
-      expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: "Bearer session-token" }),
-      }),
+    const request = fetcher.mock.calls[0];
+    expect(request?.[0]).toBe("http://localhost:8000/v1/models");
+    expect(new Headers(request?.[1]?.headers).get("Authorization")).toBe(
+      "Bearer session-token",
     );
   });
 
