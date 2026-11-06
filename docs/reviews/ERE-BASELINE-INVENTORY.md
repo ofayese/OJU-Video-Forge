@@ -2,6 +2,7 @@
 
 **Observed:** 2026-11-05  
 **State:** Read-only baseline; no application files changed during discovery.
+**Classification:** Historical public summary; machine-specific inventory details have been sanitized. Later security remediation is recorded in [the security validation report](./ERE-SECURITY-VALIDATION.md).
 
 ## Repository
 
@@ -31,7 +32,7 @@
 
 ## Existing host observations
 
-The local host reported hostname `ere`, Windows 11 Enterprise, an Intel Core Ultra 9 285, 31.38 GiB RAM, RTX 5070 Ti with 16,303 MiB VRAM, Docker Desktop Linux engine, and Ollama 0.40.14. ComfyUI refused local connections on port 8188. The hostname is consistent with ERE, but organizational assignment was not independently verified. See [the environment inventory](../operations/ere-environment-inventory.md).
+The local development host used Windows and Docker Desktop. Its organizational assignment was not independently verified. OJU Video Forge service health and GPU execution were not verified. Machine-specific hardware, local service, and network details are intentionally omitted; see the [sanitized environment summary](../operations/ere-environment-inventory.md).
 
 ## Verification commands reported
 

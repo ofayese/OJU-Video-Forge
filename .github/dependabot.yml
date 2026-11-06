@@ -1,0 +1,40 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: wednesday
+    open-pull-requests-limit: 5
+    groups:
+      python-patch-minor:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: wednesday
+    open-pull-requests-limit: 5
+    groups:
+      npm-patch-minor:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor
+
+  - package-ecosystem: github-actions
+    directory: /.github/workflows
+    schedule:
+      interval: weekly
+      day: wednesday
+    open-pull-requests-limit: 5
+    groups:
+      actions-patch-minor:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor

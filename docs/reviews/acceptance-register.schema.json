@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ofayese/OJU-Video-Forge/blob/main/docs/reviews/acceptance-register.schema.json",
+  "title": "OJU Video Forge current acceptance gates",
+  "type": "object",
+  "required": ["current_gates"],
+  "properties": {
+    "current_gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "gate_id",
+          "requirement",
+          "status",
+          "evidence_reference",
+          "commit_sha",
+          "test_command",
+          "execution_environment",
+          "exit_code",
+          "validation_date",
+          "remaining_gaps"
+        ],
+        "properties": {
+          "gate_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "requirement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": ["PASS", "FAIL", "PARTIAL", "BLOCKED", "NOT_VERIFIED"]
+          },
+          "evidence_reference": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "test_command": {
+            "type": ["string", "null"]
+          },
+          "execution_environment": {
+            "type": ["string", "null"]
+          },
+          "exit_code": {
+            "type": ["integer", "null"]
+          },
+          "validation_date": {
+            "type": ["string", "null"],
+            "format": "date"
+          },
+          "remaining_gaps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": true
+}

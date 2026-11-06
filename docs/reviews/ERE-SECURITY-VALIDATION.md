@@ -1,13 +1,13 @@
 # ERE Security Validation
 
-**Status:** PARTIAL. The nine original Dependabot alerts are fixed on `main`. The FastAPI/Starlette hardening is validated on a separate local branch, but branch publication was blocked and no pull request was created. This is not a full application security certification.
+**Status:** PARTIAL. The nine original Dependabot alerts and the FastAPI/Starlette follow-up are merged to `main`. PR [#4](https://github.com/ofayese/OJU-Video-Forge/pull/4) merged as `8e462ec233c3cecc1fcf225a0f02e0d551ef50f8`. This is not a full application security certification.
 
 ## Remediation status
 
 | Scope | Versions | Result |
 |---|---|---|
 | Original Dependabot remediation | `python-multipart` `0.0.20` → `0.0.31`; Vitest `^2.1.8` → `^4.1.11` (lockfile resolves `4.1.12`) | PR [#3](https://github.com/ofayese/OJU-Video-Forge/pull/3), head `c4b3e9217abb37c5ceaf037c2d7f95d59568354e`, merged as `486e387931dd7c8b022d14348f5f9ec6749f432c`. GitHub reports 9 fixed alerts and 0 open alerts. Validation used Node `26.12.1`, Vite `6.4.5`, React `19.3.1`, and TypeScript `5.9.3`. |
-| FastAPI/Starlette follow-up | FastAPI `0.115.12` → `0.162.0`; Starlette `0.46.2` → `1.10.0` | Local branch `security/fastapi-starlette-hardening-2026-11`, code commit `5a81fee41b8e723affe3f53132e2dd4540b9c498`; push was denied and no PR was created. |
+| FastAPI/Starlette follow-up | FastAPI `0.115.12` → `0.162.0`; Starlette `0.46.2` → `1.10.0` | PR [#4](https://github.com/ofayese/OJU-Video-Forge/pull/4), branch `security/fastapi-starlette-hardening-2026-11`, head `1409fc45eceba6602649a5a6fbe1542ee18a46d8`; merged as `8e462ec233c3cecc1fcf225a0f02e0d551ef50f8`. |
 
 FastAPI `0.162.0` metadata requires Starlette `>=0.46.0` and Pydantic `>=2.9.0`; the repository's Pydantic `2.11.3` satisfies that constraint. Starlette `1.10.0` requires Python `>=3.11`; ERE and the API container use Python 3.12. The effective Python minimum is therefore 3.11. No Python 3.10 support was declared by the repository.
 
@@ -53,9 +53,9 @@ The Windows newline assertion was corrected to emit no line ending, preserving t
 
 The skipped test is the real FFmpeg/FFprobe rendering fixture because those executables are unavailable in the test environment. Starlette emits a `DeprecationWarning` because its `TestClient` currently uses the repository's pinned `httpx`; tests pass, but a future test-client dependency update may be needed.
 
-## Publication blocker
+## Pull request status
 
-`gh auth status` confirmed the active GitHub CLI account `ofayese`, but `git push --set-upstream origin security/fastapi-starlette-hardening-2026-11` failed with exit 128 because Git could not prompt for or obtain an HTTPS password. The branch remains local and the pull request was not created. No credential stores were changed and no alternate publishing route was attempted.
+GitHub reports PR #4 as merged on 2026-11-06T03:59:03Z. Its code and evidence commits are preserved on `main`.
 
 ## Remaining release-readiness limits
 

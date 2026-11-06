@@ -3,10 +3,11 @@
 **Outcome:** PARTIAL IMPLEMENTATION — BLOCKED  
 **Observed:** 2026-11-05  
 **Scope:** Read-only repository and local-host baseline. No ARABA, AKOLE, AD, or other remote infrastructure was accessed.
+**Classification:** Historical snapshot before the merged security-remediation PRs; machine-specific host details have been sanitized. See [current security validation](./ERE-SECURITY-VALIDATION.md).
 
 ## Summary
 
-The repository is an early scaffold with limited API/job/auth components and two passing baseline tests. Partial renderer, ComfyUI adapter, and React/TypeScript frontend files were added before the write tasks were stopped. The local machine reports hostname `ere`, an RTX 5070 Ti with 16,303 MiB VRAM, Docker Desktop and Ollama; organizational ERE identity was not independently verified. ComfyUI did not respond on the local port 8188 endpoint.
+At this historical snapshot, the repository had limited API/job/auth components and partial renderer, ComfyUI adapter, and React/TypeScript frontend files. The local Windows/Docker environment's organizational assignment was not independently verified. ComfyUI and GPU execution were not verified.
 
 The requested recoverable baseline archive could not be created because permission was denied. No alternate archive was attempted. A backend source-edit request was denied because the checkpoint was absent; the remaining write agents were stopped after their initial new-file additions. No denied action was retried or routed through another write method.
 
@@ -16,7 +17,7 @@ The requested recoverable baseline archive could not be created because permissi
 2. **Files added after baseline:** `app/rendering.py`, `tests/test_rendering.py`, `docs/rendering-contract-v1.md`, `app/comfyui.py`, and new `frontend/` files. These are incomplete and not integrated. Backend auth/project source changes were not made. Evidence documents are listed below.
 3. **Implemented capabilities observed:** typed configuration; shared-token API authentication; job/audit persistence; basic RQ dispatch; deterministic test-clip path; ComfyUI prompt submission path; Compose profiles.
 4. **Database migrations:** Initial migration exists; live database migration not run.
-5. **Docker services:** Host Docker Desktop and unrelated local containers were observed. OJU Video Forge service health/status was not verified. Base+development and base+GPU Compose configurations both validated with `docker compose ... config --quiet` (exit code 0); no services were started.
+5. **Docker services:** A local Docker Desktop environment was observed. OJU Video Forge service health/status was not verified. Base+development and base+GPU Compose configurations both validated with `docker compose ... config --quiet` (exit code 0); no services were started.
 6. **API/backend tests:** Baseline `python -m pytest -q` → 2 passed. Focused renderer/contract tests → 60 passed, 1 failed, 1 skipped; no auth, project API, migration, or database integration test passed. A later full-suite run was denied and not retried.
 7. **Frontend tests:** `npm run typecheck`, `npm test`, and `npm run build` did not pass because React/Vitest dependencies were missing and TypeScript errors were reported. The dependency installation request was denied because it suppressed dependency auditing; no alternate install was attempted.
 8. **FFmpeg rendering:** Focused tests reported 60 passed, 1 failed, 1 skipped; the failure was a Windows CRLF/LF assertion. No playable MP4, FFprobe evidence, or artifact checksum. `ffmpeg` and `ffprobe` were not found on the host `PATH`; container availability was not tested.
