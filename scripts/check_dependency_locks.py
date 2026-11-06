@@ -33,6 +33,7 @@ def main() -> int:
                     "compile",
                     "--quiet",
                     "--generate-hashes",
+                    "--allow-unsafe",
                     "--constraint",
                     str(committed),
                     "--output-file",
