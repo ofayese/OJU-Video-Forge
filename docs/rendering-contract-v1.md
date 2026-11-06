@@ -4,6 +4,9 @@
 accepts JSON text through `render(payload)` and returns a `RenderResult` containing
 the generated MP4 path, byte size, SHA-256, duration, dimensions, frame rate and
 codec names. It imports no API, database, worker, or network client.
+`RenderResult.provenance` also records the canonical timeline SHA-256, SHA-256 of
+each resolved input and configured font, preset name and version, FFmpeg and
+FFprobe version lines and full version-output hashes, and output SHA-256.
 
 ```json
 {
@@ -69,6 +72,31 @@ codec names. It imports no API, database, worker, or network client.
 - Encoder settings, timestamps, metadata removal, threads and CPU feature settings
   are fixed. Byte determinism targets identical media/font and identical pinned
   FFmpeg/codec builds, not cross-version/cross-platform equality.
+- Inputs are hashed before and after rendering; a changed input fails the render.
+  This detects changes but does not replace the required immutable private storage.
+
+## Trusted worker interface
+
+The existing `render_test` interface remains unchanged. A trusted staging service
+may persist a job with operation `render_timeline_v1`, a canonical UUID job ID,
+and `spec={"timeline": <v1 object>}` before dispatching `app.worker.execute`.
+It must create a private `<artifact root>/<job ID>/inputs` directory containing
+only media authorized for that job. Timeline paths are relative to that directory;
+an optional administrator-staged `font.ttf` in it enables text. The staging
+staged files must remain immutable and inaccessible to other users throughout
+execution; the directory must allow the renderer to create its own workspace.
+The worker atomically claims queued or dispatch-pending jobs,
+records `running`, and on success saves `provenance.json` beside `inputs`, points
+the job artifact at the verified MP4, and records `awaiting_review`. Validation or
+worker errors produce a `failed` audit event and a bounded, non-sensitive error.
+Only one delivery can claim a job; later deliveries of terminal jobs do nothing.
+
+This is an internal interface, not a public upload or timeline submission API.
+The existing API cannot stage or authorize media; it must not be extended to accept
+timeline paths until project/media authorization and immutable staging exist.
+A process crash can leave `running` jobs or unregistered output; durable dispatch,
+recovery, cancellation, provenance access control, and filesystem quotas remain
+dependencies, not guarantees of this interface.
 
 ## Verification and integration
 
@@ -79,7 +107,7 @@ checks two real renders **only when local FFmpeg and FFprobe are available**.
 Mocks and a skipped fixture test do not establish actual media rendering.
 
 Remaining integration: authenticated media storage/ownership checks, timeline
-persistence/revisions, worker dispatch/cancellation and job state, artifact
+persistence/revisions, durable worker dispatch/cancellation and recovery, artifact
 registration/authorized retrieval/audit trail, deployment quotas, font/build pinning,
 and API/UI acceptance workflow. The existing render-validation acceptance register
 is intentionally unchanged; this module is not evidence of that workflow.

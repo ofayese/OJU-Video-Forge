@@ -30,9 +30,14 @@ def staged_job(tmp_path, monkeypatch):
     database.dispose()
 
 
-def test_invalid_timeline_records_failure(staged_job):
+def test_invalid_timeline_records_failure(staged_job, monkeypatch):
     sessions, job_id, _ = staged_job
-    with pytest.raises(rendering.RenderError):
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        job.spec = {"timeline": {"version": 2}}
+        db.commit()
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+    with pytest.raises(rendering.RenderError, match="required"):
         worker.execute(job_id)
     with sessions() as db:
         job = db.get(Job, job_id)
@@ -43,6 +48,23 @@ def test_invalid_timeline_records_failure(staged_job):
     worker.execute(job_id)
     with sessions() as db:
         assert len(list(db.scalars(select(Audit)))) == 2
+
+
+def test_worker_failure_records_failure(staged_job, monkeypatch):
+    sessions, job_id, _ = staged_job
+    monkeypatch.setattr(rendering.RenderEngine, "_tool", staticmethod(lambda value: value))
+
+    def fail(*args):
+        raise RuntimeError("private detail")
+
+    monkeypatch.setattr(rendering.RenderEngine, "render", fail)
+    with pytest.raises(RuntimeError):
+        worker.execute(job_id)
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        assert job.status == "failed"
+        assert job.error == "RuntimeError: timeline render failed"
+        assert list(db.scalars(select(Audit.action).order_by(Audit.id))) == ["running", "failed"]
 
 
 def test_symlinked_staging_is_rejected(staged_job, tmp_path):
