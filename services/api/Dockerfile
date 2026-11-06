@@ -1,7 +1,10 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-alpine3.22
 WORKDIR /opt/forge
 COPY requirements.lock.txt .
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock.txt && useradd -r -u 10001 forge
+RUN apk update && apk upgrade --no-cache \
+ && pip install --no-cache-dir --require-hashes -r requirements.lock.txt \
+ && adduser -D -u 10001 forge \
+ && rm -rf /var/cache/apk/*
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
