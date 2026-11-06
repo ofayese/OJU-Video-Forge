@@ -371,7 +371,7 @@ def get_job(
     db: Session = Depends(db_session),
 ):
     job = db.get(Job, job_id)
-    if not job or job.owner != actor.name:
+    if not job or actor.user_id is not None or job.owner != actor.name:
         raise HTTPException(404, "Job not found")
     return JobResult(id=job.id, operation=job.operation, status=job.status, artifact=job.artifact, error=job.error)
 

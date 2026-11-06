@@ -13,7 +13,7 @@ from app import auth
 from app.api import app
 from app.auth import hash_session_token
 from app.config import Settings
-from app.core import AuthSession, Base, User, get_db
+from app.core import AuthSession, Base, Job, User, get_db
 
 
 @pytest.fixture
@@ -107,6 +107,42 @@ def test_local_session_authentication_hashes_secrets_and_revokes(
 
     assert client.delete("/v1/auth/session", headers=headers).status_code == 204
     assert client.get("/v1/projects", headers=headers).status_code == 401
+
+
+def test_local_user_cannot_read_service_owned_job(
+    api_client: tuple[TestClient, sessionmaker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, test_session = api_client
+    monkeypatch.setattr(
+        auth,
+        "get_settings",
+        lambda: Settings(forge_openwebui_token="service-token"),
+    )
+    register(client, "openwebui")
+    user_headers = authorization(login(client, "openwebui"))
+    job_id = "service-owned-job"
+    with test_session() as db:
+        db.add(
+            Job(
+                id=job_id,
+                owner="openwebui",
+                operation="wan22_t2v",
+                status="failed",
+                spec={},
+                artifact="/private/artifact.mp4",
+                error="private service error",
+            )
+        )
+        db.commit()
+
+    assert client.get(f"/v1/jobs/{job_id}", headers=user_headers).status_code == 404
+    service_response = client.get(
+        f"/v1/jobs/{job_id}",
+        headers=authorization("service-token"),
+    )
+    assert service_response.status_code == 200
+    assert service_response.json()["artifact"] == "/private/artifact.mp4"
 
 
 def test_project_membership_roles_and_isolation(
