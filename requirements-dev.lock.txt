@@ -991,6 +991,7 @@ pydantic-settings==2.16.2 \
     --hash=sha256:3dc08ffabed2bbd5dc2dd55ead7b78b4e4c5cd776aecd04310db5f1224caaf46 \
     --hash=sha256:8d523e5c129b097686bde019bd6109bff53f4c8c3f63f1ddf9933ffa42e5ab4f
     # via
+    #   -r requirements-dev.txt
     #   openapi-schema-validator
     #   openapi-spec-validator
 pygments==2.21.0 \
