@@ -121,7 +121,7 @@ are not preserved when the container is removed.
 ## Gaps before production
 
 - OAuth/OIDC JWT validation with JWKS, external reverse-proxy hardening and HTTPS.
-- Dispatch reconciler, idempotency constraint, robust cancellations and limits.
+- Concurrent-worker recovery coordination, product quotas and audit-log export.
 - GPU output reconciliation and checksum/FFprobe verification.
 - Signed artifact download, backup automation and retention.
 - Real GPU/model end-to-end validation and evidence; the adapter contract tests do
@@ -129,6 +129,13 @@ are not preserved when the container is removed.
 - Tenant-wide RBAC beyond local project membership, backup automation and retention.
 - Pin and scan all images and dependencies; audit log export and alerting.
 - Durable outbox and deployment smoke/negative tests.
+
+## Local operations
+
+The API readiness semantics, bounded single-worker recovery, local resource/log
+limits, and synthetic backup/restore procedure are documented in the
+[local resilience runbook](docs/operations/LOCAL-BACKUP-RESTORE.md). They do not
+configure a backup destination or authorize shared-environment operations.
 
 ## Rollback
 
@@ -232,5 +239,6 @@ and registered separately.
   is claimed by these tests.
 - Review is owner-scoped and is not project-integrated or independent human approval.
 - The complete authenticated project-to-render-to-authorized-artifact workflow,
-  database reconciliation, event hashing, quotas, and backup/restore remain incomplete.
+  full database/job lifecycle reconciliation, event hashing, quotas, and
+  backup/restore remain incomplete.
 - No real GPU/model run or Docker service integration was executed here.

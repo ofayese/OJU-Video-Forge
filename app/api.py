@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import os
@@ -21,9 +22,12 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from psycopg import AsyncConnection
+from redis import Redis
 from sqlalchemy import select, update
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -57,7 +61,9 @@ from .core import (
     AudioAsset,
     Audit,
     AuthSession,
+    DATABASE_URL,
     Job,
+    REDIS_URL,
     AgentAudit,
     AgentProposal,
     DispatchOutbox,
@@ -396,6 +402,73 @@ def reject_agent_service(actor: Actor) -> None:
 @app.get("/health/live", include_in_schema=False)
 def live():
     return {"ok": True}
+
+
+DATABASE_PROBE_TIMEOUT_SECONDS = 1.5
+DATABASE_CLOSE_TIMEOUT_SECONDS = 0.1
+
+
+async def _database_probe():
+    connection = None
+    try:
+        connection = await AsyncConnection.connect(
+            make_url(DATABASE_URL)
+            .set(drivername="postgresql")
+            .render_as_string(hide_password=False),
+            connect_timeout=1,
+            options="-c statement_timeout=1000",
+        )
+        await connection.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+    finally:
+        if connection is not None:
+            try:
+                await asyncio.wait_for(
+                    connection.close(), timeout=DATABASE_CLOSE_TIMEOUT_SECONDS
+                )
+            except Exception:
+                pass
+
+
+async def _database_ready():
+    try:
+        return await asyncio.wait_for(
+            _database_probe(), timeout=DATABASE_PROBE_TIMEOUT_SECONDS
+        )
+    except Exception:
+        return False
+
+
+@app.get("/health/ready", include_in_schema=False)
+async def ready():
+    dependencies = {"database": await _database_ready(), "redis": False}
+    redis_client = None
+    try:
+        redis_client = Redis.from_url(
+            REDIS_URL, socket_connect_timeout=1, socket_timeout=1
+        )
+        redis_client.ping()
+        dependencies["redis"] = True
+    except Exception:
+        pass
+    finally:
+        if redis_client is not None:
+            try:
+                redis_client.close()
+            except Exception:
+                pass
+
+    is_ready = all(dependencies.values())
+    return JSONResponse(
+        status_code=200 if is_ready else 503,
+        content={
+            "ready": is_ready,
+            "required": dependencies,
+            "optional": {"gpu": "not_required", "cloud": "not_required"},
+        },
+    )
 
 
 @app.post(

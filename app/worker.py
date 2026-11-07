@@ -5,13 +5,14 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 from fractions import Fraction
 from pathlib import Path
 
 from redis import Redis
-from rq import Worker
+from rq import Queue, Worker
 
 from .audio_workflows import (
     MAX_AUDIO_BYTES,
@@ -34,6 +35,7 @@ from .core import (
     REDIS_URL,
     SessionLocal,
     WorkflowArtifact,
+    recover_jobs,
     transition,
 )
 from .private_storage import private_file, write_private_file
@@ -385,8 +387,23 @@ def _cleanup_render_output(inputs, result):
         pass
 
 
-def _finish_or_cancel(db, job, status, artifact=None):
-    if not transition(db, job, status, 'worker', artifact=artifact):
+def _finish_or_cancel(
+    db,
+    job,
+    status,
+    artifact=None,
+    artifact_id=None,
+    artifact_sha256=None,
+):
+    if not transition(
+        db,
+        job,
+        status,
+        'worker',
+        artifact=artifact,
+        artifact_id=artifact_id,
+        artifact_sha256=artifact_sha256,
+    ):
         if job.status == 'cancel_requested':
             transition(db, job, 'cancelled', 'worker')
 
@@ -441,20 +458,37 @@ def execute(job_id: str):
             if job.operation == "audio_workflow":
                 _execute_audio_workflow(db, job)
             elif job.operation == 'render_test':
-                output_dir = ARTIFACT_ROOT / job.id
-                output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
-                dest = output_dir / 'test.mp4'
-                _run_ffmpeg(job.id, [
-                    'ffmpeg', '-nostdin', '-y', '-f', 'lavfi', '-i',
-                    'testsrc2=size=640x360:rate=24', '-t', '5',
-                    '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
-                    '-movflags', '+faststart', str(dest),
-                ], timeout=120)
-                artifact = f'{job.id}/test.mp4'
-                checksum = generated_checksum(job, artifact=artifact)
-                (output_dir / 'SHA256SUMS').write_text(f'{checksum}  test.mp4\n')
-                transition(db, job, 'awaiting_review', 'worker', artifact=artifact,
-                           artifact_id=str(uuid.uuid4()), artifact_sha256=checksum)
+                if Path(job.id).name != job.id or job.id in {'.', '..'}:
+                    raise ValueError('Invalid artifact identifier')
+                artifact_root = ARTIFACT_ROOT.resolve()
+                output_dir = artifact_root / job.id
+                if output_dir.is_symlink() or output_dir.resolve().parent != artifact_root:
+                    raise ValueError('Invalid artifact directory')
+                output_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory(
+                    prefix='.work-', dir=output_dir
+                ) as work_dir:
+                    temp_dest = Path(work_dir) / 'test.mp4'
+                    _run_ffmpeg(job.id, [
+                        'ffmpeg', '-nostdin', '-y', '-f', 'lavfi', '-i',
+                        'testsrc2=size=640x360:rate=24', '-t', '5',
+                        '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                        '-movflags', '+faststart', str(temp_dest),
+                    ], timeout=120)
+                    artifact = f'{job.id}/test.mp4'
+                    os.replace(temp_dest, output_dir / 'test.mp4')
+                    output_checksum = generated_checksum(job, artifact=artifact)
+                    checksum_path = Path(work_dir) / 'SHA256SUMS'
+                    checksum_path.write_text(f'{output_checksum}  test.mp4\n')
+                    os.replace(checksum_path, output_dir / 'SHA256SUMS')
+                _finish_or_cancel(
+                    db,
+                    job,
+                    'awaiting_review',
+                    artifact=artifact,
+                    artifact_id=str(uuid.uuid4()),
+                    artifact_sha256=output_checksum,
+                )
             elif job.operation == 'wan22_t2v':
                 if _cancel_requested(job_id):
                     raise JobCancelled()
@@ -498,15 +532,29 @@ def execute(job_id: str):
             elif job.operation == 'render_timeline_v1':
                 error = f'{type(exc).__name__}: timeline render failed'
             else:
-                error = type(exc).__name__
-            if not transition(db, job, 'failed', 'worker', error=error):
+                error = "Job execution failed; details withheld"
+            try:
+                transitioned = transition(db, job, 'failed', 'worker', error=error)
+            except Exception:
+                if job.operation == 'render_timeline_v1':
+                    raise
+                raise RuntimeError("job execution failed") from None
+            if not transitioned:
                 if job.status == 'cancel_requested':
                     transition(db, job, 'cancelled', 'worker')
                     return
-            if job.operation == "wan22_t2v":
-                raise RuntimeError("ComfyUI generation failed") from None
+            if job.operation in {"render_test", "wan22_t2v"} or error == "Job execution failed; details withheld":
+                raise RuntimeError("job execution failed") from None
             raise
 
 
+def main():
+    connection = Redis.from_url(REDIS_URL)
+    job_queue = Queue("video", connection=connection, default_timeout=3600)
+    with SessionLocal() as db:
+        recover_jobs(db, job_queue)
+    Worker([job_queue], connection=connection).work()
+
+
 if __name__ == "__main__":
-    Worker(["video"], connection=Redis.from_url(REDIS_URL)).work()
+    main()
