@@ -37,8 +37,6 @@ Windows PowerShell:
 .\.venv\Scripts\python.exe -m piptools compile --generate-hashes --allow-unsafe --output-file requirements.lock.txt requirements.txt
 .\.venv\Scripts\python.exe -m piptools compile --generate-hashes --allow-unsafe --output-file requirements-dev.lock.txt requirements-dev.txt
 
-See the [dependency update policy](./DEPENDENCY-UPDATE-POLICY.md).
-
 ## Local checks
 
 ```powershell
