@@ -19,13 +19,16 @@ class Settings(BaseModel):
     ad_enabled: bool = False
     azure_enabled: bool = False
     external_access_enabled: bool = False
+    agents_enabled: bool = False
     ad_domain: str = "ojuidc.olutech.systems"
     public_app_fqdn: str = "video.olutechsys.com"
     public_api_fqdn: str = "video-api.olutechsys.com"
     database_url: str = "postgresql+psycopg://forge:forge@localhost:5432/forge"
     redis_url: str = "redis://localhost:6379/0"
     artifact_root: str = "/artifacts"
+    review_workflow_enabled: bool = True
     comfyui_url: str = "http://comfyui:8188"
+    comfyui_enabled: bool = False
     forge_openwebui_token: str = Field(default="")
     forge_chatgpt_token: str = Field(default="")
     db_password: str = ""
@@ -55,13 +58,16 @@ class Settings(BaseModel):
             "ad_enabled": os.getenv("AD_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "azure_enabled": os.getenv("AZURE_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "external_access_enabled": os.getenv("EXTERNAL_ACCESS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+            "agents_enabled": os.getenv("AGENTS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "ad_domain": os.getenv("AD_DOMAIN", "ojuidc.olutech.systems"),
             "public_app_fqdn": os.getenv("PUBLIC_APP_FQDN", "video.olutechsys.com"),
             "public_api_fqdn": os.getenv("PUBLIC_API_FQDN", "video-api.olutechsys.com"),
             "database_url": os.getenv("DATABASE_URL", "postgresql+psycopg://forge:forge@localhost:5432/forge"),
             "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
             "artifact_root": os.getenv("ARTIFACT_ROOT", "/artifacts"),
+            "review_workflow_enabled": os.getenv("REVIEW_WORKFLOW_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
             "comfyui_url": os.getenv("COMFYUI_URL", "http://comfyui:8188"),
+            "comfyui_enabled": os.getenv("COMFYUI_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "forge_openwebui_token": os.getenv("FORGE_OPENWEBUI_TOKEN", ""),
             "forge_chatgpt_token": os.getenv("FORGE_CHATGPT_TOKEN", ""),
             "db_password": os.getenv("DB_PASSWORD", ""),

@@ -7,6 +7,27 @@ def test_python_parses():
         ast.parse(path.read_text())
 
 
+def test_job_result_defaults_review_metadata(monkeypatch):
+    from app import api
+    from app.config import Settings
+
+    monkeypatch.setattr(
+        api, "get_settings", lambda: Settings(review_workflow_enabled=False)
+    )
+    result = api.JobResult(
+        id="job-id",
+        operation="render_test",
+        status="queued",
+        artifact=None,
+        error=None,
+    )
+
+    assert result.review_version == 0
+    assert result.review_enabled is False
+    assert result.can_review is False
+    assert result.review_artifact is None
+
+
 def test_review_is_not_automatically_approved():
     worker = Path('app/worker.py').read_text()
     assert "'awaiting_review'" in worker
@@ -45,6 +66,8 @@ def test_api_authentication_roles_and_openapi(monkeypatch):
 
         schema = app.openapi()
         assert schema["paths"]["/v1/jobs"]["post"]["operationId"] == "submitVideoJob"
+        assert "/v1/projects/{project_id}/workflows" in schema["paths"]
+        assert "/v1/projects/{project_id}/artifacts/{artifact_id}" in schema["paths"]
 
         monkeypatch.setitem(
             app.dependency_overrides,
