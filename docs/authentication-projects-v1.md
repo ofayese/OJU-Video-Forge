@@ -49,7 +49,8 @@ create, enumerate, or access local-user projects.
 
 The account/session/project routes are versioned under `/v1`. Apply Alembic revision
 `0005` after `0004` to add local users, revocable sessions, and project memberships
-to the existing project schema. Existing projects and job records are preserved.
+to the existing project schema. The review-history schema is applied in revision
+`0006` after local authentication. Existing projects and job records are preserved.
 
 The OpenAPI document is available at `/openapi.json`. Generate it with:
 

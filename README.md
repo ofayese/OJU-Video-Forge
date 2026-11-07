@@ -13,6 +13,8 @@
   owner-authorized artifact download. GPU/model support is not validated by this code.
 - Alembic initial migration and basic contract tests.
 - API spec auto-generated at `/openapi.json` after startup.
+- Owner-scoped generated-artifact review bridge (contract v1), with immutable
+  database evidence and a local bearer-token UI.
 - Project-owned WAV uploads and asynchronous SRT/WebVTT export; speech model steps
   remain `NOT_VERIFIED` until optional local providers are configured. See the
   [audio workflow contract](docs/audio-workflow-contract-v1.md).
@@ -140,6 +142,79 @@ configure a backup destination or authorize shared-environment operations.
 Stop API and workers; preserve Postgres volumes and artifacts; restore a verified
 Postgres backup and pinned image set. Never delete volumes during emergency rollback.
 
+### Artifact review bridge (#12)
+
+Dependencies #8/#9 remain OPEN in separate WIP PRs and are not integrated here.
+There are no new project, media, account, login, retrieval or publishing APIs.
+The existing account UI calls unfinished `/auth/*` and `/projects` routes.
+Use **Local service-token artifact review**, above that sign-in flow, with a
+configured local bearer token and a known job ID. It calls only current `/v1/jobs`
+routes, keeps its token in memory (not browser storage), and clears private results
+on authorization errors. Use the localhost Vite proxy for local API access.
+
+Every read/history/decision requires `job.owner == actor.name`, including admins.
+Usual authenticated read roles may read; only an owning reviewer or administrator
+may decide. Existing local service actors already have reviewer roles. This is a
+service-account/self-review bridge, **not independent human signoff** and
+**not completed project membership integration**.
+
+- `GET /v1/jobs/{id}` adds `review_contract_version: 1`, `review_version`,
+  `review_enabled`, `can_review`, and `review_artifact: {id, sha256} | null`.
+  The existing artifact field is unchanged; new review metadata/history never
+  contains media, prompts, comments or private storage paths.
+- `GET /v1/jobs/{id}/reviews` returns ordered immutable decisions (actor, timestamp,
+  job ID, opaque artifact ID, actual SHA-256, expected/next version, decision and
+  contract version). Reads/history remain available when review is disabled.
+  History uses the indexed `(job_id, version)` key with `after_version` (default
+  0) and `limit` (default 50, maximum 100); snapshots never join mutable job fields.
+- `POST /v1/jobs/{id}/review` accepts only
+  `{"decision":"approved","expected_version":0,"expected_artifact":{"id":"<opaque-id>","sha256":"<64-lowercase-hex>"}}`
+  (`rejected` is the other decision). Unknown fields and non-integer versions
+  are rejected. Only `awaiting_review → approved | rejected` is allowed.
+  Terminal decisions cannot repeat, reverse, requeue or publish.
+- A database compare-and-swap checks owner/state/version/artifact identity;
+  decision, version and evidence commit together. Stale requests return 409 with
+  no evidence. `review_version` is a dedicated monotonic **job workflow version**,
+  not an audit count: dispatch, worker claims/completion/failure, ORM updates and
+  review decisions all increment it. Worker claims and completion are fenced by
+  state/version; stale ORM writes also fail optimistic version checks.
+  The UI refreshes on 409/503 without retrying a decision, and requires explicit
+  acknowledgement of refreshed details before another decision.
+- Only the current worker's nonempty generated `render_test/test.mp4`, with a
+  persisted opaque identity and SHA-256, is eligible. The API rehashes a bounded
+  regular file through no-follow directory descriptors. Missing, changed or
+  unsafe artifacts fail closed. ComfyUI submission JSON is never eligible.
+  Hashing streams 1 MiB chunks from a private, fixed job-bound file (maximum
+  256 MiB), never request-supplied bytes or arbitrary paths. A stored hash is
+  **not filesystem immutability**: it verifies bytes sampled at decision time.
+  Only the claim winner creates output; API storage is read-only. Operators must
+  not replace/mutate generated files after completion or during review; privileged
+  filesystem mutation after hashing is not prevented by the DB transaction.
+  There is no preview/download in this bridge: verify media through authorized
+  local operations before approving.
+
+Apply additive Alembic `0002` on top of `0001` in an approved isolated environment
+before running the new API/worker. Existing rows and audits are preserved; old
+outputs have null identities/checksums and are not reviewable. Do not infer or
+backfill evidence from legacy paths; generate a new job instead. Drain/stop old
+API/worker versions before an approved upgrade: mixed old writers do not implement
+the version fence.
+
+`REVIEW_WORKFLOW_ENABLED` defaults to `true` (false/unrecognized values disable).
+Set it to `false` and restart/recreate the API to stop decisions with 503 after
+authentication/ownership/role checks. It **never** approves, unblocks, deletes or
+resets jobs/history; workers still stop at awaiting review. Compose passes the
+flag and mounts the same configured artifact root read-only in the API.
+Settings are cached per API process: changing the environment alone has no effect.
+Restarted processes reject new decisions; a request that already passed the flag
+check may finish its transaction during graceful shutdown. Disabling is not an
+in-flight transaction cancellation mechanism.
+Rollback should disable this flag, not roll back the schema: `0002` downgrade
+always refuses destructive removal, including downgrade through `0001`.
+Database triggers prohibit updating/deleting review rows (and PostgreSQL truncate);
+this is append-only evidence, not cryptographic protection against a DB superuser
+or filesystem operator. Keep database/storage private and backup evidence.
+
 ## ChatGPT schema
 
 `config/chatgpt-actions.openapi.yaml` is a proposed legacy GPT Actions adapter. Current
@@ -157,6 +232,12 @@ and registered separately.
   and requires an administrator-approved workflow, full node mapping, private
   ComfyUI, and compatible models.
 - Rendering only supports a deterministic test clip, not arbitrary multimedia editing.
+- DB reconciliation, event hashing, project review integration, quotas, and
+  backup/restore are not implemented.
+- Local review HTTP/persistence/UI tests supplement static/unit coverage; see
+  [testing evidence](docs/development/TESTING-STRATEGY.md). No service/GPU acceptance
+  is claimed by these tests.
+- Review is owner-scoped and is not project-integrated or independent human approval.
 - The complete authenticated project-to-render-to-authorized-artifact workflow,
   full database/job lifecycle reconciliation, event hashing, quotas, and
   backup/restore remain incomplete.

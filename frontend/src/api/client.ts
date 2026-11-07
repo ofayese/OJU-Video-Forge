@@ -9,6 +9,8 @@ import type {
   ProjectList,
   User,
   VideoJob,
+  JobReview,
+  ReviewDecision,
 } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
@@ -181,6 +183,18 @@ export class ApiClient {
 
   async getJob(jobId: string, token: string): Promise<VideoJob> {
     return this.request<VideoJob>(`/v1/jobs/${encodeURIComponent(jobId)}`, {}, token);
+  }
+
+  async getReviews(jobId: string, token: string): Promise<JobReview[]> {
+    return this.request<JobReview[]>(`/v1/jobs/${encodeURIComponent(jobId)}/reviews`, {}, token);
+  }
+
+  async reviewJob(jobId: string, input: ReviewDecision, token: string): Promise<VideoJob> {
+    return this.request<VideoJob>(
+      `/v1/jobs/${encodeURIComponent(jobId)}/review`,
+      { method: "POST", body: JSON.stringify(input) },
+      token,
+    );
   }
 
   async getArtifact(jobId: string, token: string): Promise<Blob> {

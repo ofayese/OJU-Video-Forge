@@ -17,6 +17,7 @@ from fastapi import (
     File,
     Header,
     HTTPException,
+    Query,
     Response,
     UploadFile,
     status,
@@ -70,6 +71,7 @@ from .core import (
     MediaAsset,
     Project,
     ProjectMembership,
+    Review,
     User,
     WorkflowArtifact,
     get_db,
@@ -77,6 +79,7 @@ from .core import (
 )
 from .private_storage import private_file, write_private_file
 from .dispatcher import dispatch_outbox
+from .review import ArtifactIdentity, ReviewDecision, decide, eligible
 
 app = FastAPI(title="OJU Video Forge", version="0.1.0", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 db_session = get_db
@@ -215,6 +218,36 @@ class JobResult(BaseModel):
     error: str | None
     dispatch_attempts: int = 0
     dispatch_error: str | None = None
+    review_contract_version: int = 1
+    review_version: int = 0
+    review_enabled: bool = Field(
+        default_factory=lambda: get_settings().review_workflow_enabled
+    )
+    can_review: bool = False
+    review_artifact: ArtifactIdentity | None = None
+
+
+class ReviewResult(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    contract_version: int
+    job_id: str
+    actor: str
+    at: datetime
+    artifact_id: str
+    artifact_sha256: str
+    expected_version: int
+    version: int
+    decision: str
+
+
+READ_ROLES = ("viewer", "producer", "reviewer", "publisher", "auditor", "administrator", "agent_service")
+
+
+def owned_job(db, job_id, actor):
+    job = db.get(Job, job_id)
+    if not job or actor.user_id is not None or job.owner != actor.name:
+        raise HTTPException(404, "Job not found")
+    return job
 
 
 class AgentTask(BaseModel):
@@ -980,7 +1013,7 @@ def create_audio_workflow(
     db.commit()
     dispatch_outbox(job.id)
     db.refresh(job)
-    return _job_result(job)
+    return _job_result(job, actor)
 
 
 @app.get("/v1/projects/{project_id}/workflows/{job_id}", response_model=JobResult)
@@ -999,7 +1032,7 @@ def get_audio_workflow(
         or job.owner != actor.name
     ):
         raise HTTPException(404, "Workflow job not found")
-    return _job_result(job)
+    return _job_result(job, actor)
 
 
 @app.post("/v1/projects/{project_id}/workflows/{job_id}/retry", response_model=JobResult, status_code=202)
@@ -1027,7 +1060,7 @@ def retry_audio_workflow(
             db.refresh(original)
             raise HTTPException(503, "Workflow dispatch is unavailable; retry later")
         db.refresh(original)
-        return _job_result(original)
+        return _job_result(original, actor)
     attempt = original.spec.get("attempt", 1)
     if original.status != "failed" or type(attempt) is not int or attempt >= 3:
         raise HTTPException(409, "Workflow is not eligible for retry")
@@ -1054,7 +1087,7 @@ def retry_audio_workflow(
         raise HTTPException(409, "Workflow retry has already been created") from exc
     dispatch_outbox(job.id)
     db.refresh(job)
-    return _job_result(job)
+    return _job_result(job, actor)
 
 
 @app.get(
@@ -1160,7 +1193,7 @@ def create_job(
         if existing is not None:
             if not _same_job_request(existing, payload, spec):
                 raise HTTPException(409, "Idempotency-Key already used for a different request")
-            return _job_result(existing)
+            return _job_result(existing, actor)
     job = Job(
         id=str(uuid.uuid4()),
         owner=actor.name,
@@ -1189,28 +1222,52 @@ def create_job(
             )
         if existing is not None:
             if _same_job_request(existing, payload, spec):
-                return _job_result(existing)
+                return _job_result(existing, actor)
             raise HTTPException(
                 409, "Idempotency-Key already used for a different request"
             ) from exc
         raise HTTPException(409, "Job could not be created") from exc
     dispatch_outbox(job.id)
     db.refresh(job)
-    return _job_result(job)
+    return _job_result(job, actor)
 
 
 @app.get("/v1/jobs/{job_id}", response_model=JobResult, operation_id="getVideoJob")
 def get_job(
     job_id: str,
-    actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "publisher", "auditor", "administrator", "agent_service")),
+    actor: Actor = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(db_session),
 ):
-    job = db.get(Job, job_id)
-    if not job or actor.user_id is not None or job.owner != actor.name:
-        raise HTTPException(404, "Job not found")
-    return _job_result(job)
+    return _job_result(owned_job(db, job_id, actor), actor)
 
 
+@app.get("/v1/jobs/{job_id}/reviews", response_model=list[ReviewResult], operation_id="listJobReviews")
+def get_reviews(
+    job_id: str,
+    after_version: int = Query(default=0, ge=0, le=2**31 - 1),
+    limit: int = Query(default=50, ge=1, le=100),
+    actor: Actor = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(db_session),
+):
+    owned_job(db, job_id, actor)
+    return db.scalars(select(Review).where(
+        Review.job_id == job_id, Review.version > after_version,
+    ).order_by(Review.version).limit(limit)).all()
+
+
+@app.post("/v1/jobs/{job_id}/review", response_model=JobResult, operation_id="reviewJobArtifact")
+def review_job(
+    job_id: str,
+    payload: ReviewDecision,
+    actor: Actor = Depends(require_roles(*READ_ROLES)),
+    db: Session = Depends(db_session),
+):
+    job = owned_job(db, job_id, actor)
+    if not {"reviewer", "administrator"} & set(actor.roles):
+        raise HTTPException(403, "Insufficient permissions")
+    if not get_settings().review_workflow_enabled:
+        raise HTTPException(503, "Review workflow disabled; history is preserved")
+    return _job_result(decide(db, job, actor, payload), actor)
 @app.post(
     "/v1/jobs/{job_id}/retry",
     response_model=JobResult,
@@ -1248,7 +1305,7 @@ def retry_job(
         db.commit()
         dispatch_outbox(original.id)
         db.refresh(original)
-        return _job_result(original)
+        return _job_result(original, actor)
     if original.status != "failed":
         raise HTTPException(409, "Only dispatch-pending or failed jobs can be retried")
 
@@ -1299,7 +1356,7 @@ def retry_job(
         raise HTTPException(409, "Job retry has already been created") from exc
     dispatch_outbox(retry.id)
     db.refresh(retry)
-    return _job_result(retry)
+    return _job_result(retry, actor)
 
 
 @app.get(
@@ -1392,7 +1449,7 @@ def cancel_job(
         }:
             raise HTTPException(409, "Job can no longer be cancelled")
         if job.status == "cancel_requested":
-            return _job_result(job)
+            return _job_result(job, actor)
         if job.status == "running":
             target_status = "cancel_requested"
         elif job.status in {"dispatch_pending", "queued"}:
@@ -1413,10 +1470,12 @@ def cancel_job(
             .values(status="cancelled", lease_expires_at=None)
         )
         db.commit()
-    return _job_result(job)
+    return _job_result(job, actor)
 
 
-def _job_result(job: Job) -> JobResult:
+def _job_result(job: Job, actor: Actor | None = None) -> JobResult:
+    settings = get_settings()
+    roles = set(actor.roles) if actor is not None else set()
     return JobResult(
         id=job.id,
         operation=job.operation,
@@ -1425,6 +1484,18 @@ def _job_result(job: Job) -> JobResult:
         error=job.error,
         dispatch_attempts=job.dispatch_attempts,
         dispatch_error=job.dispatch_error,
+        review_version=job.review_version,
+        review_enabled=settings.review_workflow_enabled,
+        can_review=(
+            settings.review_workflow_enabled
+            and eligible(job)
+            and bool({"reviewer", "administrator"} & roles)
+        ),
+        review_artifact=(
+            ArtifactIdentity(id=job.artifact_id, sha256=job.artifact_sha256)
+            if job.artifact_id and job.artifact_sha256
+            else None
+        ),
     )
 
 

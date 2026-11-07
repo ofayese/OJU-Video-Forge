@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -283,8 +284,12 @@ def test_interrupted_render_can_reuse_its_private_output_directory(
 ):
     import hashlib
 
+    from app import review
+
     factory = sessionmaker(database.get_bind(), expire_on_commit=False)
-    job = add_job(database, status="dispatch_pending")
+    job = add_job(
+        database, status="dispatch_pending", job_id=str(uuid.uuid4())
+    )
     output_dir = tmp_path / "artifacts" / job.id
     output_dir.mkdir(parents=True)
     protected_video = tmp_path / "protected-video"
@@ -304,6 +309,7 @@ def test_interrupted_render_can_reuse_its_private_output_directory(
 
     monkeypatch.setattr(worker, "SessionLocal", session_context)
     monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path / "artifacts")
+    monkeypatch.setattr(review, "ARTIFACT_ROOT", tmp_path / "artifacts")
     monkeypatch.setattr(worker, "_run_ffmpeg", fake_ffmpeg)
 
     worker.execute(job.id)

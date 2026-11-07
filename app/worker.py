@@ -39,6 +39,7 @@ from .core import (
     transition,
 )
 from .private_storage import private_file, write_private_file
+from .review import generated_checksum
 from .rendering import RenderEngine
 
 WORKFLOW = Path("/workflows/wan22-t2v-api.json")
@@ -386,8 +387,23 @@ def _cleanup_render_output(inputs, result):
         pass
 
 
-def _finish_or_cancel(db, job, status, artifact=None):
-    if not transition(db, job, status, 'worker', artifact=artifact):
+def _finish_or_cancel(
+    db,
+    job,
+    status,
+    artifact=None,
+    artifact_id=None,
+    artifact_sha256=None,
+):
+    if not transition(
+        db,
+        job,
+        status,
+        'worker',
+        artifact=artifact,
+        artifact_id=artifact_id,
+        artifact_sha256=artifact_sha256,
+    ):
         if job.status == 'cancel_requested':
             transition(db, job, 'cancelled', 'worker')
 
@@ -459,12 +475,19 @@ def execute(job_id: str):
                         '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
                         '-movflags', '+faststart', str(temp_dest),
                     ], timeout=120)
-                    checksum = Path(work_dir) / 'SHA256SUMS'
-                    checksum.write_text(f'{sha256(temp_dest)}  test.mp4\n')
+                    artifact = f'{job.id}/test.mp4'
                     os.replace(temp_dest, output_dir / 'test.mp4')
-                    os.replace(checksum, output_dir / 'SHA256SUMS')
+                    output_checksum = generated_checksum(job, artifact=artifact)
+                    checksum_path = Path(work_dir) / 'SHA256SUMS'
+                    checksum_path.write_text(f'{output_checksum}  test.mp4\n')
+                    os.replace(checksum_path, output_dir / 'SHA256SUMS')
                 _finish_or_cancel(
-                    db, job, 'awaiting_review', artifact=f"{job.id}/test.mp4"
+                    db,
+                    job,
+                    'awaiting_review',
+                    artifact=artifact,
+                    artifact_id=str(uuid.uuid4()),
+                    artifact_sha256=output_checksum,
                 )
             elif job.operation == 'wan22_t2v':
                 if _cancel_requested(job_id):

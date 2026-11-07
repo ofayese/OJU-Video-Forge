@@ -31,17 +31,18 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
+      REVIEW_WORKFLOW_ENABLED: ${REVIEW_WORKFLOW_ENABLED:-true}
       COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
       COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
       DB_PASSWORD: ${DB_PASSWORD:-forge}
       WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
+    volumes:
+      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/artifacts}:ro
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-    volumes:
-      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/artifacts}
     networks: [control, ai-net]
     restart: unless-stopped
     healthcheck:

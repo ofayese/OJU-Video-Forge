@@ -114,8 +114,22 @@ jobs:
           PY
           python -m alembic upgrade head
           python -c "from sqlalchemy import text; from app.core import engine; assert engine.connect().execute(text(\"SELECT status FROM jobs WHERE id='migration-legacy-job'\")).scalar_one() == 'queued'"
-          python -m alembic downgrade 0001
-          python -c "from sqlalchemy import text; from app.core import engine; assert engine.connect().execute(text(\"SELECT count(*) FROM jobs WHERE id='migration-legacy-job'\")).scalar_one() == 1"
+          if python -m alembic downgrade 0001 > "$RUNNER_TEMP/downgrade.log" 2>&1; then
+            cat "$RUNNER_TEMP/downgrade.log"
+            echo "Expected destructive review schema rollback to be rejected" >&2
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/downgrade.log"
+          grep -q "Review schema rollback is destructive" "$RUNNER_TEMP/downgrade.log"
+          python - <<'PY'
+          from sqlalchemy import text
+          from app.core import engine
+
+          with engine.connect() as connection:
+              assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0007"
+              assert connection.execute(text("SELECT count(*) FROM jobs WHERE id='migration-legacy-job'")).scalar_one() == 1
+              assert connection.execute(text("SELECT count(*) FROM audit_events")).scalar_one() == 1
+          PY
           python -m alembic upgrade head
           python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events','projects','media_assets','dispatch_outbox'} <= tables, tables"
           python -c "from redis import Redis; assert Redis.from_url('redis://localhost:6379/15').ping()"
