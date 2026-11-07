@@ -205,10 +205,12 @@ class JobResult(BaseModel):
     dispatch_attempts: int = 0
     dispatch_error: str | None = None
     review_contract_version: int = 1
-    review_version: int
-    review_enabled: bool
-    can_review: bool
-    review_artifact: ArtifactIdentity | None
+    review_version: int = 0
+    review_enabled: bool = Field(
+        default_factory=lambda: get_settings().review_workflow_enabled
+    )
+    can_review: bool = False
+    review_artifact: ArtifactIdentity | None = None
 
 
 class ReviewResult(BaseModel):

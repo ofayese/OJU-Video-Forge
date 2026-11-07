@@ -584,7 +584,7 @@ def test_migration_old_rows_and_non_destructive_downgrade(tmp_path):
     with engine.connect() as db:
         assert db.scalar(text("SELECT count(*) FROM job_reviews")) == 1
         assert db.scalar(text("SELECT count(*) FROM audit_events")) == 1
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0006"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
         with pytest.raises(DBAPIError, match="immutable"):
             db.execute(text("DELETE FROM job_reviews"))
     engine.dispose()
