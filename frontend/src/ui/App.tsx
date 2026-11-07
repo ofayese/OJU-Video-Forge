@@ -8,6 +8,7 @@ import type {
   VideoJob,
   VideoModel,
 } from "../api/types";
+import { ReviewPanel } from "./ReviewPanel";
 
 function errorText(error: unknown): string {
   return error instanceof ApiError
@@ -18,6 +19,10 @@ function errorText(error: unknown): string {
 const ACTIVE_JOB_STATUSES = new Set(["queued", "dispatch_pending", "running", "verifying"]);
 
 export function App() {
+  return <><ReviewPanel /><AccountApp /></>;
+}
+
+function AccountApp() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [sessionError, setSessionError] = useState("");

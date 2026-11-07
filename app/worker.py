@@ -37,6 +37,7 @@ from .core import (
     transition,
 )
 from .private_storage import private_file, write_private_file
+from .review import generated_checksum
 from .rendering import RenderEngine
 
 WORKFLOW = Path("/workflows/wan22-t2v-api.json")
@@ -449,10 +450,11 @@ def execute(job_id: str):
                     '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
                     '-movflags', '+faststart', str(dest),
                 ], timeout=120)
-                (output_dir / "SHA256SUMS").write_text(f"{sha256(dest)}  test.mp4\n")
-                _finish_or_cancel(
-                    db, job, 'awaiting_review', artifact=f"{job.id}/test.mp4"
-                )
+                artifact = f'{job.id}/test.mp4'
+                checksum = generated_checksum(job, artifact=artifact)
+                (output_dir / 'SHA256SUMS').write_text(f'{checksum}  test.mp4\n')
+                transition(db, job, 'awaiting_review', 'worker', artifact=artifact,
+                           artifact_id=str(uuid.uuid4()), artifact_sha256=checksum)
             elif job.operation == 'wan22_t2v':
                 if _cancel_requested(job_id):
                     raise JobCancelled()

@@ -6,6 +6,7 @@ from rq import Queue
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    DDL,
     DateTime,
     ForeignKey,
     Integer,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
     update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -35,6 +37,8 @@ JOB_STATUSES = {
     "running",
     "cancel_requested",
     "awaiting_review",
+    "approved",
+    "rejected",
     "submitted_to_comfyui",
     "failed",
     "cancelled",
@@ -49,6 +53,7 @@ JOB_TRANSITIONS = {
         "submitted_to_comfyui",
         "failed",
     },
+    "awaiting_review": {"approved", "rejected"},
     "cancel_requested": {"cancelled", "failed"},
 }
 
@@ -160,7 +165,8 @@ class Job(Base):
         UniqueConstraint("retry_of_job_id", name="uq_jobs_retry_of_id"),
         CheckConstraint(
             "status IN ('dispatch_pending', 'queued', 'running', 'cancel_requested', "
-            "'awaiting_review', 'submitted_to_comfyui', 'failed', 'cancelled')",
+            "'awaiting_review', 'approved', 'rejected', 'submitted_to_comfyui', "
+            "'failed', 'cancelled')",
             name="ck_jobs_status",
         ),
     )
@@ -181,6 +187,13 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     spec: Mapped[dict] = mapped_column(JSON, nullable=False)
     artifact: Mapped[str | None] = mapped_column(Text, nullable=True)
+    artifact_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    artifact_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    review_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    __mapper_args__ = {
+        "version_id_col": review_version,
+        "version_id_generator": lambda previous: 0 if previous is None else previous + 1,
+    }
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     dispatch_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     dispatch_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -289,6 +302,61 @@ class Audit(Base):
     )
 
 
+class Review(Base):
+    __tablename__ = "job_reviews"
+    __table_args__ = (
+        UniqueConstraint("job_id", "version", name="uq_job_reviews_version"),
+        CheckConstraint("decision IN ('approved', 'rejected')", name="ck_job_reviews_decision"),
+        CheckConstraint("expected_version >= 0 AND version = expected_version + 1", name="ck_job_reviews_version"),
+        CheckConstraint("contract_version = 1", name="ck_job_reviews_contract"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String(40), ForeignKey("jobs.id"), nullable=False, index=True)
+    actor: Mapped[str] = mapped_column(String(128), nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    artifact_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    artifact_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    expected_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+
+def install_review_guards(connection):
+    """Append-only evidence, including protection against direct SQL mutation."""
+    if connection.dialect.name == "sqlite":
+        connection.execute(DDL(
+            "CREATE TRIGGER job_reviews_no_replace BEFORE INSERT ON job_reviews "
+            "WHEN EXISTS (SELECT 1 FROM job_reviews WHERE id = NEW.id "
+            "OR (job_id = NEW.job_id AND version = NEW.version)) "
+            "BEGIN SELECT RAISE(ABORT, 'Review evidence is immutable'); END"
+        ))
+        for action in ("UPDATE", "DELETE"):
+            connection.execute(DDL(
+                f"CREATE TRIGGER job_reviews_no_{action.lower()} BEFORE {action} ON job_reviews "
+                "BEGIN SELECT RAISE(ABORT, 'Review evidence is immutable'); END"
+            ))
+    elif connection.dialect.name == "postgresql":
+        connection.execute(DDL(
+            "CREATE OR REPLACE FUNCTION deny_review_mutation() RETURNS trigger LANGUAGE plpgsql AS "
+            "$$ BEGIN RAISE EXCEPTION 'Review evidence is immutable'; END; $$"
+        ))
+        connection.execute(DDL(
+            "CREATE TRIGGER job_reviews_immutable BEFORE UPDATE OR DELETE ON job_reviews "
+            "FOR EACH ROW EXECUTE FUNCTION deny_review_mutation()"
+        ))
+        connection.execute(DDL(
+            "CREATE TRIGGER job_reviews_no_truncate BEFORE TRUNCATE ON job_reviews "
+            "FOR EACH STATEMENT EXECUTE FUNCTION deny_review_mutation()"
+        ))
+    else:
+        raise RuntimeError("Review evidence requires SQLite or PostgreSQL")
+
+@event.listens_for(Review.__table__, "after_create")
+def review_guards(target, connection, **kwargs):
+    install_review_guards(connection)
+
+
 def queue(name: str = "video"):
     return Queue(
         name,
@@ -304,33 +372,57 @@ def get_db():
         yield db
 
 
-def transition(db, job, status, actor, error=None, artifact=None):
+def transition(
+    db,
+    job,
+    status,
+    actor,
+    error=None,
+    artifact=None,
+    artifact_id=None,
+    artifact_sha256=None,
+):
+    db.flush()
     current_status = job.status
     if current_status == status:
         return True
     if status not in JOB_TRANSITIONS.get(current_status, set()):
         raise ValueError(f"Invalid job transition: {current_status} -> {status}")
     updated_at = datetime.now(timezone.utc)
-    values = {"status": status, "updated_at": updated_at}
+    values = {
+        "status": status,
+        "updated_at": updated_at,
+        "review_version": job.review_version + 1,
+    }
     if error is not None:
         values["error"] = error[:2000]
     if artifact is not None:
         values["artifact"] = artifact
-    result = db.execute(
-        update(Job)
-        .where(Job.id == job.id, Job.status == current_status)
-        .values(**values)
-        .execution_options(synchronize_session=False)
-    )
-    if result.rowcount != 1:
-        db.refresh(job)
-        return False
-    job.status = status
-    job.updated_at = updated_at
-    if error is not None:
-        job.error = error[:2000]
-    if artifact is not None:
-        job.artifact = artifact
-    db.add(Audit(job_id=job.id, actor=actor, action=status))
-    db.commit()
+        if artifact_id is not None:
+            values["artifact_id"] = artifact_id
+        if artifact_sha256 is not None:
+            values["artifact_sha256"] = artifact_sha256
+    try:
+        with db.no_autoflush:
+            result = db.execute(
+                update(Job)
+                .where(
+                    Job.id == job.id,
+                    Job.owner == job.owner,
+                    Job.status == current_status,
+                    Job.review_version == job.review_version,
+                )
+                .values(**values)
+                .execution_options(synchronize_session=False)
+            )
+        if result.rowcount != 1:
+            db.rollback()
+            db.refresh(job)
+            return False
+        db.add(Audit(job_id=job.id, actor=actor, action=status))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(job)
     return True

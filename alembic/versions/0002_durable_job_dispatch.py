@@ -12,6 +12,23 @@ down_revision = "0001"
 branch_labels = None
 depends_on = None
 
+metadata = sa.MetaData()
+jobs_before_dispatch = sa.Table(
+    "jobs",
+    metadata,
+    sa.Column("id", sa.String(40), primary_key=True),
+    sa.Column("owner", sa.String(128), nullable=False),
+    sa.Column("operation", sa.String(32), nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("spec", sa.JSON(), nullable=False),
+    sa.Column("artifact", sa.Text(), nullable=True),
+    sa.Column("error", sa.Text(), nullable=True),
+    sa.Column("idempotency_key", sa.String(128), nullable=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+)
+sa.Index("ix_jobs_owner", jobs_before_dispatch.c.owner)
+
 
 def upgrade():
     op.create_table(
@@ -34,7 +51,7 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_media_assets_project_id", "media_assets", ["project_id"])
-    with op.batch_alter_table("jobs") as batch_op:
+    with op.batch_alter_table("jobs", copy_from=jobs_before_dispatch) as batch_op:
         batch_op.add_column(sa.Column("project_id", sa.String(40), nullable=True))
         batch_op.add_column(sa.Column("media_id", sa.String(40), nullable=True))
         batch_op.add_column(
@@ -70,7 +87,8 @@ def upgrade():
         batch_op.create_check_constraint(
             "ck_jobs_status",
             "status IN ('dispatch_pending', 'queued', 'running', 'cancel_requested', "
-            "'awaiting_review', 'submitted_to_comfyui', 'failed', 'cancelled')",
+            "'awaiting_review', 'approved', 'rejected', 'submitted_to_comfyui', "
+            "'failed', 'cancelled')",
         )
     op.create_table(
         "dispatch_outbox",

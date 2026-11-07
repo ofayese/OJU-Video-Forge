@@ -330,7 +330,7 @@ def test_worker_claim_cannot_overwrite_a_concurrent_cancellation(api_client):
 
 def test_worker_retries_claim_after_dispatcher_queues_job(monkeypatch, tmp_path):
     job_id = _new_job("dispatch_pending")
-    from app import worker
+    from app import review, worker
 
     original_transition = worker.transition
     ffmpeg_called = False
@@ -355,6 +355,7 @@ def test_worker_retries_claim_after_dispatcher_queues_job(monkeypatch, tmp_path)
     monkeypatch.setattr(worker, "transition", transition_with_dispatch_race)
     monkeypatch.setattr(worker, "_run_ffmpeg", fake_ffmpeg)
     monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(review, "ARTIFACT_ROOT", tmp_path)
     worker.execute(job_id)
 
     assert ffmpeg_called

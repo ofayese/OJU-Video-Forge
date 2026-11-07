@@ -137,6 +137,9 @@ def test_local_user_cannot_read_service_owned_job(
         db.commit()
 
     assert client.get(f"/v1/jobs/{job_id}", headers=user_headers).status_code == 404
+    assert client.get(
+        f"/v1/jobs/{job_id}/reviews", headers=user_headers
+    ).status_code == 404
     service_response = client.get(
         f"/v1/jobs/{job_id}",
         headers=authorization("service-token"),
