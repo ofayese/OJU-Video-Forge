@@ -8,9 +8,10 @@ RUN git clone https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI \
  && cd /opt/ComfyUI && git checkout "$COMFYUI_REF" \
  && pip install --no-cache-dir -r requirements.txt
 WORKDIR /opt/ComfyUI
-RUN useradd --create-home --uid 10001 --user-group forge \
+RUN groupadd --gid 10001 forge \
+ && useradd --create-home --uid 10001 --gid 10001 forge \
  && mkdir -p user \
  && chown forge:forge user
-USER forge
+USER 10001:10001
 EXPOSE 8188
-CMD ["python","main.py","--listen","0.0.0.0","--port","8188","--lowvram"]
+CMD ["python","main.py","--listen","0.0.0.0","--port","8188","--lowvram","--temp-directory","/home/forge","--previews-directory","/home/forge/previews"]

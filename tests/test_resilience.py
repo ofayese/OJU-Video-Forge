@@ -299,12 +299,12 @@ def test_interrupted_render_can_reuse_its_private_output_directory(
         with factory() as session:
             yield session
 
-    def fake_ffmpeg(args, **kwargs):
+    def fake_ffmpeg(job_id, args, *, timeout):
         Path(args[-1]).write_bytes(b"complete synthetic output")
 
     monkeypatch.setattr(worker, "SessionLocal", session_context)
     monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path / "artifacts")
-    monkeypatch.setattr(worker.subprocess, "run", fake_ffmpeg)
+    monkeypatch.setattr(worker, "_run_ffmpeg", fake_ffmpeg)
 
     worker.execute(job.id)
 
@@ -334,6 +334,7 @@ def test_worker_hides_error_when_failure_state_cannot_be_saved(monkeypatch, data
     def fail_transition(db, job, status, actor, **kwargs):
         if status != "running":
             raise ValueError("private synthetic prompt")
+        return True
 
     monkeypatch.setattr(worker, "SessionLocal", session_context)
     monkeypatch.setattr(worker, "transition", fail_transition)

@@ -123,8 +123,8 @@ def test_output_probe_checksum_and_fixed_arguments(engine):
     assert result.size_bytes == len(output_bytes)
     assert (result.width, result.height, result.fps, result.duration_seconds) == (640, 360, 24, 1)
     assert result.video_codec == "h264" and result.audio_codec is None
-    assert len(calls) == 3
-    args, cwd, timeout = calls[1]
+    assert len(calls) == 5
+    args, cwd, timeout = calls[3]
     assert cwd.parent == engine.root and 0 < timeout <= engine.timeout
     assert args[args.index("-i") + 1] == str(engine.root / "clip.mp4")
     for option, value in [("-threads", "1"), ("-fs", str(r.MAX_OUTPUT_BYTES)),
@@ -134,6 +134,25 @@ def test_output_probe_checksum_and_fixed_arguments(engine):
     assert "-nostdin" in args and "-n" in args and args[-1] == "output.mp4"
     assert list(cwd.iterdir()) == [result.path]
     assert (engine.root / "clip.mp4").read_bytes() == b"mock input"
+    assert result.provenance["inputs_sha256"]["clip.mp4"] == hashlib.sha256(b"mock input").hexdigest()
+    assert result.provenance["output_sha256"] == result.sha256
+    assert result.provenance["preset"] == "preview"
+    assert result.provenance["preset_version"] == 1
+    assert set(result.provenance["tools"]) == {"ffmpeg", "ffprobe"}
+
+
+def test_changed_input_fails_and_cleans_scratch(engine):
+    def fake_run(args, cwd, timeout):
+        if "-filter_complex" in args:
+            (cwd / "output.mp4").write_bytes(b"mock")
+            (engine.root / "clip.mp4").write_bytes(b"changed")
+            return b""
+        return metadata()
+
+    with patch.object(r, "_run", side_effect=fake_run):
+        with pytest.raises(r.RenderError, match="Input changed"):
+            engine.render(timeline())
+    assert list(engine.root.iterdir()) == [engine.root / "clip.mp4"]
 
 
 def test_order_trim_literal_text_and_audio(engine):
@@ -261,6 +280,7 @@ def test_real_fixture_render_is_repeatable(tmp_path):
     first = engine.render(payload)
     second = engine.render(payload)
     assert first.sha256 == second.sha256
+    assert first.provenance == second.provenance
     assert first.sha256 == hashlib.sha256(first.path.read_bytes()).hexdigest()
     assert first.duration_seconds == pytest.approx(2, abs=1 / 24)
     assert first.audio_codec == "aac" and first.size_bytes > 1000
