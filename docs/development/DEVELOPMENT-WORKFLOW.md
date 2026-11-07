@@ -31,10 +31,11 @@ If dependency inputs change, regenerate both Python locks using the pinned
 pip and setuptools are pinned and hash-checked for clean `--require-hashes`
 installs:
 
+Windows PowerShell:
+
 ```powershell
 .\.venv\Scripts\python.exe -m piptools compile --generate-hashes --allow-unsafe --output-file requirements.lock.txt requirements.txt
 .\.venv\Scripts\python.exe -m piptools compile --generate-hashes --allow-unsafe --output-file requirements-dev.lock.txt requirements-dev.txt
-```
 
 See the [dependency update policy](./DEPENDENCY-UPDATE-POLICY.md).
 
