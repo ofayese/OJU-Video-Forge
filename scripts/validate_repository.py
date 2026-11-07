@@ -19,7 +19,7 @@ ENV_FILES = (
     ROOT / ".env.production.example",
 )
 COMPOSE_FILES = tuple(ROOT.glob("compose*.yaml"))
-ACTION_USE = re.compile(r"^\s*uses:\s+([\w.-]+/[\w.-]+)@([^\s#]+)", re.MULTILINE)
+ACTION_USE = re.compile(r"^\s*(?:-\s+)?uses:\s+([\w.-]+/[\w./-]+)@([^\s#]+)", re.MULTILINE)
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -59,9 +59,12 @@ def validate_customizations() -> None:
         if not isinstance(metadata.get("description"), str) or not metadata["description"].strip():
             raise ValueError(f"{path.name}: description is required")
         apply_to = metadata.get("applyTo")
-        if not isinstance(apply_to, (str, list)) or not apply_to:
+        if not isinstance(apply_to, str) or not apply_to.strip():
             raise ValueError(f"{path.name}: applyTo must scope the instruction")
-        if apply_to == "**" or apply_to == ["**"]:
+        scopes = [scope.strip() for scope in apply_to.split(",")]
+        if any(not scope for scope in scopes):
+            raise ValueError(f"{path.name}: applyTo must contain non-empty scopes")
+        if "**" in scopes:
             raise ValueError(f"{path.name}: broad applyTo scope is not allowed")
 
     for path in (GITHUB / "agents").glob("*.agent.md"):

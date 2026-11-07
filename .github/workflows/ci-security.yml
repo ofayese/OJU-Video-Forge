@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: requirements-dev.lock.txt
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "26.12.1"
+          node-version: "20.12.1"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install locked Python audit tools
@@ -72,7 +72,7 @@ jobs:
           fetch-depth: 1
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: "1.25.4"
+          go-version: "1.23.4"
           cache: false
       - name: Install pinned scanners
         run: |
@@ -95,16 +95,16 @@ jobs:
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
           docker run --rm
-          -v "$RUNNER_TEMP:/tmp:ro"
+          -v "$RUNNER_TEMP:/scan:ro"
           aquasec/trivy:0.76.2
-          image --input /tmp/ovf-api.tar --exit-code 1 --severity HIGH,CRITICAL
+          image --input /scan/ovf-api.tar --exit-code 1 --severity HIGH,CRITICAL
       - name: Scan worker image for vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
           docker run --rm
-          -v "$RUNNER_TEMP:/tmp:ro"
+          -v "$RUNNER_TEMP:/scan:ro"
           aquasec/trivy:0.76.2
-          image --input /tmp/ovf-worker.tar --exit-code 1 --severity HIGH,CRITICAL
+          image --input /scan/ovf-worker.tar --exit-code 1 --severity HIGH,CRITICAL
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: ${{ always() && steps.sbom.outcome == 'success' }}
         with:

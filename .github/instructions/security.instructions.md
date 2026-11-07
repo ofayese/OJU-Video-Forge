@@ -1,13 +1,7 @@
 ---
 name: Security Engineering
 description: "Use when changing authentication, authorization, uploads, media, artifacts, dependencies, subprocesses, containers, or workflows."
-applyTo:
-  - "app/**/*.py"
-  - "services/**"
-  - "compose*.yaml"
-  - "requirements*.txt"
-  - "frontend/package*.json"
-  - ".github/workflows/**"
+applyTo: "app/**/*.py, services/**, compose*.yaml, requirements*.txt, frontend/package*.json, .github/workflows/**"
 ---
 
 # Security guidance

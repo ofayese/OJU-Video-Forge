@@ -1,9 +1,7 @@
 ---
 name: Backend Engineering
 description: "Use for FastAPI, Python, SQLAlchemy, Alembic, Redis, RQ, API contracts, and backend configuration."
-applyTo:
-  - "app/**/*.py"
-  - "alembic/**/*.py"
+applyTo: "app/**/*.py, alembic/**/*.py"
 ---
 
 # Backend guidance

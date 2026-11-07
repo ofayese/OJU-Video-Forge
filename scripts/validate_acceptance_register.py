@@ -22,7 +22,7 @@ def validate(path: Path) -> list[str]:
         for error in validator.iter_errors(register)
     ]
 
-    if not isinstance(register, dict):
+    if errors or not isinstance(register, dict):
         return errors
 
     gates = register.get("current_gates", [])
@@ -59,7 +59,7 @@ def main() -> int:
     if errors:
         print("\n".join(f"ERROR: {error}" for error in errors))
         return 1
-    print(f"PASS: {args.register.relative_to(ROOT)} matches the acceptance schema")
+    print(f"PASS: {args.register} matches the acceptance schema")
     return 0
 
 

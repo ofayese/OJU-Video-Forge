@@ -1,7 +1,9 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12-alpine3.22
 WORKDIR /opt/forge
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
- && rm -rf /var/lib/apt/lists/* && useradd -r -u 10001 forge
+RUN apk update && apk upgrade --no-cache \
+ && apk add --no-cache ffmpeg ca-certificates \
+ && adduser -D -u 10001 forge \
+ && rm -rf /var/cache/apk/*
 COPY requirements.lock.txt .
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock.txt
 COPY app/ ./app/
