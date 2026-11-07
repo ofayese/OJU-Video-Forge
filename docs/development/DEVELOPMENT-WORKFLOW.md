@@ -27,8 +27,15 @@ npm --prefix frontend ci
 ```
 
 If dependency inputs change, regenerate both Python locks using the pinned
-`pip-tools` from the development requirements; see
-[dependency update policy](./DEPENDENCY-UPDATE-POLICY.md).
+`pip-tools` from the development requirements. `--allow-unsafe` is required so
+pip and setuptools are pinned and hash-checked for clean `--require-hashes`
+installs:
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -m piptools compile --generate-hashes --allow-unsafe --output-file requirements.lock.txt requirements.txt
+.\.venv\Scripts\python.exe -m piptools compile --generate-hashes --allow-unsafe --output-file requirements-dev.lock.txt requirements-dev.txt
 
 ## Local checks
 
