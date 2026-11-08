@@ -162,36 +162,28 @@ current_gates:
       - "docs/reviews/ERE-SECURITY-VALIDATION.md"
       - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
       - "GitHub Dependabot open-alert query returned zero alerts."
-    commit_sha: null
-    test_command: "pip-audit -r requirements.lock.txt; pip-audit -r requirements-dev.lock.txt; npm --prefix frontend audit --audit-level=moderate; gh api 'repos/ofayese/OJU-Video-Forge/dependabot/alerts?state=open&per_page=100' --jq length"
-    execution_environment: "ERE project Python 3.12 virtual environment, Node 26.12.1, and GitHub API."
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
+    test_command: "docker run --rm --network bridge --entrypoint /bin/sh oju-video-forge-tests:final -c 'pip-audit -r requirements.lock.txt && pip-audit -r requirements-dev.lock.txt'; docker run --rm --network bridge --entrypoint /bin/sh oju-video-forge-frontend-test:final -c 'npm run typecheck && npm test && npm run build && npm audit'"
+    execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; backend and frontend dependency checks ran inside Docker."
     exit_code: 0
-    validation_date: "2026-11-06"
+    validation_date: "2026-11-07"
     remaining_gaps:
-      - "The ERE global system Python remains separate from the project lock; use the project virtual environment for application execution."
-      - "GitHub Actions scans have not yet run; the local ComfyUI root-container finding remains open as issue #16."
+      - "GitHub Actions security scans at the PR head have not completed; the local ComfyUI root-container finding remains open as issue #16."
   - gate_id: application-functional
     requirement: "Authenticated project-to-render-to-authorized-artifact workflow is operational."
-    status: PARTIAL
+    status: PASS
     evidence_reference:
       - "docs/implementation/VERTICAL-SLICE-PLAN.md"
       - "docs/reviews/ERE-REMAINING-GAPS.md"
       - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
-    commit_sha: "e508d1f1254645530310303f9269092caedfe816"
-    test_command: >-
-      .venv/bin/python -m pytest -q -p no:cacheprovider (exit 0: 69 passed, 1 skipped, 1 warning);
-      .venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json (exit 0);
-      With APP_ENV=test and DATABASE_URL/DB_PASSWORD set to synthetic loopback-only PostgreSQL values: .venv/bin/python -m alembic upgrade head (exit 0);
-      .venv/bin/python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events'} <= tables" (exit 0);
-      .venv/bin/python -c "from redis import Redis; assert Redis.from_url('$REDIS_URL').ping()" (exit 0)
-    execution_environment: "Linux x86_64 sandbox; Python 3.12.3; Docker Engine 28.0.4; ephemeral PostgreSQL 17 and Redis 7 containers; no shared services."
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
+    test_command: ".\\scripts\\acceptance.ps1 -Environment acceptance (exit 0; synthetic authenticated workflow PASS: registration, login, project creation, upload, PostgreSQL persistence, Redis dispatch, worker render, FFmpeg, FFprobe, SHA-256, authorized retrieval, unauthorized denial, and audit checks)"
+    execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; isolated oju-video-forge-acceptance project and disposable synthetic media."
     exit_code: 0
-    validation_date: "2026-11-06"
+    validation_date: "2026-11-07"
     remaining_gaps:
-      - "The complete authenticated project-to-render-to-authorized-artifact workflow remains incomplete."
-      - "The FFmpeg/FFprobe fixture is skipped because the executables are unavailable."
-      - "This Linux run does not validate Windows behavior; prior Windows results apply to their recorded commit."
-      - "GPU inference and recovery/backup-restore remain separate unverified gates."
+      - "Browser-driven upload/render/progress/artifact retrieval remain unverified because the browser upload tool denied access to the synthetic file path; backend API acceptance passed."
+      - "Optional GPU inference is not enabled or validated in this CPU-rendering milestone."
   - gate_id: local-auth-project-authorization
     requirement: "Local password sessions and project membership roles are enforced by the versioned API."
     status: PASS
@@ -199,13 +191,13 @@ current_gates:
       - "docs/authentication-projects-v1.md"
       - "tests/test_auth_projects.py"
       - "alembic/versions/0005_local_auth_projects.py"
-    commit_sha: "642d851971e2e6451b92fa91fe7cff639a59fe1d"
-    test_command: "PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m pytest -q -p no:cacheprovider; PYTHONPATH=. /tmp/ovf-auth-venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json; DATABASE_URL=sqlite:////tmp/ovf-auth-migration.db PYTHONPATH=. /tmp/ovf-auth-venv/bin/python -m alembic -c alembic.ini upgrade head; /tmp/ovf-auth-venv/bin/ruff check app tests alembic scripts; /tmp/ovf-auth-venv/bin/python -m compileall -q app tests alembic"
-    execution_environment: "Linux sandbox, Python 3.12.3, isolated venv installed from requirements-dev.lock.txt; API tests used in-memory SQLite and migration used disposable SQLite."
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
+    test_command: "Canonical browser registration/login/project creation/session revocation passed; .\\scripts\\acceptance.ps1 -Environment acceptance verified cross-user authorization denial and session-protected artifact access; canonical migration reached head 0009."
+    execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; canonical and acceptance projects used separate PostgreSQL databases, Redis instances, secrets, volumes, and networks."
     exit_code: 0
-    validation_date: "2026-11-06"
+    validation_date: "2026-11-07"
     remaining_gaps:
-      - "PostgreSQL migration/integration was not run; full authenticated upload-to-render-to-artifact workflow remains separately PARTIAL."
+      - "Browser-driven media upload and render UI interaction remain unverified; the backend acceptance workflow passed."
   - gate_id: gpu-inference
     requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
     status: BLOCKED
@@ -220,30 +212,21 @@ current_gates:
       - "ComfyUI, model/workflow, scheduling, and generated output have not been validated."
   - gate_id: local-release
     requirement: "A clean local setup passes the end-to-end product acceptance suite and recovery checks."
-    status: NOT_VERIFIED
+    status: PARTIAL
     evidence_reference:
       - "docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml"
       - "docs/implementation/VERTICAL-SLICE-PLAN.md"
       - "docs/reviews/ERE-RECOVERY-VALIDATION.md"
       - "docs/reviews/ERE-RENDER-VALIDATION.md"
-    commit_sha: "e508d1f1254645530310303f9269092caedfe816"
-    test_command: |-
-      Setup: python -m venv .venv && .venv/bin/python -m pip install --require-hashes -r requirements-dev.lock.txt (exit 0)
-      Backend: .venv/bin/python -m pytest -q -p no:cacheprovider (exit 0: 69 passed, 1 skipped, 1 warning); .venv/bin/ruff check app tests alembic scripts; .venv/bin/python -m compileall -q app tests alembic scripts; .venv/bin/python -m pip check (all exit 0)
-      Python audits: .venv/bin/pip-audit -r requirements.lock.txt; .venv/bin/pip-audit -r requirements-dev.lock.txt (both exit 0, no known vulnerabilities)
-      Frontend: npm --prefix frontend ci; npm --prefix frontend audit --audit-level=moderate; npm --prefix frontend run typecheck; npm --prefix frontend test; npm --prefix frontend run build (all exit 0; 3 tests passed; 0 npm audit vulnerabilities)
-      Repository checks: .venv/bin/python scripts/validate_acceptance_register.py; .venv/bin/python scripts/validate_repository.py; .venv/bin/python scripts/check_dependency_locks.py; .venv/bin/python scripts/export_openapi.py --output /tmp/ovf-openapi.json (all exit 0)
-      Compose: docker compose --env-file .env.development.example -f compose.yaml -f compose.dev.yaml config --quiet; docker compose --env-file .env.development.example -f compose.yaml -f compose.gpu.yaml config --quiet (both exit 0; services not started)
-      Container syntax: docker buildx build --check --file services/api/Dockerfile .; docker buildx build --check --file services/worker/Dockerfile .; docker buildx build --check --file services/comfyui/Dockerfile . (all exit 0)
-      Isolated PostgreSQL/Redis: docker run --rm postgres:17-alpine and docker run --rm redis:7-alpine with loopback-only random ports and temporary storage; with APP_ENV=test and DATABASE_URL/DB_PASSWORD/REDIS_URL set to synthetic loopback values, .venv/bin/python -m alembic upgrade head; .venv/bin/python -c "from sqlalchemy import inspect; from app.core import engine; tables=set(inspect(engine).get_table_names()); assert {'jobs','audit_events'} <= tables"; .venv/bin/python -c "from redis import Redis; assert Redis.from_url('$REDIS_URL').ping()" (all exit 0; containers removed)
-    execution_environment: "Linux x86_64 sandbox; Python 3.12.3, Node v24.22.1, npm 11.19.1, Docker Engine 28.0.4; ephemeral PostgreSQL 17/Redis 7; no FFmpeg/FFprobe on host."
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
+    test_command: ".\\scripts\\acceptance.ps1 -Environment acceptance (exit 0); docker run --rm --network none oju-video-forge-tests:final python -m pytest -q -p no:cacheprovider -rs (exit 0: 229 passed, 12 skipped, 5 warnings); docker run --rm --network bridge --entrypoint /bin/sh oju-video-forge-frontend-test:final -c 'npm run typecheck && npm test && npm run build && npm audit' (exit 0: 54 tests passed, 0 vulnerabilities); disposable backup restores passed."
+    execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; app dependencies, tests, and audits ran in containers. Canonical services remain local-only."
     exit_code: 0
-    validation_date: "2026-11-06"
+    validation_date: "2026-11-07"
     remaining_gaps:
-      - "No complete authenticated project/upload/job/render/FFprobe/SHA-256/authorized-retrieval workflow; required API and worker capabilities are missing."
-      - "No backup/restore or interrupted-worker recovery acceptance was run."
-      - "One FFmpeg/FFprobe integration test was skipped because the host executables are unavailable."
-      - "No Windows validation was run on this commit; GPU readiness remains separately BLOCKED."
+      - "Browser-driven upload/render/progress/artifact retrieval are not verified; the browser file-upload tool denied the synthetic file path."
+      - "GitHub CI at the PR head has not completed; no merge was performed."
+      - "GPU inference remains separately BLOCKED."
       - "Trivy HIGH DS-0002 for the ComfyUI container remains open under issue #16."
       - "GitHub Frontend CI run 42278655804 failed on a separate dependency-update PR: @vitejs/plugin-react@6.2.1 requires Vite 8 while that PR resolved Vite 6.4.5; disposition is pending outside this change."
       - "PR #37 GitHub Actions report action_required for backend run 42280276816, frontend run 42280276663, infrastructure run 42280276619, and security run 42280276756; no CI pass can be claimed until these workflows are authorized and complete. The local CodeQL checker skipped this documentation-only change."
@@ -260,3 +243,18 @@ current_gates:
     validation_date: "2026-11-05"
     remaining_gaps:
       - "No migration is authorized or in scope; both ADRs remain PROPOSED."
+  - gate_id: docker-environment-isolation
+    requirement: "Canonical application and isolated acceptance/integration environments have distinct Compose names, storage, networks, secrets, and ports, with preserved existing data."
+    status: PASS
+    evidence_reference:
+      - "docs/operations/DOCKER-ENVIRONMENTS.md"
+      - "docs/reviews/DOCKER-NAMING-RECONCILIATION.md"
+      - "tests/test_compose_isolation.py"
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
+    test_command: "docker compose --env-file .env.development.example -f compose.yaml config --quiet; docker compose --env-file .env.development.example -p oju-video-forge-acceptance -f compose.yaml -f compose.acceptance.yaml config --quiet; docker compose --env-file .env.development.example -p oju-video-forge-integration -f compose.yaml -f compose.integration.yaml config --quiet; .\\scripts\\forge.ps1 -Environment acceptance stop; .\\scripts\\forge.ps1 -Environment application ps"
+    execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; independent canonical/acceptance/integration project names, volumes, networks, secrets, and loopback ports."
+    exit_code: 0
+    validation_date: "2026-11-07"
+    remaining_gaps:
+      - "The historical oju-phase3-final frontend is stopped but retained; its other services and volumes were not changed."
+      - "The integration project was configuration-validated but not started; no integration secret file was created."

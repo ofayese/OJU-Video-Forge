@@ -13,7 +13,11 @@ import type {
   ReviewDecision,
 } from "./types";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+// Production reaches the private API only through nginx on the page's origin.
+// An explicit origin override is a development-only convenience.
+const API_BASE_URL = import.meta.env.PROD
+  ? ""
+  : (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
 
 export class ApiError extends Error {
   constructor(
@@ -25,14 +29,15 @@ export class ApiError extends Error {
   }
 }
 
-type UnauthorizedHandler = () => void;
+type UnauthorizedHandler = (token?: string) => void;
 
 export class ApiClient {
   private unauthorizedHandler?: UnauthorizedHandler;
 
   constructor(
     private readonly baseUrl: string = API_BASE_URL,
-    private readonly fetcher: typeof fetch = fetch,
+    // Native browser fetch must not receive an ApiClient instance as `this`.
+    private readonly fetcher: typeof fetch = (...args) => globalThis.fetch(...args),
   ) {}
 
   setUnauthorizedHandler(handler: UnauthorizedHandler): void {
@@ -57,6 +62,8 @@ export class ApiClient {
       response = await this.fetcher(`${this.baseUrl}${path}`, {
         ...options,
         cache: "no-store",
+        credentials: "omit",
+        redirect: "error",
         headers,
       });
     } catch {
@@ -65,31 +72,12 @@ export class ApiClient {
 
     if (!response.ok) {
       const errorMessage = await this.readError(response);
-      if (response.status === 401) this.unauthorizedHandler?.();
+      if (response.status === 401) this.unauthorizedHandler?.(token);
       throw new ApiError(errorMessage, response.status);
     }
     if (response.status === 204) return undefined as T;
     if (responseType === "blob") return (await response.blob()) as T;
     return (await response.json()) as T;
-  }
-
-  private async requestBlob(path: string, token: string): Promise<Blob> {
-    const headers = new Headers();
-    headers.set("Authorization", ["Bearer", token].join(" "));
-
-    let response: Response;
-    try {
-      response = await this.fetcher(`${this.baseUrl}${path}`, { headers });
-    } catch {
-      throw new ApiError("Unable to reach the API. Check the API URL and connection.", 0);
-    }
-
-    if (!response.ok) {
-      const errorMessage = await this.readError(response);
-      if (response.status === 401) this.unauthorizedHandler?.();
-      throw new ApiError(errorMessage, response.status);
-    }
-    return response.blob();
   }
 
   private async readError(response: Response): Promise<string> {
@@ -109,6 +97,12 @@ export class ApiClient {
     return this.request<AuthSession>("/v1/auth/session", {
       method: "POST",
       body: JSON.stringify(credentials),
+    });
+  }
+
+  async register(credentials: LoginInput): Promise<User> {
+    return this.request<User>("/v1/auth/register", {
+      method: "POST", body: JSON.stringify(credentials),
     });
   }
 
@@ -143,6 +137,12 @@ export class ApiClient {
     );
   }
 
+  async listMedia(projectId: string, token: string): Promise<MediaAsset[]> {
+    return this.request<MediaAsset[]>(
+      `/v1/projects/${encodeURIComponent(projectId)}/media`, {}, token,
+    );
+  }
+
   async createRenderJob(
     projectId: string,
     input: CreateRenderInput,
@@ -157,23 +157,6 @@ export class ApiClient {
         body: JSON.stringify(input),
       },
       token,
-    );
-  }
-
-  async getProjectJob(projectId: string, jobId: string, token: string): Promise<VideoJob> {
-    return this.request<VideoJob>(
-      `/v1/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`,
-      {},
-      token,
-    );
-  }
-
-  async getProjectArtifact(projectId: string, artifactId: string, token: string): Promise<Blob> {
-    return this.request<Blob>(
-      `/v1/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}`,
-      {},
-      token,
-      "blob",
     );
   }
 
@@ -198,9 +181,11 @@ export class ApiClient {
   }
 
   async getArtifact(jobId: string, token: string): Promise<Blob> {
-    return this.requestBlob(
+    return this.request<Blob>(
       `/v1/jobs/${encodeURIComponent(jobId)}/artifact`,
+      {},
       token,
+      "blob",
     );
   }
 }

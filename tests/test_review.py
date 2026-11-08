@@ -19,7 +19,17 @@ from sqlalchemy.orm.exc import StaleDataError
 from app import api, auth, review, worker
 from app.auth import Actor, get_current_actor
 from app.config import Settings
-from app.core import Audit, Base, DispatchOutbox, Job, Review, transition
+from app.core import (
+    Audit,
+    Base,
+    DispatchOutbox,
+    Job,
+    Project,
+    ProjectMembership,
+    Review,
+    User,
+    transition,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -401,6 +411,103 @@ def test_worker_persists_generated_checksum_not_submission(setup, monkeypatch):
     worker.execute(job_id)
     with sessions() as db:
         assert db.get(Job, job_id).artifact_id == identity
+
+
+@pytest.mark.parametrize(
+    ("project_role", "allowed"),
+    [("reviewer", True), ("owner", True), ("editor", False)],
+)
+def test_timeline_artifact_review_uses_project_role(setup, monkeypatch, tmp_path, project_role, allowed):
+    client, sessions, _, job_id, payload, _ = setup
+    user_id = str(uuid.uuid4())
+    project_id = str(uuid.uuid4())
+    artifact_id = str(uuid.uuid4())
+    artifact_path = f"{job_id}/inputs/render-synthetic/output.mp4"
+    output = tmp_path / job_id / "inputs" / "render-synthetic" / "output.mp4"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"synthetic timeline render")
+    digest = hashlib.sha256(output.read_bytes()).hexdigest()
+
+    with sessions() as db:
+        db.add(User(
+            id=user_id,
+            username="project-reviewer",
+            password_hash="synthetic-hash",
+            administrator=project_role == "owner",
+        ))
+        db.add(Project(
+            id=project_id,
+            owner="project-reviewer" if project_role == "owner" else "render-owner",
+            name="Review project",
+        ))
+        db.add(ProjectMembership(
+            project_id=project_id, user_id=user_id, role=project_role,
+        ))
+        job = db.get(Job, job_id)
+        job.owner = "render-owner"
+        job.project_id = project_id
+        job.operation = "render_timeline_v1"
+        job.artifact = artifact_path
+        job.artifact_id = artifact_id
+        job.artifact_sha256 = digest
+        db.commit()
+        review_version = job.review_version
+
+    actor = Actor(
+        name="project-reviewer",
+        roles=["viewer", "administrator"] if project_role == "owner" else ["viewer"],
+        user_id=user_id,
+    )
+    monkeypatch.setitem(api.app.dependency_overrides, get_current_actor, lambda: actor)
+    result = client.get(f"/v1/jobs/{job_id}")
+    assert result.status_code == 200
+    assert result.json()["can_review"] is allowed
+
+    payload["expected_artifact"] = {"id": artifact_id, "sha256": digest}
+    payload["expected_version"] = review_version
+    if allowed:
+        with sessions() as db:
+            job = db.get(Job, job_id)
+            assert job.status == "awaiting_review"
+            assert job.review_version == review_version
+            assert job.artifact == artifact_path
+            assert job.artifact_id == artifact_id
+            assert job.artifact_sha256 == digest
+            assert db.scalar(select(ProjectMembership.id).where(
+                ProjectMembership.project_id == project_id,
+                ProjectMembership.user_id == user_id,
+                ProjectMembership.role.in_(("owner", "reviewer")),
+            )) is not None
+    response = post(client, job_id, payload)
+    assert response.status_code == (200 if allowed else 403), response.text
+    if allowed:
+        assert response.json()["status"] == "approved"
+
+
+def test_timeline_review_rejects_symlinked_render_directory(setup, tmp_path):
+    client, sessions, _, job_id, payload, _ = setup
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    output = outside / "output.mp4"
+    output.write_bytes(b"synthetic external file")
+    (tmp_path / job_id / "inputs").mkdir()
+    (tmp_path / job_id / "inputs" / "render-synthetic").symlink_to(
+        outside, target_is_directory=True,
+    )
+    artifact_id = str(uuid.uuid4())
+    with sessions() as db:
+        job = db.get(Job, job_id)
+        job.operation = "render_timeline_v1"
+        job.artifact = f"{job_id}/inputs/render-synthetic/output.mp4"
+        job.artifact_id = artifact_id
+        job.artifact_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
+        db.commit()
+
+    payload["expected_artifact"] = {
+        "id": artifact_id,
+        "sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+    }
+    assert post(client, job_id, payload).status_code == 409
 
 
 def test_comfy_generation_never_records_review_identity(setup, monkeypatch):

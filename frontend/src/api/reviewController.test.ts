@@ -5,6 +5,7 @@ import { ApiClient } from "./client";
 import { ReviewController, type ReviewState } from "./reviewController";
 import type { JobReview, VideoJob } from "./types";
 import { ReviewEvidence, ReviewPanel } from "../ui/ReviewPanel";
+import { LoginScreen, OrderedTimeline } from "../ui/App";
 
 const job: VideoJob = {
   id: "job", operation: "render_test", status: "awaiting_review", artifact: null, error: null,
@@ -212,9 +213,37 @@ describe("review presentation (server-rendered without DOM dependencies)", () =>
     const html = renderToStaticMarkup(createElement(ReviewPanel));
     expect(html).toContain('type="password"');
     expect(html).toContain("never stored");
-    expect(html).toContain("#8/#9");
+    expect(html).toContain("sign in above");
     expect(html).toContain("Load job and history");
     expect(html).toContain("not independent human signoff");
+  });
+
+  describe("account and timeline presentation", () => {
+    it("exposes real account registration, accessible credentials and no storage", () => {
+      const html = renderToStaticMarkup(createElement(LoginScreen, {
+        error: "Synthetic sign-in error", onAuthenticate: async () => undefined,
+      }));
+      expect(html).toContain("Create account");
+      expect(html).toContain('role="alert"');
+      expect(html).toContain('for="username"');
+      expect(html).toContain('for="password"');
+      expect(html).toContain('type="password"');
+      expect(html).toContain('autoComplete="off"');
+      expect(html).toContain("Bearer session in memory only");
+    });
+    it("presents ordered editable clip controls and disables boundary moves", () => {
+      const html = renderToStaticMarkup(createElement(OrderedTimeline, {
+        clips: [{ media_id: "first", in_ms: 0, out_ms: 5000 }, { media_id: "second", in_ms: 125, out_ms: 1000 }],
+        media: [], disabled: false, onChange: () => undefined,
+      }));
+      expect(html.indexOf("<strong>first")).toBeLessThan(html.indexOf("<strong>second"));
+      expect(html).toContain("Clip 1 in (ms)");
+      expect(html).toContain("Clip 2 out (ms)");
+      expect(html).toContain('aria-label="Move clip 1 up" disabled=""');
+      expect(html).toContain('aria-label="Move clip 2 down" disabled=""');
+      expect(html).toContain("Remove clip 1");
+      expect(html).toContain("Source audio is omitted");
+    });
   });
 
   it("requires acknowledgement of conflict-refreshed evidence before decisions", () => {

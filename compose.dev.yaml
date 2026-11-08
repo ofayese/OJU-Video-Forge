@@ -1,27 +1,11 @@
 services:
+  frontend:
+    build: {target: dev}
+    read_only: false
+    volumes:
+      - ./frontend/src:/opt/forge/src:ro
+      - ./frontend/index.html:/opt/forge/index.html:ro
   api:
-    ports:
-      - "127.0.0.1:8000:8000"
+    ports: ["127.0.0.1:8000:8000"]
     environment:
       APP_ENV: development
-      APP_BASE_URL: http://localhost:5173
-      API_BASE_URL: http://localhost:8000
-      AUTH_PROVIDER: local
-      AD_ENABLED: "false"
-      AZURE_ENABLED: "false"
-      EXTERNAL_ACCESS_ENABLED: "false"
-      AD_DOMAIN: ojuidc.olutech.systems
-      PUBLIC_APP_FQDN: video.olutechsys.com
-      PUBLIC_API_FQDN: video-api.olutechsys.com
-
-  worker:
-    environment:
-      APP_ENV: development
-
-  postgres:
-    ports:
-      - "127.0.0.1:5432:5432"
-
-  redis:
-    ports:
-      - "127.0.0.1:6379:6379"

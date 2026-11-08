@@ -1,4 +1,5 @@
 {
     "chat.editor.preferCopilotHarness": false,
-    "chat.defaultToCopilotHarness": false
+    "chat.defaultToCopilotHarness": false,
+    "python.terminal.useEnvFile": true
 }

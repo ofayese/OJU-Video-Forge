@@ -155,7 +155,7 @@ def _file_sha256(path: Path, deadline: float) -> str:
     return digest.hexdigest()
 
 
-def _run(args: list[str], cwd: Path, timeout: float) -> bytes:
+def _run(args: list[str], cwd: Path, timeout: float, *, cancel=None) -> bytes:
     """Drain bounded stdout, discard stderr, and kill/reap on limit or timeout."""
     if timeout <= 0:
         raise RenderError("Render deadline exceeded")
@@ -184,12 +184,23 @@ def _run(args: list[str], cwd: Path, timeout: float) -> bytes:
             reader = threading.Thread(target=drain, daemon=True)
             reader.start()
             try:
-                process.wait(timeout=timeout)
+                deadline = time.monotonic() + timeout
+                while process.poll() is None:
+                    if cancel is not None and cancel():
+                        process.kill()
+                        process.wait()
+                        raise RenderError("Render cancelled")
+                    if time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(args, timeout)
+                    time.sleep(0.1)
             except subprocess.TimeoutExpired as exc:
                 process.kill()
                 process.wait()
                 raise RenderError("Render deadline exceeded") from exc
             finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
                 reader.join()
             if overflow.is_set() or process.returncode:
                 raise RenderError("Tool failed or exceeded diagnostic output limit")
@@ -219,7 +230,7 @@ class RenderEngine:
 
     def __init__(self, media_root: Path, *, ffmpeg: str = "ffmpeg",
                  ffprobe: str = "ffprobe", font: str | None = None,
-                 timeout_seconds: int = 180):
+                 timeout_seconds: int = 180, cancel=None):
         self.root = Path(media_root).resolve(strict=True)
         if not self.root.is_dir() or str(self.root).startswith(("\\\\", "//")):
             raise RenderError("Media root must be a local directory")
@@ -227,6 +238,12 @@ class RenderEngine:
         self.ffmpeg = self._tool(ffmpeg)
         self.ffprobe = self._tool(ffprobe)
         self.font = self._media(font, (".ttf", ".otf")) if font is not None else None
+        self.cancel = cancel
+
+    def _execute(self, args, cwd, timeout):
+        if self.cancel is None:
+            return _run(args, cwd, timeout)
+        return _run(args, cwd, timeout, cancel=self.cancel)
 
     @staticmethod
     def _tool(value):
@@ -258,7 +275,7 @@ class RenderEngine:
                 "format=duration,format_name:stream=codec_type,codec_name,width,height,"
                 "pix_fmt,r_frame_rate,duration,channels,sample_rate",
                 "-of", "json", str(path)]
-        data = _run(args, cwd, min(15, deadline - time.monotonic()))
+        data = self._execute(args, cwd, min(15, deadline - time.monotonic()))
         try:
             result = json.loads(data)
             if (type(result) is not dict or type(result.get("streams")) is not list
@@ -270,6 +287,19 @@ class RenderEngine:
         except (ValueError, TypeError, RecursionError) as exc:
             raise RenderError("Invalid FFprobe metadata") from exc
         return result
+
+    def inspect_media(self, path: Path) -> dict:
+        path = self._media(path.relative_to(self.root).as_posix(), tuple(DEMUXERS))
+        probe = self._probe(path, self.root, time.monotonic() + 15)
+        if path.suffix.lower() in (".wav", ".mp3"):
+            stream = self._stream(probe, "audio")
+            if _number(stream.get("channels")) > 8 or _number(stream.get("sample_rate")) > 192000:
+                raise RenderError("Unsupported audio metadata")
+        else:
+            stream = self._stream(probe, "video")
+            if _number(stream.get("width")) > 4096 or _number(stream.get("height")) > 2160:
+                raise RenderError("Input resolution exceeds decoder policy")
+        return probe
 
     @staticmethod
     def _stream(probe, kind):
@@ -366,7 +396,7 @@ class RenderEngine:
                           for path in inputs}
             versions = {}
             for name, tool in (("ffmpeg", self.ffmpeg), ("ffprobe", self.ffprobe)):
-                version = _run([tool, "-version"], cwd, min(15, deadline - time.monotonic()))
+                version = self._execute([tool, "-version"], cwd, min(15, deadline - time.monotonic()))
                 if not version.splitlines():
                     raise RenderError("Media tool did not report its version")
                 versions[name] = {
@@ -393,7 +423,7 @@ class RenderEngine:
                         _number(stream.get("duration", probe["format"]["duration"]))):
                     raise RenderError("Unsupported audio metadata or trim")
             args = self._arguments(spec, paths, audio_path, cwd)
-            _run(args, cwd, deadline - time.monotonic())
+            self._execute(args, cwd, deadline - time.monotonic())
             dest = cwd / "output.mp4"
             if not dest.is_file() or not 0 < dest.stat().st_size < MAX_OUTPUT_BYTES:
                 raise RenderError("Output missing or exceeded byte limit")
@@ -429,6 +459,8 @@ class RenderEngine:
                 "preset_version": 1,
                 "tools": versions,
                 "output_sha256": output_hash,
+                "output_probe": probe,
+                "output_size_bytes": dest.stat().st_size,
             }
             result = RenderResult(dest, output_hash, dest.stat().st_size,
                                   duration, width, height, fps, "h264",

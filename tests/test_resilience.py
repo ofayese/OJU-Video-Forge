@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -65,7 +66,7 @@ def test_readiness_requires_only_local_database_and_redis(monkeypatch):
         closed = False
 
         async def execute(self, statement):
-            assert statement == "SELECT 1"
+            assert statement == "SELECT version_num FROM alembic_version"
 
         async def close(self):
             self.closed = True
@@ -120,12 +121,20 @@ def test_readiness_fails_when_required_dependency_is_down(monkeypatch):
 def test_readiness_closes_connection_when_database_probe_times_out(monkeypatch):
     from fastapi.testclient import TestClient
 
+    entered = threading.Event()
+    cancelled = threading.Event()
+
     class StalledConnection:
         closed = False
 
         async def execute(self, statement):
-            assert statement == "SELECT 1"
-            await asyncio.sleep(10)
+            assert statement == "SELECT version_num FROM alembic_version"
+            entered.set()
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
 
         async def close(self):
             self.closed = True
@@ -152,6 +161,8 @@ def test_readiness_closes_connection_when_database_probe_times_out(monkeypatch):
 
     assert response.status_code == 503
     assert connection.closed
+    assert entered.is_set()
+    assert cancelled.is_set()
 
 
 def test_recovery_requeues_interrupted_job_once(database):

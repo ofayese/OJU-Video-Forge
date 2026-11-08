@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ReviewController, type ReviewState } from "../api/reviewController";
 import type { ReviewDecision } from "../api/types";
+import { api } from "../api/client";
 
 export function ReviewEvidence({ state, onDecision, onAcknowledge }: {
   state: ReviewState;
@@ -66,8 +67,8 @@ export function ReviewPanel() {
   }
   return <section className="login-card" aria-labelledby="review-heading">
     <h2 id="review-heading">Local service-token artifact review</h2>
-    <p>Owner-scoped bridge. Account/project/media integration (#8/#9) is unfinished.
-      Use the same configured local bearer token that owns the job; no login API required.</p>
+    <p>Owner-scoped service-token bridge. Use the configured local bearer token
+      that owns the job, or sign in above for account/project rendering.</p>
     <p>Service-account self-review, not independent human signoff.</p>
     <form onSubmit={load}>
       <label htmlFor="review-token">Local bearer token (never stored)</label>
@@ -79,6 +80,19 @@ export function ReviewPanel() {
       <button type="submit" disabled={state.busy}>Load job and history</button>
       <button type="button" onClick={() => { controller.clear(); setToken(""); setJobId(""); }}>Clear review session</button>
     </form>
+    <ReviewEvidence state={state} onDecision={(decision) => void controller.decide(decision)}
+      onAcknowledge={controller.acknowledge} />
+  </section>;
+}
+
+export function AuthenticatedReview({ token, jobId }: { token: string; jobId: string }) {
+  const [controller] = useState(() => new ReviewController(api));
+  const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
+  useEffect(() => () => controller.clear(), [controller]);
+  return <section aria-label="Authenticated artifact review">
+    <button type="button" disabled={state.busy} onClick={() => void controller.load(token, jobId)}>
+      Load review details/history
+    </button>
     <ReviewEvidence state={state} onDecision={(decision) => void controller.decide(decision)}
       onAcknowledge={controller.acknowledge} />
   </section>;

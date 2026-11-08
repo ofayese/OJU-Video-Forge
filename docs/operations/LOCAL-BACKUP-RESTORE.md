@@ -1,5 +1,10 @@
 # Local resilience and backup/restore
 
+Use the [Docker environment runbook](./DOCKER-ENVIRONMENTS.md) for the current
+canonical/test project identities, distinct secret files, safe startup, and
+owner-approved data reconciliation. Historical results below do not establish
+readiness of a newly named canonical project.
+
 This runbook is for a local Compose project using synthetic data. It does not
 authorize access to ERE or another shared environment. Keep backups private and
 outside the repository; never put credentials, prompts, media, or raw logs in
@@ -28,7 +33,7 @@ processes one queue item at a time, and the deterministic test render has a
 
 Schema revisions are not applied automatically. In the intended local Compose
 project, start its PostgreSQL dependency and apply the migration with
-`docker compose run --rm api alembic upgrade head` before starting the updated
+`docker compose run --rm migrate` before starting the updated
 worker. The new revision initializes existing jobs with a recovery count of
 zero. Do not run this command against a shared database.
 
@@ -54,7 +59,9 @@ mkdir -p "$HOME/forge-backups"
 chmod 700 "$HOME/forge-backups"
 docker compose exec -T postgres pg_dump -U forge -d forge -Fc \
   > "$HOME/forge-backups/forge-$(date -u +%Y%m%dT%H%M%SZ).dump"
-pg_restore --list "$HOME/forge-backups/forge-YYYYMMDDTHHMMSSZ.dump" >/dev/null
+docker run --rm --network none \
+  -v "$HOME/forge-backups:/backup:ro" postgres:17.7-alpine3.22 \
+  pg_restore --list /backup/forge-YYYYMMDDTHHMMSSZ.dump >/dev/null
 sha256sum "$HOME/forge-backups/forge-YYYYMMDDTHHMMSSZ.dump" \
   > "$HOME/forge-backups/forge-YYYYMMDDTHHMMSSZ.dump.sha256"
 ```
@@ -79,13 +86,13 @@ docker compose -p "$RESTORE_PROJECT" exec -T postgres \
   pg_restore -U forge -d forge --clean --if-exists --no-owner < synthetic.dump
 docker compose -p "$RESTORE_PROJECT" exec -T postgres \
   psql -U forge -d forge -c 'SELECT owner, status FROM jobs ORDER BY id'
-docker compose -p "$RESTORE_PROJECT" down -v
+docker compose -p "$RESTORE_PROJECT" stop
 ```
 
 Confirm that the synthetic owner/status records match the source, and verify any
-separately restored artifacts by their recorded SHA-256 values before deleting
-the isolated project. The final `down -v` deletes only the uniquely named
-synthetic restore volumes; never use it against a project containing user data.
+separately restored artifacts by their recorded SHA-256 values. Retain the
+isolated containers and volumes until an accountable owner explicitly approves
+their cleanup; stopping does not delete them.
 Check cross-owner access through the authenticated API with two synthetic test
 actors; a database restore alone does not prove authorization.
 
@@ -100,8 +107,8 @@ recreate only the affected services. Keep the `pgdata` and `redisdata` volumes
 and artifact directories. The additive recovery-count column can remain when
 rolling back application code that does not use it; do not downgrade merely to
 roll back a worker. Never use `docker compose down -v` on a project containing
-user data. The destructive command in the restore drill is only for its
-uniquely named synthetic project.
+user data. The restore drill retains its containers and volumes pending explicit
+cleanup approval.
 
 ## Synthetic validation evidence
 
