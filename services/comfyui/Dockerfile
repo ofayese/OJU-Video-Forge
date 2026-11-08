@@ -10,8 +10,9 @@ RUN git clone https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI \
 WORKDIR /opt/ComfyUI
 RUN groupadd --gid 10001 forge \
  && useradd --create-home --uid 10001 --gid 10001 forge \
- && mkdir -p user \
- && chown forge:forge user
+ && mkdir -p user models input output \
+ && chown forge:forge user models input output
 USER 10001:10001
+RUN for path in models input output; do touch "$path/.write-check"; rm "$path/.write-check"; done
 EXPOSE 8188
 CMD ["python","main.py","--listen","0.0.0.0","--port","8188","--lowvram","--temp-directory","/home/forge","--previews-directory","/home/forge/previews"]

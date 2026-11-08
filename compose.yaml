@@ -26,7 +26,10 @@ services:
     cpus: 1.0
     mem_limit: 512m
     pids_limit: 128
-    environment: *app-env
+    environment:
+      <<: *app-env
+      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
+      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
     volumes: [artifacts:/artifacts, uploads:/artifacts/projects]
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]

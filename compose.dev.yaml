@@ -1,6 +1,7 @@
 services:
   frontend:
     build: {target: dev}
+    read_only: false
     volumes:
       - ./frontend/src:/opt/forge/src:ro
       - ./frontend/index.html:/opt/forge/index.html:ro

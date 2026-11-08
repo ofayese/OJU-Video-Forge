@@ -4,6 +4,7 @@ import argparse
 import getpass
 import uuid
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from .auth import AccountInput, hash_password, set_account_disabled
@@ -25,6 +26,12 @@ def main():
             password = getpass.getpass("Administrator password: ")
             if password != getpass.getpass("Confirm password: "):
                 raise SystemExit("Passwords do not match")
+            credentials = {"username": args.username}
+            credentials["password"] = password
+            try:
+                AccountInput.model_validate(credentials)
+            except ValidationError:
+                raise SystemExit("Invalid account credentials") from None
             account = AccountInput(username=args.username, password=password)
             user = User(id=str(uuid.uuid4()), username=account.username,
                         password_hash=hash_password(account.password), administrator=True)

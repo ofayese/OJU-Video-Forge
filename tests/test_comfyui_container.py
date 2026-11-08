@@ -10,6 +10,10 @@ def test_comfyui_identity_and_private_compose_mounts():
     dockerfile = (ROOT / "services/comfyui/Dockerfile").read_text()
     assert "groupadd --gid 10001 forge" in dockerfile
     assert "useradd --create-home --uid 10001 --gid 10001 forge" in dockerfile
+    assert "mkdir -p user models input output" in dockerfile
+    assert "chown forge:forge user models input output" in dockerfile
+    assert "chown -R" not in dockerfile
+    assert 'USER 10001:10001\nRUN for path in models input output; do touch "$path/.write-check"; rm "$path/.write-check"; done' in dockerfile
     assert dockerfile.split("USER ")[-1].splitlines()[0] == "10001:10001"
     assert '"--temp-directory","/home/forge"' in dockerfile
     assert '"--previews-directory","/home/forge/previews"' in dockerfile

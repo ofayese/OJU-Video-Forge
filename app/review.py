@@ -4,15 +4,16 @@ No legacy artifact guessing or client-controlled filesystem access.
 """
 import hashlib
 import os
+import re
 import stat
 import uuid
 from typing import Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import update
+from sqlalchemy import select, update
 
-from .core import ARTIFACT_ROOT, Audit, Job, Review
+from .core import ARTIFACT_ROOT, Audit, Job, ProjectMembership, Review
 
 
 class ArtifactIdentity(BaseModel):
@@ -28,46 +29,66 @@ class ReviewDecision(BaseModel):
     expected_artifact: ArtifactIdentity
 
 
-def generated_checksum(job, *, artifact=None):
-    """Read a bounded regular file using no-follow directory descriptors (Linux).
+def _artifact_location(job, artifact):
+    if str(uuid.UUID(job.id)) != job.id:
+        raise ValueError("Invalid job identity")
+    if job.operation == "render_test" and artifact == f"{job.id}/test.mp4":
+        return [job.id], "test.mp4"
+    if job.operation == "render_timeline_v1":
+        parts = artifact.split("/") if isinstance(artifact, str) else []
+        if (len(parts) == 4 and parts[0] == job.id and parts[1] == "inputs"
+                and re.fullmatch(r"render-[A-Za-z0-9_-]{1,64}", parts[2])
+                and parts[3] == "output.mp4"):
+            return parts[:3], parts[3]
+    raise ValueError("Unsupported generated artifact")
 
-    The bridge intentionally only recognizes render_test/test.mp4. Comfy prompt
-    JSON and pre-migration outputs without persisted identity fail closed.
-    """
-    if (job.operation != "render_test" or
-            str(uuid.UUID(job.id)) != job.id or
-            (artifact if artifact is not None else job.artifact) != f"{job.id}/test.mp4"):
-        raise ValueError("Unsupported generated artifact")
+
+def generated_checksum(job, *, artifact=None):
+    """Read a bounded generated MP4 using no-follow directory descriptors (Linux)."""
+    directories, filename = _artifact_location(
+        job, artifact if artifact is not None else job.artifact
+    )
     flags = os.O_RDONLY | os.O_NOFOLLOW
     root = os.open(ARTIFACT_ROOT, flags | os.O_DIRECTORY)
+    opened = []
     try:
-        directory = os.open(job.id, flags | os.O_DIRECTORY, dir_fd=root)
-        try:
-            fd = os.open("test.mp4", flags | os.O_NONBLOCK, dir_fd=directory)
-            with os.fdopen(fd, "rb") as output:
-                info = os.fstat(output.fileno())
-                if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 256 * 1024 * 1024:
-                    raise ValueError("Invalid generated artifact")
-                digest = hashlib.sha256()
-                total = 0
-                for chunk in iter(lambda: output.read(1024 * 1024), b""):
-                    total += len(chunk)
-                    if total > 256 * 1024 * 1024:
-                        raise ValueError("Artifact size exceeded")
-                    digest.update(chunk)
-                if total != info.st_size:
-                    raise ValueError("Artifact changed")
-                return digest.hexdigest()
-        finally:
-            os.close(directory)
+        directory = root
+        for component in directories:
+            directory = os.open(
+                component, flags | os.O_DIRECTORY, dir_fd=directory
+            )
+            opened.append(directory)
+        fd = os.open(filename, flags | os.O_NONBLOCK, dir_fd=directory)
+        with os.fdopen(fd, "rb") as output:
+            info = os.fstat(output.fileno())
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 256 * 1024 * 1024:
+                raise ValueError("Invalid generated artifact")
+            digest = hashlib.sha256()
+            total = 0
+            for chunk in iter(lambda: output.read(1024 * 1024), b""):
+                total += len(chunk)
+                if total > 256 * 1024 * 1024:
+                    raise ValueError("Artifact size exceeded")
+                digest.update(chunk)
+            if total != info.st_size:
+                raise ValueError("Artifact changed")
+            return digest.hexdigest()
     finally:
+        for directory in reversed(opened):
+            os.close(directory)
         os.close(root)
 
 
 def eligible(job):
-    return bool(job.status == "awaiting_review" and job.operation == "render_test" and
-                job.artifact == f"{job.id}/test.mp4" and
-                job.artifact_id and job.artifact_sha256)
+    try:
+        _artifact_location(job, job.artifact)
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return bool(
+        job.status == "awaiting_review"
+        and job.artifact_id
+        and job.artifact_sha256
+    )
 
 
 def decide(db, job, actor, payload):
@@ -81,9 +102,17 @@ def decide(db, job, actor, payload):
         raise HTTPException(409, "Generated artifact changed")
     # Authoritative compare-and-swap: independent sessions cannot both win.
     try:
+        if actor.user_id is None:
+            reviewer_condition = Job.owner == actor.name
+        else:
+            reviewer_condition = select(ProjectMembership.id).where(
+                ProjectMembership.project_id == Job.project_id,
+                ProjectMembership.user_id == actor.user_id,
+                ProjectMembership.role.in_(("owner", "reviewer")),
+            ).exists()
         result = db.execute(
             update(Job).where(
-                Job.id == job.id, Job.owner == actor.name,
+                Job.id == job.id, reviewer_condition,
                 Job.status == "awaiting_review",
                 Job.review_version == payload.expected_version,
                 Job.artifact == job.artifact,

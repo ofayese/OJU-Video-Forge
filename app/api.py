@@ -1387,7 +1387,7 @@ def get_job(
     actor: Actor = Depends(require_roles(*READ_ROLES)),
     db: Session = Depends(db_session),
 ):
-    return _job_result(owned_job(db, job_id, actor), actor)
+    return _job_result(owned_job(db, job_id, actor), actor, db)
 
 
 @app.get("/v1/jobs/{job_id}/reviews", response_model=list[ReviewResult], operation_id="listJobReviews")
@@ -1412,7 +1412,9 @@ def review_job(
     db: Session = Depends(db_session),
 ):
     job = owned_job(db, job_id, actor)
-    if not {"reviewer", "administrator"} & set(actor.roles):
+    if actor.user_id is not None:
+        require_project_role(db, actor, job.project_id, {"owner", "reviewer"})
+    elif not {"reviewer", "administrator"} & set(actor.roles):
         raise HTTPException(403, "Insufficient permissions")
     if not get_settings().review_workflow_enabled:
         raise HTTPException(503, "Review workflow disabled; history is preserved")
@@ -1635,9 +1637,21 @@ def cancel_job(
     return _job_result(job, actor)
 
 
-def _job_result(job: Job, actor: Actor | None = None) -> JobResult:
+def _job_result(
+    job: Job, actor: Actor | None = None, db: Session | None = None
+) -> JobResult:
     settings = get_settings()
     roles = set(actor.roles) if actor is not None else set()
+    if actor is not None and actor.user_id is not None and db is not None and job.project_id:
+        project_role = db.scalar(
+            select(ProjectMembership.role).where(
+                ProjectMembership.project_id == job.project_id,
+                ProjectMembership.user_id == actor.user_id,
+            )
+        )
+        can_review = project_role in {"owner", "reviewer"}
+    else:
+        can_review = bool({"reviewer", "administrator"} & roles)
     return JobResult(
         id=job.id,
         operation=job.operation,
@@ -1651,7 +1665,7 @@ def _job_result(job: Job, actor: Actor | None = None) -> JobResult:
         can_review=(
             settings.review_workflow_enabled
             and eligible(job)
-            and bool({"reviewer", "administrator"} & roles)
+            and can_review
         ),
         review_artifact=(
             ArtifactIdentity(id=job.artifact_id, sha256=job.artifact_sha256)

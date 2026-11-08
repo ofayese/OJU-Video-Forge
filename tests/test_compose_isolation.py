@@ -23,6 +23,19 @@ ComposeLoader.add_constructor(
 
 def test_environments_have_distinct_identity_and_loopback_ports():
     base = yaml.safe_load((ROOT / "compose.yaml").read_text())
+    assert base["services"]["api"]["environment"]["FORGE_OPENWEBUI_TOKEN"] == "${FORGE_OPENWEBUI_TOKEN:-}"
+    assert base["services"]["api"]["environment"]["FORGE_CHATGPT_TOKEN"] == "${FORGE_CHATGPT_TOKEN:-}"
+    assert "FORGE_OPENWEBUI_TOKEN" not in base["services"]["render-worker"].get("environment", {})
+    assert "FORGE_CHATGPT_TOKEN" not in base["services"]["render-worker"].get("environment", {})
+    dev = yaml.safe_load((ROOT / "compose.dev.yaml").read_text())
+    assert dev["services"]["frontend"]["read_only"] is False
+    for template in (".env.example", ".env.development.example", ".env.production.example"):
+        environment = dict(
+            line.split("=", 1)
+            for line in (ROOT / template).read_text().splitlines()
+            if line.startswith(("FORGE_OPENWEBUI_TOKEN=", "FORGE_CHATGPT_TOKEN="))
+        )
+        assert environment == {"FORGE_OPENWEBUI_TOKEN": "", "FORGE_CHATGPT_TOKEN": ""}
     assert base["name"] == "oju-video-forge"
     assert base["services"]["frontend"]["ports"] == ["127.0.0.1:5173:8080"]
     names = {base["name"]}

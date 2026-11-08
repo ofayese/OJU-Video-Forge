@@ -279,10 +279,13 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
     if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
     const key = pending.current.key;
     locked.current = true; setBusy(true); releaseArtifact();
-    jobGeneration.current++;
     try {
       const result = await api.createRenderJob(projectId, input, key, token);
-      if (live.current) { setJob(result); pending.current = null; }
+      if (live.current) {
+        if (result.id !== job?.id) jobGeneration.current++;
+        setJob(result);
+        pending.current = null;
+      }
     } catch (reason) {
       if (live.current) {
         setError(errorText(reason));
