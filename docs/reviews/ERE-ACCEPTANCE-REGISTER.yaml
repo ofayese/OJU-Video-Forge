@@ -162,21 +162,21 @@ current_gates:
       - "docs/reviews/ERE-SECURITY-VALIDATION.md"
       - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
       - "GitHub Dependabot open-alert query returned zero alerts."
-    commit_sha: null
-    test_command: "docker run --rm --network bridge --entrypoint /bin/sh oju-video-forge-tests:reconciliation -c 'pip-audit -r requirements.lock.txt && pip-audit -r requirements-dev.lock.txt'; frontend Docker validation ran npm audit --audit-level=moderate"
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
+    test_command: "docker run --rm --network bridge --entrypoint /bin/sh oju-video-forge-tests:final -c 'pip-audit -r requirements.lock.txt && pip-audit -r requirements-dev.lock.txt'; docker run --rm --network bridge --entrypoint /bin/sh oju-video-forge-frontend-test:final -c 'npm run typecheck && npm test && npm run build && npm audit'"
     execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; backend and frontend dependency checks ran inside Docker."
     exit_code: 0
     validation_date: "2026-11-07"
     remaining_gaps:
-      - "GitHub Actions security scans at the current uncommitted source state have not run; the local ComfyUI root-container finding remains open as issue #16."
+      - "GitHub Actions security scans at the PR head have not completed; the local ComfyUI root-container finding remains open as issue #16."
   - gate_id: application-functional
     requirement: "Authenticated project-to-render-to-authorized-artifact workflow is operational."
-    status: PARTIAL
+    status: PASS
     evidence_reference:
       - "docs/implementation/VERTICAL-SLICE-PLAN.md"
       - "docs/reviews/ERE-REMAINING-GAPS.md"
       - "docs/reviews/GOVERNANCE-CI-FOUNDATION.md"
-    commit_sha: null
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
     test_command: ".\\scripts\\acceptance.ps1 -Environment acceptance (exit 0; synthetic authenticated workflow PASS: registration, login, project creation, upload, PostgreSQL persistence, Redis dispatch, worker render, FFmpeg, FFprobe, SHA-256, authorized retrieval, unauthorized denial, and audit checks)"
     execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; isolated oju-video-forge-acceptance project and disposable synthetic media."
     exit_code: 0
@@ -186,12 +186,12 @@ current_gates:
       - "Optional GPU inference is not enabled or validated in this CPU-rendering milestone."
   - gate_id: local-auth-project-authorization
     requirement: "Local password sessions and project membership roles are enforced by the versioned API."
-    status: PARTIAL
+    status: PASS
     evidence_reference:
       - "docs/authentication-projects-v1.md"
       - "tests/test_auth_projects.py"
       - "alembic/versions/0005_local_auth_projects.py"
-    commit_sha: null
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
     test_command: "Canonical browser registration/login/project creation/session revocation passed; .\\scripts\\acceptance.ps1 -Environment acceptance verified cross-user authorization denial and session-protected artifact access; canonical migration reached head 0009."
     execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; canonical and acceptance projects used separate PostgreSQL databases, Redis instances, secrets, volumes, and networks."
     exit_code: 0
@@ -218,14 +218,14 @@ current_gates:
       - "docs/implementation/VERTICAL-SLICE-PLAN.md"
       - "docs/reviews/ERE-RECOVERY-VALIDATION.md"
       - "docs/reviews/ERE-RENDER-VALIDATION.md"
-    commit_sha: null
-    test_command: ".\\scripts\\acceptance.ps1 -Environment acceptance (exit 0); docker run --rm --network none oju-video-forge-tests:reconciliation python -m pytest -q -p no:cacheprovider -rs (exit 0: 229 passed, 12 skipped, 5 warnings); frontend Docker validation (exit 0: typecheck/build passed, 54 tests passed, npm audit 0 vulnerabilities); disposable backup restores passed."
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
+    test_command: ".\\scripts\\acceptance.ps1 -Environment acceptance (exit 0); docker run --rm --network none oju-video-forge-tests:final python -m pytest -q -p no:cacheprovider -rs (exit 0: 229 passed, 12 skipped, 5 warnings); docker run --rm --network bridge --entrypoint /bin/sh oju-video-forge-frontend-test:final -c 'npm run typecheck && npm test && npm run build && npm audit' (exit 0: 54 tests passed, 0 vulnerabilities); disposable backup restores passed."
     execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; app dependencies, tests, and audits ran in containers. Canonical services remain local-only."
     exit_code: 0
     validation_date: "2026-11-07"
     remaining_gaps:
       - "Browser-driven upload/render/progress/artifact retrieval are not verified; the browser file-upload tool denied the synthetic file path."
-      - "GitHub CI at a published source commit has not run; this worktree remains uncommitted."
+      - "GitHub CI at the PR head has not completed; no merge was performed."
       - "GPU inference remains separately BLOCKED."
       - "Trivy HIGH DS-0002 for the ComfyUI container remains open under issue #16."
       - "GitHub Frontend CI run 42278655804 failed on a separate dependency-update PR: @vitejs/plugin-react@6.2.1 requires Vite 8 while that PR resolved Vite 6.4.5; disposition is pending outside this change."
@@ -245,12 +245,12 @@ current_gates:
       - "No migration is authorized or in scope; both ADRs remain PROPOSED."
   - gate_id: docker-environment-isolation
     requirement: "Canonical application and isolated acceptance/integration environments have distinct Compose names, storage, networks, secrets, and ports, with preserved existing data."
-    status: PARTIAL
+    status: PASS
     evidence_reference:
       - "docs/operations/DOCKER-ENVIRONMENTS.md"
       - "docs/reviews/DOCKER-NAMING-RECONCILIATION.md"
       - "tests/test_compose_isolation.py"
-    commit_sha: null
+    commit_sha: "9a5c3c35ce089482f7d5fd69379dcb10c2ff267b"
     test_command: "docker compose --env-file .env.development.example -f compose.yaml config --quiet; docker compose --env-file .env.development.example -p oju-video-forge-acceptance -f compose.yaml -f compose.acceptance.yaml config --quiet; docker compose --env-file .env.development.example -p oju-video-forge-integration -f compose.yaml -f compose.integration.yaml config --quiet; .\\scripts\\forge.ps1 -Environment acceptance stop; .\\scripts\\forge.ps1 -Environment application ps"
     execution_environment: "ERE Windows workstation with Docker Desktop Linux containers; independent canonical/acceptance/integration project names, volumes, networks, secrets, and loopback ports."
     exit_code: 0

@@ -1,9 +1,9 @@
 # Docker naming reconciliation
 
 Observed: 2026-11-07. **Status: PARTIAL / canonical runtime active.**
-Source baseline: `d23a7d61ba694d190a6dd5bb31a6edefc8d80ac6`, branch
-`feature/ere-docker-rendering-vertical-slice`. Changes are in the working tree,
-not committed or published. The owner-approved disposition was FRESH-PRESERVE:
+Source baseline: `d23a7d61ba694d190a6dd5bb31a6edefc8d80ac6`; validated
+implementation commit: `9a5c3c35ce089482f7d5fd69379dcb10c2ff267b`, branch
+`feature/ere-docker-rendering-vertical-slice`. The owner-approved disposition was FRESH-PRESERVE:
 create a fresh canonical database and retain all historical acceptance and
 integration data. The owner also approved the loopback ports 5173/5174/5175 and
 stopping only the port-owning `oju-phase3-final` frontend after backup verification.
@@ -139,9 +139,8 @@ are existing Starlette/httpx and SQLite datetime adapter deprecations.
   registration/login and project creation, but its file-upload tool denied access
   to the synthetic media path. Browser upload, render submission/progress, and
   artifact retrieval therefore remain unverified; backend API acceptance passed.
-- **NOT_VERIFIED:** GitHub CI and security scans at a published feature-branch
-  commit; a browser-driven upload/render flow; optional GPU inference. No PR was
-  created as part of this local validation.
+- **NOT_VERIFIED:** GitHub CI and security scans at the PR head; a browser-driven
+  upload/render flow; optional GPU inference. No merge was performed.
 - `oju-phase3-final` and all historical volumes remain retained; only its
   port-owning frontend was stopped. No unrelated service, historical data, or
   volume was removed.
