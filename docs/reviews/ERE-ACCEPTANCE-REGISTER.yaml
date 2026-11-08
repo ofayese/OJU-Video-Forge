@@ -198,18 +198,32 @@ current_gates:
     validation_date: "2026-11-07"
     remaining_gaps:
       - "Browser-driven media upload and render UI interaction remain unverified; the backend acceptance workflow passed."
+  - gate_id: browser-ui-acceptance
+    requirement: "The browser uploads synthetic media, submits and follows a timeline render, previews and downloads the authorized MP4, rejects unauthorized retrieval, and revokes the session on logout."
+    status: BLOCKED
+    evidence_reference:
+      - "docs/reviews/DOCKER-NAMING-RECONCILIATION.md"
+    commit_sha: "6911399f6e31a10ee99f1c182c05deed0be92e13"
+    test_command: "Not rerun: the prior supported browser upload request was denied for the synthetic fixture path; no alternate tool or path was attempted."
+    execution_environment: "ERE browser against the canonical local frontend at 127.0.0.1:5173; upload and downstream UI steps were not exercised in this task."
+    exit_code: null
+    validation_date: "2026-11-08"
+    remaining_gaps:
+      - "Use only an explicitly approved browser fixture-access mechanism; until available, retain the successful isolated API-to-MP4 acceptance as backend evidence and do not claim browser acceptance."
   - gate_id: gpu-inference
     requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
     status: BLOCKED
     evidence_reference:
       - "docs/reviews/ERE-GPU-VALIDATION.md"
-    commit_sha: "8e462ec233c3cecc1fcf225a0f02e0d551ef50f8"
-    test_command: null
-    execution_environment: "ERE local GPU workload not run."
-    exit_code: null
-    validation_date: "2026-11-05"
+    commit_sha: "6911399f6e31a10ee99f1c182c05deed0be92e13"
+    test_command: "docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi"
+    execution_environment: "ERE Windows 11 with Docker Desktop Linux containers; registered NVIDIA runtime; RTX 5070 Ti enumerated from an isolated CUDA 12.8 container."
+    exit_code: 0
+    validation_date: "2026-11-08"
     remaining_gaps:
-      - "ComfyUI, model/workflow, scheduling, and generated output have not been validated."
+      - "Configured ComfyUI base is PyTorch 2.6.0/CUDA 12.4, predating PyTorch's documented Blackwell support (PyTorch 2.7/CUDA 12.8)."
+      - "No ComfyUI image, approved Wan model files, configured model volume, or registered Wan workflow file was available; no model download or inference was attempted."
+      - "No GPU job, output, FFprobe result, checksum, artifact registration, or authorized retrieval has been validated."
   - gate_id: local-release
     requirement: "A clean local setup passes the end-to-end product acceptance suite and recovery checks."
     status: PARTIAL
@@ -225,7 +239,7 @@ current_gates:
     validation_date: "2026-11-07"
     remaining_gaps:
       - "Browser-driven upload/render/progress/artifact retrieval are not verified; the browser file-upload tool denied the synthetic file path."
-      - "GitHub CI at the PR head has not completed; no merge was performed."
+      - "PR #44 was merged on 2026-11-08 after its required checks passed; no merge was performed for this Phase 4 task."
       - "GPU inference remains separately BLOCKED."
       - "Trivy HIGH DS-0002 for the ComfyUI container remains open under issue #16."
       - "GitHub Frontend CI run 42278655804 failed on a separate dependency-update PR: @vitejs/plugin-react@6.2.1 requires Vite 8 while that PR resolved Vite 6.4.5; disposition is pending outside this change."
