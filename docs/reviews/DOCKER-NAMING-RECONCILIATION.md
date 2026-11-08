@@ -122,6 +122,16 @@ Alpine test/worker images, approved FFmpeg 6.1.2 package; no host application in
 | Canonical browser upload/render UI flow | n/a | Not verified: browser file-upload tool denied access to the synthetic file path; no alternate upload route used |
 | Disposable restore verification | 0 | PostgreSQL physical/logical, Redis AOF, and artifact/media restores passed as summarized above |
 
+The full suite also ran against new, disposable PostgreSQL 17 and Redis 7
+containers on a dedicated network with `APP_ENV=test`, a `forge_test` database,
+and Redis DB 15: `python -m pytest -q -p no:cacheprovider -rs` returned exit 0,
+**241 passed, 5 warnings, no skips**. No canonical or historical data was used.
+The first PR backend CI run failed three upload unit tests because their metadata
+stub still required native FFmpeg discovery during renderer construction.
+The fixture now stubs tool resolution as well as probing; production validation
+is unchanged. A Docker run with `shutil.which` returning `None` passed all 11
+upload tests. The real-media acceptance and FFprobe checks remain separate.
+
 Compose validation used a process-local configuration placeholder, not a startup
 credential. The 12 skipped cases require isolated `*_test` PostgreSQL and Redis DB
 15; no database integration pass is claimed for this offline run. Five warnings
@@ -144,3 +154,7 @@ are existing Starlette/httpx and SQLite datetime adapter deprecations.
 - `oju-phase3-final` and all historical volumes remain retained; only its
   port-owning frontend was stopped. No unrelated service, historical data, or
   volume was removed.
+
+Pull request: [#44](https://github.com/ofayese/OJU-Video-Forge/pull/44), against
+`main`; no automatic merge. Initial frontend, infrastructure, dependency, CodeQL,
+and secret/SBOM/container CI jobs passed; backend CI requires the fixture fix above.

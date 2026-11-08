@@ -33,6 +33,7 @@ def media_api(tmp_path, monkeypatch):
     monkeypatch.setitem(app.dependency_overrides, get_current_actor, lambda: actor_state["actor"])
     monkeypatch.setattr("app.api.ARTIFACT_ROOT", tmp_path / "private-media")
     # Transport/storage tests use arbitrary bytes; real media probing is exercised separately.
+    monkeypatch.setattr("app.api.RenderEngine._tool", staticmethod(lambda value: value))
     monkeypatch.setattr("app.api.RenderEngine.inspect_media", lambda *_: {})
     with TestClient(app) as client:
         yield client, actor_state, tmp_path / "private-media"
