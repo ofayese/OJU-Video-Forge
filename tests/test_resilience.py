@@ -65,7 +65,7 @@ def test_readiness_requires_only_local_database_and_redis(monkeypatch):
         closed = False
 
         async def execute(self, statement):
-            assert statement == "SELECT 1"
+            assert statement == "SELECT version_num FROM alembic_version"
 
         async def close(self):
             self.closed = True

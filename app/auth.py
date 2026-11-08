@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .core import AuthSession, User, get_db
+from .core import AuthSession, SecurityEvent, User, get_db
 
 bearer_scheme = HTTPBearer(auto_error=False)
 SESSION_LIFETIME = timedelta(hours=12)
@@ -148,18 +148,34 @@ def get_current_actor(
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
             if session.revoked_at is not None or expires_at <= datetime.now(timezone.utc):
+                if session.revoked_at is None:
+                    session.revoked_at = datetime.now(timezone.utc)
+                    db.add(SecurityEvent(user_id=session.user_id, action="session_expired"))
+                    db.commit()
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or revoked")
             user = db.get(User, session.user_id)
-            if user is None:
+            if user is None or user.disabled:
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
             return Actor(
                 name=user.username,
-                roles=["viewer"],
+                roles=["viewer", "administrator"] if user.administrator else ["viewer"],
                 provider="local",
                 user_id=user.id,
                 session_id=session.id,
             )
     return get_auth_provider().authenticate(credentials)
+
+
+def set_account_disabled(db: Session, user: User, disabled: bool) -> None:
+    user.disabled = disabled
+    if disabled:
+        sessions = db.scalars(select(AuthSession).where(
+            AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None),
+        ))
+        for session in sessions:
+            session.revoked_at = datetime.now(timezone.utc)
+    db.add(SecurityEvent(user_id=user.id, action="account_disabled" if disabled else "account_enabled"))
+    db.commit()
 
 
 def require_roles(*allowed_roles: str):

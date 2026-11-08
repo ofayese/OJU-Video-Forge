@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -23,10 +24,11 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.requests import Request
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 from psycopg import AsyncConnection
 from redis import Redis
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -73,6 +75,7 @@ from .core import (
     ProjectMembership,
     Review,
     User,
+    SecurityEvent,
     WorkflowArtifact,
     get_db,
     transition,
@@ -80,9 +83,22 @@ from .core import (
 from .private_storage import private_file, write_private_file
 from .dispatcher import dispatch_outbox
 from .review import ArtifactIdentity, ReviewDecision, decide, eligible
+from .rendering import RenderEngine, RenderError, parse_timeline
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OJU Video Forge", version="0.1.0", docs_url=None, redoc_url=None, openapi_url="/openapi.json")
 db_session = get_db
+
+
+@app.middleware("http")
+async def correlate_request(request: Request, call_next):
+    correlation_id = uuid.uuid4().hex
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    logger.info(json.dumps({"event": "http_request", "correlation_id": correlation_id,
+                            "method": request.method, "status": response.status_code}))
+    return response
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
@@ -245,7 +261,13 @@ READ_ROLES = ("viewer", "producer", "reviewer", "publisher", "auditor", "adminis
 
 def owned_job(db, job_id, actor):
     job = db.get(Job, job_id)
-    if not job or actor.user_id is not None or job.owner != actor.name:
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if actor.user_id is not None:
+        if not job.project_id:
+            raise HTTPException(404, "Job not found")
+        _owned_project(db, job.project_id, actor)
+    elif job.owner != actor.name:
         raise HTTPException(404, "Job not found")
     return job
 
@@ -418,7 +440,7 @@ async def _database_probe():
             connect_timeout=1,
             options="-c statement_timeout=1000",
         )
-        await connection.execute("SELECT 1")
+        await connection.execute("SELECT version_num FROM alembic_version")
         return True
     except Exception:
         return False
@@ -471,6 +493,27 @@ async def ready():
     )
 
 
+@app.get("/health/stack", include_in_schema=False)
+def stack_health(actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session)):
+    from rq import Queue, Worker
+    import shutil
+
+    connection = Redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
+    try:
+        workers = Worker.all(connection=connection)
+        queue_depth = Queue("video", connection=connection).count
+        active_workers = sum(worker.get_state() in {"idle", "busy"} for worker in workers)
+    except Exception as exc:
+        logger.warning("Stack queue probe failed (%s)", type(exc).__name__)
+        raise HTTPException(503, "Queue health unavailable") from exc
+    finally:
+        connection.close()
+    states = dict(db.execute(select(Job.status, func.count()).group_by(Job.status)).all())
+    free_bytes = shutil.disk_usage(ARTIFACT_ROOT).free
+    return {"workers": active_workers, "queue_depth": queue_depth, "job_states": states,
+            "disk_free_bytes": free_bytes, "disk_capacity_ok": free_bytes >= 768 * 1024 * 1024}
+
+
 @app.post(
     "/v1/auth/register",
     response_model=UserResult,
@@ -485,6 +528,8 @@ def register_user(payload: AccountInput, db: Session = Depends(db_session)):
     )
     db.add(user)
     try:
+        db.flush()
+        db.add(SecurityEvent(user_id=user.id, action="account_registered"))
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -501,7 +546,9 @@ def register_user(payload: AccountInput, db: Session = Depends(db_session)):
 )
 def create_session(payload: AccountInput, db: Session = Depends(db_session)):
     user = db.scalar(select(User).where(User.username == payload.username))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    if user is None or user.disabled or not verify_password(payload.password, user.password_hash):
+        db.add(SecurityEvent(user_id=user.id if user else None, action="login_failed"))
+        db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + SESSION_LIFETIME
@@ -512,6 +559,7 @@ def create_session(payload: AccountInput, db: Session = Depends(db_session)):
         expires_at=expires_at,
     )
     db.add(session)
+    db.add(SecurityEvent(user_id=user.id, action="login_succeeded"))
     db.commit()
     return AuthSessionResult(
         access_token=token,
@@ -537,6 +585,7 @@ def revoke_session(
     session = db.get(AuthSession, actor.session_id)
     if session is not None and session.revoked_at is None:
         session.revoked_at = datetime.now(timezone.utc)
+        db.add(SecurityEvent(user_id=actor.user_id, action="logout"))
         db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -849,6 +898,101 @@ def _manifest(artifact: MediaArtifact) -> MediaArtifactManifest:
     )
 
 
+@app.get("/v1/projects/{project_id}/media", response_model=list[MediaArtifactManifest])
+def list_media(project_id: str, actor: Actor = Depends(require_roles(*READ_ROLES)),
+               db: Session = Depends(db_session)):
+    _owned_project(db, project_id, actor)
+    return [_manifest(asset) for asset in db.scalars(select(MediaArtifact).where(
+        MediaArtifact.project_id == project_id,
+    ).order_by(MediaArtifact.created_at, MediaArtifact.id))]
+
+
+@app.get("/v1/projects/{project_id}/media/{media_id}", response_model=MediaArtifactManifest)
+def get_media(project_id: str, media_id: str, actor: Actor = Depends(require_roles(*READ_ROLES)),
+              db: Session = Depends(db_session)):
+    _owned_project(db, project_id, actor)
+    media = db.get(MediaArtifact, media_id)
+    if not media or media.project_id != project_id:
+        raise HTTPException(404, "Media not found")
+    return _manifest(media)
+
+
+class TimelineJobInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["render_timeline_v1"]
+    timeline: dict
+
+
+def _timeline_job_spec(db: Session, project_id: str, timeline: dict) -> dict:
+    normalized = json.loads(json.dumps(timeline))
+    clips = normalized.get("clips")
+    if not isinstance(clips, list) or not 1 <= len(clips) <= 16:
+        raise HTTPException(422, "Expected 1-16 clips")
+    references = clips + ([normalized["audio"]] if "audio" in normalized else [])
+    identities = {}
+    for reference in references:
+        if not isinstance(reference, dict) or "path" in reference:
+            raise HTTPException(422, "Media must be referenced by ID")
+        media_id = reference.pop("media_id", None)
+        if not isinstance(media_id, str):
+            raise HTTPException(422, "Media ID required")
+        media = db.get(MediaAsset, media_id)
+        if media is None or media.project_id != project_id:
+            raise HTTPException(404, "Media not found")
+        filename = f"{media.id}{Path(media.storage_key).suffix.lower()}"
+        reference["path"] = filename
+        identities[media.id] = {
+            "id": media.id, "path": filename, "storage_key": media.storage_key,
+            "sha256": media.sha256, "size_bytes": media.size_bytes,
+        }
+    try:
+        normalized = parse_timeline(json.dumps(normalized, ensure_ascii=False, separators=(",", ":")))
+    except RenderError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if sum(item["size_bytes"] for item in identities.values()) > 512 * 1024 * 1024:
+        raise HTTPException(413, "Timeline input quota exceeded")
+    return {"timeline": normalized, "input_manifest": list(identities.values())}
+
+
+@app.post("/v1/projects/{project_id}/jobs", response_model=JobResult, status_code=202)
+def submit_timeline(
+    project_id: str, payload: TimelineJobInput,
+    actor: Actor = Depends(require_roles("viewer")),
+    db: Session = Depends(db_session),
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=1, max_length=128),
+):
+    require_project_role(db, actor, project_id, {"owner", "editor"})
+    spec = _timeline_job_spec(db, project_id, payload.timeline)
+    existing = db.scalar(select(Job).where(
+        Job.owner == actor.name, Job.idempotency_key == idempotency_key,
+    ))
+    if existing:
+        if existing.project_id != project_id or existing.operation != payload.operation or existing.spec != spec:
+            raise HTTPException(409, "Idempotency-Key already used for a different request")
+        return _job_result(existing, actor)
+    job = Job(id=str(uuid.uuid4()), owner=actor.name, project_id=project_id,
+              operation=payload.operation, spec=spec, status="dispatch_pending",
+              idempotency_key=idempotency_key)
+    try:
+        db.add(job)
+        db.flush()
+        db.add(DispatchOutbox(job_id=job.id, status="pending"))
+        db.add(Audit(job_id=job.id, actor=actor.name, action="dispatch_pending"))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        existing = db.scalar(select(Job).where(
+            Job.owner == actor.name, Job.idempotency_key == idempotency_key,
+        ))
+        if (existing and existing.project_id == project_id
+                and existing.operation == payload.operation and existing.spec == spec):
+            return _job_result(existing, actor)
+        raise HTTPException(409, "Job request conflicts with an existing request") from exc
+    dispatch_outbox(job.id)
+    db.refresh(job)
+    return _job_result(job, actor)
+
+
 @app.post(
     "/v1/projects/{project_id}/media",
     response_model=MediaArtifactManifest,
@@ -858,10 +1002,14 @@ def _manifest(artifact: MediaArtifact) -> MediaArtifactManifest:
 def upload_project_media(
     project_id: str,
     file: UploadFile = File(),
-    actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
+    actor: Actor = Depends(require_roles("viewer", "producer", "administrator", "agent_service")),
     db: Session = Depends(db_session),
 ):
     project = _owned_project(db, project_id, actor)
+    if actor.user_id is not None:
+        require_project_role(db, actor, project_id, {"owner", "editor"})
+    elif not {"producer", "administrator", "agent_service"} & set(actor.roles):
+        raise HTTPException(403, "Insufficient permissions")
     filename = file.filename or ""
     if (len(filename) > 255 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ -]*", filename)
             or filename in {".", ".."} or ".." in filename
@@ -890,6 +1038,10 @@ def upload_project_media(
                 digest.update(chunk)
         if size == 0:
             raise HTTPException(400, "Media file must not be empty")
+        try:
+            RenderEngine(root).inspect_media(destination)
+        except RenderError as exc:
+            raise HTTPException(415, "Media metadata is invalid or unsupported") from exc
 
         storage_key = destination.relative_to(root).as_posix()
         artifact = MediaArtifact(
@@ -1113,7 +1265,7 @@ def get_project_artifact(
     workflow_artifact = db.get(WorkflowArtifact, artifact_id)
     if workflow_artifact is not None:
         if (workflow_artifact.project_id != project.id
-                or workflow_artifact.owner != actor.name):
+                or (actor.user_id is None and workflow_artifact.owner != actor.name)):
             raise HTTPException(404, "Artifact not found")
         try:
             path = private_file(ARTIFACT_ROOT, workflow_artifact.relative_path)
@@ -1129,12 +1281,9 @@ def get_project_artifact(
         if not artifact or artifact.project_id != project.id:
             raise HTTPException(404, "Artifact not found")
         try:
-            root = ARTIFACT_ROOT.resolve(strict=True)
-            path = (root / artifact.storage_key).resolve(strict=True)
-        except OSError as exc:
+            path = private_file(ARTIFACT_ROOT, artifact.storage_key)
+        except (OSError, ValueError) as exc:
             raise HTTPException(404, "Artifact not found") from exc
-        if not path.is_relative_to(root) or not path.is_file():
-            raise HTTPException(404, "Artifact not found")
         expected_size = artifact.size_bytes
         expected_sha256 = artifact.sha256
         media_type = artifact.content_type
@@ -1276,7 +1425,7 @@ def review_job(
 )
 def retry_job(
     job_id: str,
-    actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
+    actor: Actor = Depends(require_roles("viewer", "producer", "administrator", "agent_service")),
     db: Session = Depends(db_session),
 ):
     original = db.execute(
@@ -1284,6 +1433,10 @@ def retry_job(
     ).scalar_one_or_none()
     if not original or original.owner != actor.name:
         raise HTTPException(404, "Job not found")
+    if actor.user_id is not None:
+        require_project_role(db, actor, original.project_id, {"owner", "editor"})
+    elif not {"producer", "administrator", "agent_service"} & set(actor.roles):
+        raise HTTPException(403, "Insufficient permissions")
     if original.operation == "audio_workflow":
         raise HTTPException(409, "Use the project-scoped workflow retry endpoint")
     if original.operation == "wan22_t2v" and not get_settings().comfyui_enabled:
@@ -1378,9 +1531,8 @@ def get_artifact(
     actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "publisher", "auditor", "administrator", "agent_service")),
     db: Session = Depends(db_session),
 ):
-    job = db.get(Job, job_id)
-    if (not job or actor.user_id is not None or job.owner != actor.name or job.status != "awaiting_review"
-            or not job.artifact):
+    job = owned_job(db, job_id, actor)
+    if job.status != "awaiting_review" or not job.artifact:
         raise HTTPException(404, "Artifact not found")
     relative = Path(job.artifact)
     valid_path = (
@@ -1421,9 +1573,17 @@ def get_artifact(
         artifact.resolve(strict=True).relative_to(job_dir.resolve(strict=True))
     except (OSError, ValueError):
         raise HTTPException(404, "Artifact not found") from None
+    if job.artifact_sha256:
+        digest = hashlib.sha256()
+        with artifact.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != job.artifact_sha256:
+            raise HTTPException(409, "Artifact integrity check failed")
     db.add(Audit(job_id=job.id, actor=actor.name, action="artifact_downloaded"))
     db.commit()
-    return FileResponse(artifact, media_type="video/mp4", filename="video.mp4")
+    return FileResponse(artifact, media_type="video/mp4", filename="video.mp4",
+                        headers={"X-Content-SHA256": job.artifact_sha256} if job.artifact_sha256 else {})
 
 
 @app.post(
@@ -1433,12 +1593,14 @@ def get_artifact(
 )
 def cancel_job(
     job_id: str,
-    actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
+    actor: Actor = Depends(require_roles("viewer", "producer", "administrator", "agent_service")),
     db: Session = Depends(db_session),
 ):
-    job = db.get(Job, job_id)
-    if not job or job.owner != actor.name:
-        raise HTTPException(404, "Job not found")
+    job = owned_job(db, job_id, actor)
+    if actor.user_id is not None:
+        require_project_role(db, actor, job.project_id, {"owner", "editor"})
+    elif not {"producer", "administrator", "agent_service"} & set(actor.roles):
+        raise HTTPException(403, "Insufficient permissions")
     for _ in range(3):
         db.refresh(job)
         if job.status in {

@@ -1,5 +1,6 @@
 export interface User {
-  name: string;
+  id: string;
+  username: string;
   roles?: string[];
   provider?: string;
 }
@@ -26,8 +27,10 @@ export interface CreateProjectInput {
 
 export interface MediaAsset {
   id: string;
+  project_id: string;
+  filename: string;
   size_bytes: number;
-  media_type: string;
+  content_type: string;
   sha256: string;
 }
 
@@ -40,13 +43,21 @@ export interface TimelineClip {
 export interface TimelineV1 {
   version: 1;
   clips: TimelineClip[];
+  output: { profile: "preview"; format: "mp4" };
+  title?: TimelineOverlay;
+  captions?: TimelineOverlay[];
+  audio?: { media_id: string; in_ms: number; volume_percent: number };
 }
 
-export type RenderPreset = "preview" | "hd";
+export interface TimelineOverlay {
+  text: string;
+  start_ms: number;
+  end_ms: number;
+}
 
 export interface CreateRenderInput {
+  operation: "render_timeline_v1";
   timeline: TimelineV1;
-  preset: RenderPreset;
 }
 
 export interface VideoJob {
@@ -55,7 +66,6 @@ export interface VideoJob {
   status: string;
   artifact: string | null;
   error: string | null;
-  artifact_id?: string | null;
   dispatch_attempts?: number;
   dispatch_error?: string | null;
   review_contract_version: number;

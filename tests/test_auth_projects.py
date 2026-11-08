@@ -13,7 +13,7 @@ from app import auth
 from app.api import app
 from app.auth import hash_session_token
 from app.config import Settings
-from app.core import AuthSession, Base, Job, ProjectMembership, User, get_db
+from app.core import AuthSession, Base, Job, ProjectMembership, SecurityEvent, User, get_db
 
 
 @pytest.fixture
@@ -107,6 +107,22 @@ def test_local_session_authentication_hashes_secrets_and_revokes(
 
     assert client.delete("/v1/auth/session", headers=headers).status_code == 204
     assert client.get("/v1/projects", headers=headers).status_code == 401
+    with test_session() as db:
+        actions = set(db.scalars(select(SecurityEvent.action)))
+        assert {"account_registered", "login_succeeded", "login_failed", "logout"} <= actions
+
+
+def test_disablement_revokes_sessions_and_blocks_login(api_client):
+    client, sessions = api_client
+    register(client, "disabled-user")
+    token = login(client, "disabled-user")
+    with sessions() as db:
+        user = db.scalar(select(User).where(User.username == "disabled-user"))
+        auth.set_account_disabled(db, user, True)
+    assert client.get("/v1/auth/session", headers=authorization(token)).status_code == 401
+    assert client.post("/v1/auth/session", json={
+        "username": "disabled-user", "password": "a-long-test-password",
+    }).status_code == 401
 
 
 def test_local_user_cannot_read_service_owned_job(

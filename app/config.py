@@ -80,10 +80,6 @@ class Settings(BaseModel):
                 raise ValueError("REDIS_URL is required in production")
             if not settings.db_password:
                 raise ValueError("DB_PASSWORD is required in production")
-            if settings.auth_provider == "local" and not (
-                settings.forge_openwebui_token or settings.forge_chatgpt_token
-            ):
-                raise ValueError("Local authentication in production requires at least one service token")
         return settings
 
 

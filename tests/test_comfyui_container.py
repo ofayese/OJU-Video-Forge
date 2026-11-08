@@ -22,7 +22,7 @@ def test_comfyui_identity_and_private_compose_mounts():
     assert comfy["networks"] == ["inference"]
     assert "ports" not in comfy
     assert comfy["volumes"] == [
-        "${FORGE_DATA:-/srv/video-forge}/models:/opt/ComfyUI/models",
-        "${FORGE_DATA:-/srv/video-forge}/comfy-input:/opt/ComfyUI/input",
-        "${FORGE_DATA:-/srv/video-forge}/comfy-output:/opt/ComfyUI/output",
+        "models:/opt/ComfyUI/models",
+        "comfy-input:/opt/ComfyUI/input",
+        "comfy-output:/opt/ComfyUI/output",
     ]

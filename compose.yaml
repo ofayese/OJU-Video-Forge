@@ -6,122 +6,125 @@ x-common: &common
   init: true
   logging:
     driver: json-file
-    options:
-      max-size: "10m"
-      max-file: "3"
+    options: {max-size: "10m", max-file: "3"}
+
+x-app-env: &app-env
+  APP_ENV: ${APP_ENV:-development}
+  DATABASE_URL: postgresql+psycopg://forge:${DB_PASSWORD:?Set a private DB_PASSWORD}@postgres:5432/forge
+  REDIS_URL: redis://redis:6379/0
+  ARTIFACT_ROOT: /artifacts
+  AUTH_PROVIDER: local
+  DB_PASSWORD: ${DB_PASSWORD:?Set a private DB_PASSWORD}
+  COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
+  COMFYUI_URL: http://comfyui:8188
+  REVIEW_WORKFLOW_ENABLED: ${REVIEW_WORKFLOW_ENABLED:-true}
 
 services:
   api:
-    build: {context: ., dockerfile: services/api/Dockerfile}
     <<: *common
+    build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
     cpus: 1.0
     mem_limit: 512m
     pids_limit: 128
-    environment:
-      APP_ENV: ${APP_ENV:-development}
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
-      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
-      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
-      AD_ENABLED: ${AD_ENABLED:-false}
-      AZURE_ENABLED: ${AZURE_ENABLED:-false}
-      EXTERNAL_ACCESS_ENABLED: ${EXTERNAL_ACCESS_ENABLED:-false}
-      AD_DOMAIN: ${AD_DOMAIN:-ojuidc.olutech.systems}
-      PUBLIC_APP_FQDN: ${PUBLIC_APP_FQDN:-video.olutechsys.com}
-      PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
-      REVIEW_WORKFLOW_ENABLED: ${REVIEW_WORKFLOW_ENABLED:-true}
-      COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
-      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
-      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
-      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
-      DB_PASSWORD: ${DB_PASSWORD:-forge}
-      WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
-    volumes:
-      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/artifacts}:ro
+    environment: *app-env
+    volumes: [artifacts:/artifacts, uploads:/artifacts/projects]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
     depends_on:
-      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
-    networks: [control, ai-net]
+    networks: [backend, control]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4)"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
 
-  worker:
-    build: {context: ., dockerfile: services/worker/Dockerfile}
+  migrate:
     <<: *common
+    build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    environment: *app-env
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 64
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [control]
+    restart: "no"
+
+  frontend:
+    <<: *common
+    build: {context: frontend, dockerfile: Dockerfile, target: production}
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 64
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+    ports: ["127.0.0.1:5173:8080"]
+    depends_on:
+      api: {condition: service_healthy}
+    networks: [backend]
+    restart: unless-stopped
+
+  render-worker:
+    <<: *common
+    build: {context: ., dockerfile: services/worker/Dockerfile}
     cpus: 2.0
     mem_limit: 2g
     pids_limit: 128
-    environment:
-      APP_ENV: ${APP_ENV:-development}
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
-      API_BASE_URL: ${API_BASE_URL:-http://localhost:8000}
-      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
-      AD_ENABLED: ${AD_ENABLED:-false}
-      AZURE_ENABLED: ${AZURE_ENABLED:-false}
-      EXTERNAL_ACCESS_ENABLED: ${EXTERNAL_ACCESS_ENABLED:-false}
-      AD_DOMAIN: ${AD_DOMAIN:-ojuidc.olutech.systems}
-      PUBLIC_APP_FQDN: ${PUBLIC_APP_FQDN:-video.olutechsys.com}
-      PUBLIC_API_FQDN: ${PUBLIC_API_FQDN:-video-api.olutechsys.com}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      ARTIFACT_ROOT: ${ARTIFACT_ROOT:-/artifacts}
-      COMFYUI_URL: ${COMFYUI_URL:-http://comfyui:8188}
-      COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
-      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
-      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
-      DB_PASSWORD: ${DB_PASSWORD:-forge}
-      WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
+    environment: *app-env
     volumes:
-      - ${FORGE_DATA:-/srv/video-forge}/artifacts:${ARTIFACT_ROOT:-/artifacts}
+      - artifacts:/artifacts
+      - uploads:/artifacts/projects
       - ./config/workflows:/workflows:ro
     depends_on:
-      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
     networks: [control, inference]
     restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   dispatcher:
-    build: {context: ., dockerfile: services/api/Dockerfile}
     <<: *common
+    build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
     command: ["python", "-m", "app.dispatcher"]
-    environment:
-      APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://forge:${DB_PASSWORD:-forge}@postgres:5432/forge}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
-      DB_PASSWORD: ${DB_PASSWORD:-forge}
-      FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
-      FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 64
+    environment: *app-env
     depends_on:
-      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
     networks: [control]
     restart: unless-stopped
 
   comfyui:
+    <<: *common
     profiles: [gpu]
     build: {context: ., dockerfile: services/comfyui/Dockerfile}
-    <<: *common
     cpus: 4.0
+    mem_limit: 16g
     pids_limit: 256
     environment:
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
     volumes:
-      - ${FORGE_DATA:-/srv/video-forge}/models:/opt/ComfyUI/models
-      - ${FORGE_DATA:-/srv/video-forge}/comfy-input:/opt/ComfyUI/input
-      - ${FORGE_DATA:-/srv/video-forge}/comfy-output:/opt/ComfyUI/output
+      - models:/opt/ComfyUI/models
+      - comfy-input:/opt/ComfyUI/input
+      - comfy-output:/opt/ComfyUI/output
     networks: [inference]
     restart: unless-stopped
 
   postgres:
-    image: postgres:17
     <<: *common
+    image: postgres:17.7-alpine3.22@sha256:6b591f995765a189e69276dd55e0b362342d65d10d0359bb1fab67bc3391f20f
     user: postgres
     cpus: 1.0
     mem_limit: 1g
@@ -129,36 +132,43 @@ services:
     environment:
       POSTGRES_DB: forge
       POSTGRES_USER: forge
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-forge}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set a private DB_PASSWORD}
     volumes: [pgdata:/var/lib/postgresql/data]
     networks: [control]
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U forge -d forge"]
-      interval: 10s
-      retries: 5
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
     <<: *common
+    image: redis:7.4-alpine@sha256:c5d34a98396a4775e223c74e929162c35c5a2182901ba26b50ade939941ce14b
     user: redis
     cpus: 0.5
     mem_limit: 256m
     pids_limit: 64
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
     volumes: [redisdata:/data]
     networks: [control]
     healthcheck:
       test: [CMD, redis-cli, ping]
-      interval: 10s
-      retries: 5
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
 networks:
+  backend: {}
   control: {internal: true}
   inference: {internal: true}
-  ai-net: {external: true}
 
 volumes:
   pgdata: {}
   redisdata: {}
+  artifacts: {}
+  uploads: {}
+  models: {}
+  comfy-input: {}
+  comfy-output: {}

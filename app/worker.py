@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -8,11 +9,13 @@ import subprocess
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
 
 from redis import Redis
 from rq import Queue, Worker
+from sqlalchemy import select, update
 
 from .audio_workflows import (
     MAX_AUDIO_BYTES,
@@ -32,6 +35,9 @@ from .core import (
     AudioAsset,
     Job,
     Project,
+    ProjectMembership,
+    MediaAsset,
+    User,
     REDIS_URL,
     SessionLocal,
     WorkflowArtifact,
@@ -48,6 +54,7 @@ GPU_LOCK_SECONDS = 7200
 GPU_WAIT_SECONDS = 3000
 GPU_INPUTS = {"positive_prompt", "seed", "width", "height", "frames", "fps"}
 MAX_WORKFLOW_BYTES = 16 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 
@@ -408,6 +415,41 @@ def _finish_or_cancel(
             transition(db, job, 'cancelled', 'worker')
 
 
+def _stage_timeline_inputs(db, job):
+    project = db.get(Project, job.project_id)
+    user = db.scalar(select(User).where(User.username == job.owner))
+    membership = db.scalar(select(ProjectMembership).where(
+        ProjectMembership.project_id == job.project_id,
+        ProjectMembership.user_id == user.id if user else False,
+    ))
+    if not project or not user or user.disabled or not membership or membership.role not in {"owner", "editor"}:
+        raise ValueError("Render project authorization no longer valid")
+    inputs = ARTIFACT_ROOT / job.id / "inputs"
+    if inputs.exists() or inputs.is_symlink():
+        raise ValueError("Job staging already exists")
+    manifest = job.spec["input_manifest"]
+    if (not isinstance(manifest, list) or not 1 <= len(manifest) <= 17
+            or sum(item["size_bytes"] for item in manifest) > 512 * 1024 * 1024
+            or shutil.disk_usage(ARTIFACT_ROOT).free < 768 * 1024 * 1024):
+        raise ValueError("Render input or disk quota exceeded")
+    for item in manifest:
+        asset = db.get(MediaAsset, item["id"])
+        if (not asset or asset.project_id != job.project_id
+                or asset.sha256 != item["sha256"] or asset.size_bytes != item["size_bytes"]
+                or asset.storage_key != item["storage_key"]
+                or item["path"] != f"{asset.id}{Path(asset.storage_key).suffix.lower()}"):
+            raise ValueError("Render input identity changed")
+        source = private_file(ARTIFACT_ROOT, asset.storage_key)
+        if source.stat().st_size != asset.size_bytes or sha256(source) != asset.sha256:
+            raise ValueError("Render input integrity check failed")
+        write_private_file(ARTIFACT_ROOT, f"{job.id}/inputs/{item['path']}", source.read_bytes())
+        if sha256(private_file(ARTIFACT_ROOT, f"{job.id}/inputs/{item['path']}")) != asset.sha256:
+            raise ValueError("Input changed while staging")
+    if "title" in job.spec["timeline"] or job.spec["timeline"].get("captions"):
+        font = Path("/usr/share/fonts/dejavu/DejaVuSans.ttf")
+        write_private_file(ARTIFACT_ROOT, f"{job.id}/inputs/font.ttf", font.read_bytes())
+
+
 def execute(job_id: str):
     with SessionLocal() as db:
         job = db.get(Job, job_id)
@@ -430,12 +472,29 @@ def execute(job_id: str):
                 if str(uuid.UUID(job.id)) != job.id:
                     raise ValueError('Invalid job identity')
                 root = ARTIFACT_ROOT.resolve(strict=True)
+                if "input_manifest" in job.spec:
+                    _stage_timeline_inputs(db, job)
                 output_dir = root / job.id
                 inputs = output_dir / 'inputs'
                 if (output_dir.is_symlink() or inputs.is_symlink()
                         or not inputs.resolve(strict=True).is_relative_to(root / job.id)):
                     raise ValueError('Invalid staged input directory')
-                engine = RenderEngine(inputs, font='font.ttf' if (inputs / 'font.ttf').exists() else None)
+                last_heartbeat = 0
+
+                def check_cancel():
+                    nonlocal last_heartbeat
+                    now = time.monotonic()
+                    if now - last_heartbeat >= 5:
+                        with SessionLocal() as heartbeat_db:
+                            heartbeat_db.execute(update(Job).where(
+                                Job.id == job_id, Job.status == "running",
+                            ).values(updated_at=datetime.now(timezone.utc)))
+                            heartbeat_db.commit()
+                        last_heartbeat = now
+                    return _cancel_requested(job_id)
+
+                engine = RenderEngine(inputs, font='font.ttf' if (inputs / 'font.ttf').exists() else None,
+                                      cancel=check_cancel)
                 result = engine.render(json.dumps(job.spec['timeline'], ensure_ascii=False,
                                                   separators=(',', ':')))
                 provenance_path = output_dir / 'provenance.json'
@@ -443,9 +502,20 @@ def execute(job_id: str):
                 provenance_created = True
                 with os.fdopen(fd, 'w', encoding='utf-8') as file:
                     json.dump(result.provenance, file, sort_keys=True, indent=2)
+                artifact_id = str(uuid.uuid4())
+                artifact_key = str(result.path.relative_to(root))
+                output_checksum = result.provenance["output_sha256"]
+                if job.project_id:
+                    db.add(WorkflowArtifact(
+                        id=artifact_id, job_id=job.id, project_id=job.project_id,
+                        owner=job.owner, relative_path=artifact_key, filename="video.mp4",
+                        media_type="video/mp4", sha256=output_checksum,
+                        size_bytes=result.path.stat().st_size,
+                    ))
                 _finish_or_cancel(
                     db, job, 'awaiting_review',
-                    artifact=str(result.path.relative_to(root)),
+                    artifact=artifact_key, artifact_id=artifact_id,
+                    artifact_sha256=output_checksum,
                 )
                 if job.status == 'cancelled':
                     _cleanup_render_output(inputs, result)
@@ -546,6 +616,20 @@ def execute(job_id: str):
             if job.operation in {"render_test", "wan22_t2v"} or error == "Job execution failed; details withheld":
                 raise RuntimeError("job execution failed") from None
             raise
+        finally:
+            if (job.operation == "render_timeline_v1" and "input_manifest" in job.spec
+                    and job.status in {"awaiting_review", "failed", "cancelled"}):
+                for item in job.spec["input_manifest"]:
+                    try:
+                        private_file(ARTIFACT_ROOT, f"{job.id}/inputs/{item['path']}").unlink()
+                    except (OSError, ValueError):
+                        logger.warning("Staged input cleanup unavailable for job %s", job.id)
+                font = ARTIFACT_ROOT / job.id / "inputs" / "font.ttf"
+                try:
+                    if font.is_file() and not font.is_symlink():
+                        font.unlink()
+                except OSError:
+                    logger.warning("Staged font cleanup unavailable for job %s", job.id)
 
 
 def main():

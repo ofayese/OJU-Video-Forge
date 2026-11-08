@@ -1,594 +1,403 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
-import type {
-  MediaAsset,
-  Project,
-  RenderPreset,
-  User,
-  VideoJob,
-  VideoModel,
-} from "../api/types";
-import { ReviewPanel } from "./ReviewPanel";
+import { artifactReady, buildRenderInput, moveClip } from "../api/timeline";
+import { MemoryArtifact } from "../api/memoryArtifact";
+import type { MediaAsset, Project, TimelineClip, TimelineOverlay, User, VideoJob } from "../api/types";
+import { AuthenticatedReview, ReviewPanel } from "./ReviewPanel";
 
-function errorText(error: unknown): string {
-  return error instanceof ApiError
-    ? error.message
-    : "Something went wrong while contacting the API.";
+const ACTIVE = new Set(["queued", "dispatch_pending", "running", "verifying"]);
+const errorText = (error: unknown) => error instanceof Error ? error.message : "Request failed.";
+
+// A project/session change unmounts the workspace. Never accept its late results.
+function useLifetime() {
+  const live = useRef(false);
+  useEffect(() => {
+    live.current = true;
+    return () => { live.current = false; };
+  }, []);
+  return live;
 }
-
-const ACTIVE_JOB_STATUSES = new Set(["queued", "dispatch_pending", "running", "verifying"]);
 
 export function App() {
-  return <><ReviewPanel /><AccountApp /></>;
-}
-
-function AccountApp() {
-  const [token, setToken] = useState("");
-  const [user, setUser] = useState<User | null>(null);
-  const [sessionError, setSessionError] = useState("");
-
+  const [session, setSession] = useState<{ token: string; user: User } | null>(null);
+  const [error, setError] = useState("");
+  const currentToken = useRef("");
+  const generation = useRef(0);
+  function clear(message = "") {
+    generation.current++;
+    currentToken.current = "";
+    setSession(null);
+    setError(message);
+  }
   useEffect(() => {
-    api.setUnauthorizedHandler(() => {
-      setToken("");
-      setUser(null);
-      setSessionError("Your session expired. Sign in again to continue.");
+    api.setUnauthorizedHandler((token) => {
+      if (token && token === currentToken.current) clear("Your session expired. Sign in again.");
     });
-    return () => api.setUnauthorizedHandler(() => undefined);
+    const offline = () => clear("Connection lost. Sign in again when the API is available.");
+    window.addEventListener("offline", offline);
+    return () => {
+      generation.current++;
+      api.setUnauthorizedHandler(() => undefined);
+      window.removeEventListener("offline", offline);
+    };
   }, []);
-
-  async function handleLogin(username: string, password: string): Promise<void> {
-    const session = await api.login({ username, password });
-    if (!session.access_token) throw new Error("The API login response did not include an access token.");
-    const currentUser = session.user ?? await api.currentUser(session.access_token);
-    setUser(currentUser);
-    setSessionError("");
-    setToken(session.access_token);
+  async function authenticate(username: string, password: string, register: boolean) {
+    const attempt = ++generation.current;
+    if (register) await api.register({ username, password });
+    const result = await api.login({ username, password });
+    if (!result.access_token) throw new Error("No access token returned.");
+    const user = result.user ?? await api.currentUser(result.access_token);
+    if (attempt !== generation.current) return;
+    currentToken.current = result.access_token;
+    setSession({ token: result.access_token, user });
+    setError("");
   }
-
-  async function handleLogout(): Promise<void> {
-    const activeToken = token;
-    setToken("");
-    setUser(null);
-    setSessionError("");
-    if (activeToken) {
-      try {
-        await api.logout(activeToken);
-      } catch {
-        // Local sign-out still happens if the API logout endpoint is unavailable.
-      }
-    }
+  async function logout() {
+    const token = currentToken.current;
+    clear();
+    try { if (token) await api.logout(token); } catch { /* Local sign-out is unconditional. */ }
   }
-
-  if (!token || !user) {
-    return <LoginScreen error={sessionError} onLogin={handleLogin} />;
-  }
-
-  return <Workspace key={token} user={user} token={token} onLogout={handleLogout} />;
+  return session
+    ? <Workspace key={session.token} {...session} onLogout={() => void logout()} />
+    : <>
+      <LoginScreen error={error} onAuthenticate={authenticate} />
+      <details><summary>Local service-token review bridge</summary><ReviewPanel /></details>
+    </>;
 }
 
-function LoginScreen({
-  error,
-  onLogin,
-}: {
+export function LoginScreen({ error, onAuthenticate }: {
   error: string;
-  onLogin: (username: string, password: string) => Promise<void>;
+  onAuthenticate: (username: string, password: string, register: boolean) => Promise<void>;
 }) {
+  const [register, setRegister] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
-
+  const live = useLifetime();
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const password = String(data.get("password") ?? "");
+    form.reset(); // Do not retain credentials after submission.
     setBusy(true);
     setFormError("");
-    const form = new FormData(event.currentTarget);
     try {
-      await onLogin(String(form.get("username") ?? ""), String(form.get("password") ?? ""));
+      await onAuthenticate(String(data.get("username") ?? ""), password, register);
     } catch (reason) {
-      setFormError(errorText(reason));
+      if (live.current) setFormError(errorText(reason));
     } finally {
-      setBusy(false);
+      if (live.current) setBusy(false);
     }
   }
-
-  return (
-    <main className="login-shell">
-      <section className="login-card" aria-labelledby="login-heading">
-        <p className="eyebrow">LOCAL PRODUCTION WORKSPACE</p>
-        <h1 id="login-heading">OJU Video Forge</h1>
-        <p className="muted">Sign in with an account provided by your API administrator.</p>
-        {(error || formError) && <p className="notice error" role="alert">{formError || error}</p>}
-        <form onSubmit={submit}>
-          <label htmlFor="username">Username</label>
-          <input id="username" name="username" autoComplete="username" required />
-          <label htmlFor="password">Password</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" required />
-          <button className="primary full-width" type="submit" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
-        <p className="fine-print">API: {import.meta.env.VITE_API_BASE_URL || "localhost development proxy"}</p>
-      </section>
-    </main>
-  );
+  return <main className="login-shell"><section className="login-card" aria-labelledby="login-heading">
+    <h1 id="login-heading">OJU Video Forge</h1>
+    <p>{register ? "Create a local account and sign in." : "Sign in to your private projects."}</p>
+    {(formError || error) && <p role="alert" className="notice error">{formError || error}</p>}
+    <form onSubmit={submit}>
+      <label htmlFor="username">Username</label>
+      <input id="username" name="username" autoComplete="off" minLength={3} maxLength={64} required disabled={busy} />
+      <label htmlFor="password">Password (12–128 characters)</label>
+      <input id="password" name="password" type="password" autoComplete="off" minLength={12} maxLength={128} required disabled={busy} />
+      <button type="submit" className="primary" disabled={busy}>
+        {busy ? "Please wait…" : register ? "Register and sign in" : "Sign in"}
+      </button>
+      <button type="button" disabled={busy} onClick={() => { setRegister(!register); setFormError(""); }}>
+        {register ? "Use existing account" : "Create account"}
+      </button>
+    </form>
+    <p className="fine-print">Bearer session in memory only. Signing out or reloading clears it.</p>
+  </section></main>;
 }
 
-function Workspace({
-  user,
-  token,
-  onLogout,
-}: {
-  user: User;
-  token: string;
-  onLogout: () => Promise<void>;
-}) {
+function Workspace({ token, user, onLogout }: { token: string; user: User; onLogout: () => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [models, setModels] = useState<VideoModel[]>([]);
-  const [projectError, setProjectError] = useState("");
-  const [modelError, setModelError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [projectName, setProjectName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [media, setMedia] = useState<MediaAsset | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-  const [durationMs, setDurationMs] = useState(5000);
-  const [preset, setPreset] = useState<RenderPreset>("preview");
-  const [submitting, setSubmitting] = useState(false);
-  const [renderError, setRenderError] = useState("");
-  const [idempotencyKey, setIdempotencyKey] = useState("");
-  const [jobs, setJobs] = useState<Record<string, VideoJob>>({});
+  const [selected, setSelected] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const live = useLifetime();
+  async function refresh() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.listProjects(token);
+      if (live.current) {
+        setProjects(result);
+        setSelected((id) => result.some((project) => project.id === id) ? id : result[0]?.id ?? "");
+      }
+    } catch (reason) {
+      if (live.current) { setProjects([]); setSelected(""); setError(errorText(reason)); }
+    } finally { if (live.current) setBusy(false); }
+  }
+  useEffect(() => { void refresh(); }, [token]);
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const project = await api.createProject({ name: name.trim() }, token);
+      if (live.current) {
+        setProjects((items) => [project, ...items]);
+        setSelected(project.id);
+        setName("");
+      }
+    } catch (reason) { if (live.current) setError(errorText(reason)); }
+    finally { if (live.current) setBusy(false); }
+  }
+  return <div className="app-shell">
+    <header className="topbar"><strong>OJU Video Forge</strong><span>{user.username}</span>
+      <button onClick={onLogout}>Sign out</button></header>
+    <main className="workspace">
+      <section className="panel" aria-labelledby="projects-heading">
+        <h1 id="projects-heading">Projects</h1>
+        <button disabled={busy} onClick={() => void refresh()}>Refresh projects</button>
+        {busy && <p role="status">Loading projects…</p>}
+        {error && <p role="alert" className="notice error">{error}</p>}
+        <form className="inline-form" onSubmit={create}>
+          <label htmlFor="project-name">New project name</label>
+          <input id="project-name" required maxLength={128} value={name} onChange={(e) => setName(e.target.value)} />
+          <button disabled={busy || !name.trim()} type="submit">Create project</button>
+        </form>
+        {!busy && !error && !projects.length && <p>No projects yet. Create one to begin.</p>}
+        {!!projects.length && <>
+          <label htmlFor="active-project">Active project</label>
+          <select id="active-project" value={selected} disabled={busy} onChange={(e) => setSelected(e.target.value)}>
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          <ul>{projects.map((project) => <li key={project.id}>{project.name}</li>)}</ul>
+        </>}
+      </section>
+      {selected && <ProjectWorkspace key={selected} projectId={selected} token={token} />}
+    </main>
+  </div>;
+}
+
+export function OrderedTimeline({ clips, media, disabled, onChange }: {
+  clips: TimelineClip[]; media: MediaAsset[]; disabled: boolean; onChange: (clips: TimelineClip[]) => void;
+}) {
+  return <section aria-labelledby="timeline-heading">
+    <h2 id="timeline-heading">Ordered clip timeline</h2>
+    <p>Preview MP4 · 640 × 360 at 24 fps · maximum 16 clips / 120 seconds.
+      Use multiples of 125 ms for clip times. Source audio is omitted unless an audio track is selected.</p>
+    {!clips.length && <p>Add uploaded videos to the timeline.</p>}
+    <ol>{clips.map((clip, index) => <li key={index}>
+      <strong>{media.find((item) => item.id === clip.media_id)?.filename ?? clip.media_id}</strong>
+      <label>Clip {index + 1} in (ms)<input type="number" min={0} max={120000} step={125}
+        required disabled={disabled} value={clip.in_ms} onChange={(e) => onChange(clips.map((item, i) =>
+          i === index ? { ...item, in_ms: Number(e.target.value) } : item))} /></label>
+      <label>Clip {index + 1} out (ms)<input type="number" min={clip.in_ms + 125} max={120000} step={125}
+        required disabled={disabled} value={clip.out_ms} onChange={(e) => onChange(clips.map((item, i) =>
+          i === index ? { ...item, out_ms: Number(e.target.value) } : item))} /></label>
+      <button type="button" aria-label={`Move clip ${index + 1} up`} disabled={disabled || index === 0}
+        onClick={() => onChange(moveClip(clips, index, -1))}>Up</button>
+      <button type="button" aria-label={`Move clip ${index + 1} down`} disabled={disabled || index === clips.length - 1}
+        onClick={() => onChange(moveClip(clips, index, 1))}>Down</button>
+      <button type="button" disabled={disabled} onClick={() => onChange(clips.filter((_, i) => i !== index))}>Remove clip {index + 1}</button>
+    </li>)}</ol>
+  </section>;
+}
+
+function OverlayFields({ value, onChange, label }: {
+  value: TimelineOverlay; onChange: (value: TimelineOverlay) => void; label: string;
+}) {
+  return <fieldset><legend>{label}</legend>
+    <label>Text<input required maxLength={200} value={value.text} onChange={(e) => onChange({ ...value, text: e.target.value })} /></label>
+    <label>Start (ms)<input required type="number" min={0} step={1} value={value.start_ms}
+      onChange={(e) => onChange({ ...value, start_ms: Number(e.target.value) })} /></label>
+    <label>End (ms)<input required type="number" min={value.start_ms + 1} step={1} value={value.end_ms}
+      onChange={(e) => onChange({ ...value, end_ms: Number(e.target.value) })} /></label>
+  </fieldset>;
+}
+
+function ProjectWorkspace({ projectId, token }: { projectId: string; token: string }) {
+  const [media, setMedia] = useState<MediaAsset[]>([]);
+  const [clips, setClips] = useState<TimelineClip[]>([]);
+  const [title, setTitle] = useState<TimelineOverlay | undefined>();
+  const [captions, setCaptions] = useState<TimelineOverlay[]>([]);
+  const [audioId, setAudioId] = useState("");
+  const [audioIn, setAudioIn] = useState(0);
+  const [volume, setVolume] = useState(100);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [job, setJob] = useState<VideoJob | null>(null);
   const [jobError, setJobError] = useState("");
-  const [artifactError, setArtifactError] = useState("");
-  const [artifactLoading, setArtifactLoading] = useState(false);
-  const [checkingJob, setCheckingJob] = useState(false);
-  const [artifactBlob, setArtifactBlob] = useState<Blob | null>(null);
   const [artifactUrl, setArtifactUrl] = useState("");
-  const [retrievingArtifact, setRetrievingArtifact] = useState(false);
-  const [legacyJobId, setLegacyJobId] = useState("");
-  const [legacyJob, setLegacyJob] = useState<VideoJob | null>(null);
-  const [legacyJobError, setLegacyJobError] = useState("");
-  const [legacyJobLoading, setLegacyJobLoading] = useState(false);
-  const job = jobs[selectedProjectId] ?? null;
-  const projectActionsBusy = loading || creating || uploading || submitting || checkingJob || retrievingArtifact;
-
-  function setProjectJob(projectId: string, projectJob: VideoJob | null) {
-    setJobs((current) => {
-      const updated = { ...current };
-      if (projectJob) updated[projectId] = projectJob;
-      else delete updated[projectId];
-      return updated;
-    });
+  const live = useLifetime();
+  const [artifact] = useState(() => new MemoryArtifact(api));
+  const pending = useRef<{ payload: string; key: string } | null>(null);
+  const locked = useRef(false);
+  const jobGeneration = useRef(0);
+  function releaseArtifact() {
+    artifact.clear();
+    setArtifactUrl("");
   }
-
-  async function refreshWorkspace() {
-    setLoading(true);
-    setProjectError("");
-    setModelError("");
-    const [projectResult, modelResult] = await Promise.allSettled([
-      api.listProjects(token),
-      api.listModels(token),
-    ]);
-    if (projectResult.status === "fulfilled") setProjects(projectResult.value);
-    else setProjectError(errorText(projectResult.reason));
-    if (modelResult.status === "fulfilled") setModels(modelResult.value.models);
-    else setModelError(errorText(modelResult.reason));
-    setLoading(false);
+  useEffect(() => () => artifact.clear(), [artifact]);
+  async function loadMedia() {
+    if (locked.current) return;
+    locked.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.listMedia(projectId, token);
+      if (live.current) setMedia(result);
+    } catch (reason) {
+      if (live.current) {
+        setMedia([]); setClips([]); setTitle(undefined); setCaptions([]); setAudioId("");
+        pending.current = null; releaseArtifact(); setError(errorText(reason));
+      }
+    } finally { locked.current = false; if (live.current) setBusy(false); }
   }
-
+  useEffect(() => { void loadMedia(); }, [projectId, token]);
+  async function upload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (locked.current) return;
+    const form = event.currentTarget;
+    const input = form.elements.namedItem("upload") as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    locked.current = true; setBusy(true); setError("");
+    try {
+      const asset = await api.uploadMedia(projectId, file, token);
+      if (live.current) {
+        setMedia((items) => [...items.filter((item) => item.id !== asset.id), asset]);
+        form.reset();
+      }
+    } catch (reason) { if (live.current) setError(errorText(reason)); }
+    finally { locked.current = false; if (live.current) setBusy(false); }
+  }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (locked.current) return;
+    setError(""); setJobError("");
+    let input;
+    try {
+      input = buildRenderInput(clips, title, captions,
+        audioId ? { media_id: audioId, in_ms: audioIn, volume_percent: volume } : undefined);
+    } catch (reason) { setError(errorText(reason)); return; }
+    const payload = JSON.stringify(input);
+    // Reuse only for an identical retry after an ambiguous response.
+    if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
+    const key = pending.current.key;
+    locked.current = true; setBusy(true); releaseArtifact();
+    jobGeneration.current++;
+    try {
+      const result = await api.createRenderJob(projectId, input, key, token);
+      if (live.current) { setJob(result); pending.current = null; }
+    } catch (reason) {
+      if (live.current) {
+        setError(errorText(reason));
+        if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) pending.current = null;
+      }
+    } finally { locked.current = false; if (live.current) setBusy(false); }
+  }
   useEffect(() => {
-    void refreshWorkspace();
-    // Load once per authenticated session; refresh button explicitly reloads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-
-  useEffect(() => {
-    if (!projects.some((project) => project.id === selectedProjectId)) {
-      setSelectedProjectId(projects[0]?.id ?? "");
-    }
-  }, [projects, selectedProjectId]);
-
-  useEffect(() => {
-    setMedia(null);
-    setJobError("");
-    setArtifactBlob(null);
-    setIdempotencyKey("");
-  }, [selectedProjectId]);
-
-  useEffect(() => {
-    if (!artifactBlob) {
-      setArtifactUrl("");
-      return;
-    }
-    const url = URL.createObjectURL(artifactBlob);
-    setArtifactUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [artifactBlob]);
-
-  useEffect(() => {
-    if (!job || !selectedProjectId || !ACTIVE_JOB_STATUSES.has(job.status)) return;
-    const jobId = job.id;
+    if (!job || !ACTIVE.has(job.status)) return;
     let active = true;
     let timeout: ReturnType<typeof setTimeout>;
-
+    const id = job.id;
+    const generation = jobGeneration.current;
     async function poll() {
       try {
-        const latest = await api.getProjectJob(selectedProjectId, jobId, token);
-        if (!active) return;
-        setJobError("");
-        setProjectJob(selectedProjectId, latest);
-        if (ACTIVE_JOB_STATUSES.has(latest.status)) {
-          timeout = setTimeout(() => void poll(), 3000);
-        }
-      } catch (error) {
-        if (!active) return;
-        setJobError(errorText(error));
-        if (error instanceof ApiError && (error.status === 0 || error.status === 429 || error.status >= 500)) {
+        const result = await api.getJob(id, token);
+        if (!active || !live.current || generation !== jobGeneration.current) return;
+        setJob(result); setJobError("");
+        if (!artifactReady(result.status)) releaseArtifact();
+        if (ACTIVE.has(result.status)) timeout = setTimeout(() => void poll(), 3000);
+      } catch (reason) {
+        if (!active || !live.current || generation !== jobGeneration.current) return;
+        setJobError(errorText(reason));
+        if (reason instanceof ApiError && reason.status === 403) { setJob(null); releaseArtifact(); }
+        if (reason instanceof ApiError && (reason.status === 0 || reason.status === 429 || reason.status >= 500)) {
           timeout = setTimeout(() => void poll(), 3000);
         }
       }
     }
-
     timeout = setTimeout(() => void poll(), 3000);
-    return () => {
-      active = false;
-      clearTimeout(timeout);
-    };
-  }, [job?.id, job?.status, selectedProjectId, token]);
-
-  async function createProject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setCreating(true);
-    setCreateError("");
+    return () => { active = false; clearTimeout(timeout); };
+  }, [job?.id, job?.status, token]);
+  async function check() {
+    if (!job || locked.current) return;
+    locked.current = true; setBusy(true); setJobError("");
     try {
-      const created = await api.createProject({ name: projectName.trim() }, token);
-      setProjects((current) => [created, ...current.filter((project) => project.id !== created.id)]);
-      setProjectName("");
-      setSelectedProjectId(created.id);
-    } catch (error) {
-      setCreateError(errorText(error));
-    } finally {
-      setCreating(false);
-    }
+      const result = await api.getJob(job.id, token);
+      if (live.current) { setJob(result); if (!artifactReady(result.status)) releaseArtifact(); }
+    } catch (reason) {
+      if (live.current) { setJob(null); releaseArtifact(); setJobError(errorText(reason)); }
+    } finally { locked.current = false; if (live.current) setBusy(false); }
   }
-
-  async function uploadMedia(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const input = form.elements.namedItem("media-file");
-    const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined;
-    if (!file || !selectedProjectId) return;
-    setUploading(true);
-    setUploadError("");
-    setRenderError("");
+  async function preview() {
+    if (!job || !artifactReady(job.status) || locked.current) return;
+    locked.current = true; setBusy(true); setJobError(""); releaseArtifact();
     try {
-      const uploaded = await api.uploadMedia(selectedProjectId, file, token);
-      setProjectJob(selectedProjectId, null);
-      setArtifactBlob(null);
-      setMedia(uploaded);
-      setIdempotencyKey("");
-      form.reset();
-    } catch (error) {
-      setUploadError(errorText(error));
-    } finally {
-      setUploading(false);
-    }
+      const result = await artifact.load(job.id, token);
+      if (live.current && result) setArtifactUrl(result);
+    } catch (reason) { if (live.current) setJobError(errorText(reason)); }
+    finally { locked.current = false; if (live.current) setBusy(false); }
   }
-
-  async function submitRender(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!media || !selectedProjectId) return;
-    setSubmitting(true);
-    setRenderError("");
-    setJobError("");
-    setArtifactBlob(null);
-    const key = idempotencyKey || crypto.randomUUID();
-    setIdempotencyKey(key);
-    try {
-      const created = await api.createRenderJob(
-        selectedProjectId,
-        {
-          timeline: {
-            version: 1,
-            clips: [{ media_id: media.id, in_ms: 0, out_ms: durationMs }],
-          },
-          preset,
-        },
-        key,
-        token,
-      );
-      setProjectJob(selectedProjectId, created);
-      setIdempotencyKey("");
-    } catch (error) {
-      setRenderError(errorText(error));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function checkJobStatus() {
-    if (!job || !selectedProjectId) return;
-    setCheckingJob(true);
-    setJobError("");
-    try {
-      setProjectJob(selectedProjectId, await api.getProjectJob(selectedProjectId, job.id, token));
-    } catch (error) {
-      setJobError(errorText(error));
-    } finally {
-      setCheckingJob(false);
-    }
-  }
-
-  async function prepareArtifact() {
-    if (!job?.artifact_id || !selectedProjectId) return;
-    setArtifactError("");
-    setArtifactBlob(null);
-    setRetrievingArtifact(true);
-    try {
-      setArtifactBlob(await api.getProjectArtifact(selectedProjectId, job.artifact_id, token));
-    } catch (error) {
-      setArtifactError(errorText(error));
-    } finally {
-      setRetrievingArtifact(false);
-    }
-  }
-
-  async function downloadArtifact(job: VideoJob) {
-    setArtifactLoading(true);
-    setArtifactError("");
-    try {
-      const blob = await api.getArtifact(job.id, token);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "video.mp4";
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    } catch (error) {
-      setArtifactError(errorText(error));
-    } finally {
-      setArtifactLoading(false);
-    }
-  }
-
-  async function lookupLegacyJob(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLegacyJobLoading(true);
-    setLegacyJobError("");
-    setLegacyJob(null);
-    try {
-      setLegacyJob(await api.getJob(legacyJobId.trim(), token));
-    } catch (error) {
-      setLegacyJobError(errorText(error));
-    } finally {
-      setLegacyJobLoading(false);
-    }
-  }
-
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#" aria-label="OJU Video Forge home">OVF<span>.</span></a>
-        <div className="account">
-          <span className="user-name">{user.name}</span>
-          <button className="quiet-button" type="button" onClick={() => void onLogout()}>Sign out</button>
-        </div>
-      </header>
-
-      <main className="workspace">
-        <section className="welcome">
-          <div>
-            <p className="eyebrow">PRODUCTION WORKSPACE</p>
-            <h1>Good to see you, {user.name}</h1>
-            <p className="muted">Projects and service data are loaded from your configured API.</p>
-          </div>
-          <button className="secondary" type="button" onClick={() => void refreshWorkspace()} disabled={projectActionsBusy}>
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
-        </section>
-
-        <section className="content-grid" aria-label="Production workspace">
-          <section className="panel projects-panel" aria-labelledby="projects-heading">
-            <div className="panel-heading">
-              <div><p className="eyebrow">WORK</p><h2 id="projects-heading">Projects</h2></div>
-              <span className="count">{loading ? "…" : projects.length}</span>
-            </div>
-            <form className="inline-form" onSubmit={createProject}>
-              <label className="sr-only" htmlFor="project-name">New project name</label>
-              <input
-                id="project-name"
-                value={projectName}
-                onChange={(event) => setProjectName(event.target.value)}
-                placeholder="Name a project"
-                maxLength={120}
-                required
-              />
-              <button className="primary" type="submit" disabled={projectActionsBusy || !projectName.trim()}>
-                {creating ? "Creating…" : "Create"}
-              </button>
-            </form>
-            {createError && <p className="notice error" role="alert">{createError}</p>}
-            {projectError && <p className="notice error" role="alert">{projectError}</p>}
-            {loading && <p className="muted" role="status">Loading projects…</p>}
-            {!loading && !projectError && projects.length === 0 && (
-              <p className="empty">No projects returned by the API. Create one to get started.</p>
-            )}
-            {projects.length > 0 && (
-              <>
-                <label className="field-label" htmlFor="active-project">Active project</label>
-                <select
-                  id="active-project"
-                  value={selectedProjectId}
-                  onChange={(event) => setSelectedProjectId(event.target.value)}
-                  disabled={projectActionsBusy}
-                >
-                  {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-                </select>
-                <ul className="project-list">
-                  {projects.map((project) => (
-                    <li key={project.id}>
-                      <span className="project-icon" aria-hidden="true">{project.name.slice(0, 1).toUpperCase()}</span>
-                      <span className="project-detail"><strong>{project.name}</strong><small>{project.id}</small></span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </section>
-
-          <section className="panel models-panel" aria-labelledby="models-heading">
-            <div className="panel-heading">
-              <div><p className="eyebrow">CAPABILITIES</p><h2 id="models-heading">Models</h2></div>
-            </div>
-            {modelError && <p className="notice error" role="alert">{modelError}</p>}
-            {loading && <p className="muted" role="status">Loading models…</p>}
-            {!loading && !modelError && models.length === 0 && <p className="empty">No models returned by the API.</p>}
-            {!modelError && models.length > 0 && (
-              <ul className="model-list">
-                {models.map((model) => (
-                  <li key={model.id}>
-                    <span className="status-dot" aria-hidden="true" />
-                    <span className="model-detail"><strong>{model.id}</strong><small>{model.operation}</small></span>
-                    <span className="tag">{model.status.replaceAll("_", " ")}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="panel workflow-panel" aria-labelledby="workflow-heading">
-            <div className="panel-heading">
-              <div><p className="eyebrow">CREATE</p><h2 id="workflow-heading">Upload and render</h2></div>
-            </div>
-            {!selectedProjectId && <p className="empty">Create or select a project before uploading media.</p>}
-            <form onSubmit={uploadMedia}>
-              <label className="field-label" htmlFor="media-file">Video file</label>
-              <div className="inline-form">
-                <input id="media-file" name="media-file" type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" required disabled={!selectedProjectId || projectActionsBusy} />
-                <button className="secondary" type="submit" disabled={!selectedProjectId || projectActionsBusy}>
-                  {uploading ? "Uploading…" : "Upload"}
-                </button>
-              </div>
-            </form>
-            {uploadError && <p className="notice error" role="alert">{uploadError}</p>}
-            {media && (
-              <p className="notice success" role="status">
-                Uploaded media {media.id} · {media.media_type} · {media.size_bytes.toLocaleString()} bytes
-              </p>
-            )}
-            <form className="render-form" onSubmit={submitRender}>
-              <label className="field-label" htmlFor="duration-ms">Clip duration (milliseconds)</label>
-              <input
-                id="duration-ms"
-                type="number"
-                min={1000}
-                max={120000}
-                step={1000}
-                value={durationMs}
-                disabled={projectActionsBusy}
-                onChange={(event) => {
-                  setDurationMs(Number(event.target.value));
-                  setIdempotencyKey("");
-                }}
-                required
-              />
-              <label className="field-label" htmlFor="render-preset">Output preset</label>
-              <select
-                id="render-preset"
-                value={preset}
-                disabled={projectActionsBusy}
-                onChange={(event) => {
-                  setPreset(event.target.value as RenderPreset);
-                  setIdempotencyKey("");
-                }}
-              >
-                <option value="preview">Preview · 640 × 360</option>
-                <option value="hd">HD · 1280 × 720</option>
-              </select>
-              {renderError && <p className="notice error" role="alert">{renderError}</p>}
-              <button className="primary" type="submit" disabled={!media || projectActionsBusy}>
-                {submitting ? "Submitting…" : "Submit render"}
-              </button>
-            </form>
-          </section>
-
-          <section className="panel jobs-panel" aria-labelledby="jobs-heading">
-            <div className="panel-heading">
-              <div><p className="eyebrow">ACTIVITY</p><h2 id="jobs-heading">Render status</h2></div>
-              {job && (
-                <button className="secondary" type="button" onClick={() => void checkJobStatus()} disabled={projectActionsBusy}>
-                  {checkingJob ? "Checking…" : "Check status"}
-                </button>
-              )}
-            </div>
-            {!job && <p className="empty">Submit a render to see its live job status here.</p>}
-            {job && (
-              <>
-                <dl className="job-result" aria-live="polite">
-                  <div><dt>Job</dt><dd>{job.id}</dd></div>
-                  {job.operation && <div><dt>Operation</dt><dd>{job.operation}</dd></div>}
-                  <div><dt>Status</dt><dd><span className="tag">{job.status.replaceAll("_", " ")}</span></dd></div>
-                  {job.artifact_id && <div><dt>Artifact</dt><dd>{job.artifact_id}</dd></div>}
-                  {job.error && <div><dt>Reported error</dt><dd>{job.error}</dd></div>}
-                </dl>
-                {ACTIVE_JOB_STATUSES.has(job.status) && <p className="muted" role="status">Checking for updates every 3 seconds…</p>}
-                {jobError && <p className="notice error" role="alert">{jobError}</p>}
-                {artifactError && <p className="notice error" role="alert">{artifactError}</p>}
-                {job.artifact_id && (
-                  <div className="artifact-actions">
-                    <button className="secondary" type="button" onClick={() => void prepareArtifact()} disabled={projectActionsBusy}>
-                      {retrievingArtifact ? "Retrieving…" : "Retrieve authorized artifact"}
-                    </button>
-                    {artifactUrl && <a className="download-link" href={artifactUrl} download="oju-render.mp4">Download MP4</a>}
-                  </div>
-                )}
-              </>
-            )}
-            {artifactError && <p className="notice error" role="alert">{artifactError}</p>}
-            <form className="inline-form" onSubmit={lookupLegacyJob}>
-              <label className="sr-only" htmlFor="legacy-job-id">Generated job ID</label>
-              <input
-                id="legacy-job-id"
-                value={legacyJobId}
-                onChange={(event) => setLegacyJobId(event.target.value)}
-                placeholder="Look up a generated job ID"
-                required
-              />
-              <button className="secondary" type="submit" disabled={legacyJobLoading || !legacyJobId.trim()}>
-                {legacyJobLoading ? "Looking…" : "Look up generated job"}
-              </button>
-            </form>
-            {legacyJobError && <p className="notice error" role="alert">{legacyJobError}</p>}
-            {legacyJob && (
-              <dl className="job-result" aria-live="polite">
-                <div><dt>Generated job</dt><dd>{legacyJob.id}</dd></div>
-                {legacyJob.operation && <div><dt>Operation</dt><dd>{legacyJob.operation}</dd></div>}
-                <div><dt>Status</dt><dd><span className="tag">{legacyJob.status.replaceAll("_", " ")}</span></dd></div>
-                {legacyJob.error && <div><dt>Reported error</dt><dd>{legacyJob.error}</dd></div>}
-                {legacyJob.artifact && (
-                  <div>
-                    <dt>Artifact</dt>
-                    <dd>
-                      <button
-                        className="secondary"
-                        type="button"
-                        onClick={() => void downloadArtifact(legacyJob)}
-                        disabled={artifactLoading}
-                      >
-                        {artifactLoading ? "Downloading…" : "Download video"}
-                      </button>
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            )}
-          </section>
-        </section>
-        <footer className="footer-note">Private API responses only · no sample production data</footer>
-      </main>
-    </div>
-  );
+  const emptyOverlay = (): TimelineOverlay => ({ text: "", start_ms: 0, end_ms: 1000 });
+  return <>
+    <section className="panel" aria-labelledby="media-heading">
+      <h2 id="media-heading">Project media</h2>
+      {busy && <p role="status">Working…</p>}
+      {error && <p role="alert" className="notice error">{error}</p>}
+      <button disabled={busy} onClick={() => void loadMedia()}>Refresh media</button>
+      <form onSubmit={upload}>
+        <label htmlFor="upload">Video or audio file</label>
+        <input id="upload" name="upload" required disabled={busy} type="file"
+          accept=".mp4,.mov,.mkv,.webm,.wav,.mp3" />
+        <button type="submit" disabled={busy}>Upload media</button>
+      </form>
+      {!busy && !media.length && <p>No media uploaded to this project.</p>}
+      <ul>{media.map((asset) => <li key={asset.id}>
+        {asset.filename} · {asset.content_type} · {asset.size_bytes.toLocaleString()} bytes
+        {asset.content_type.startsWith("video/") && <button disabled={busy || clips.length >= 16} onClick={() =>
+          setClips((items) => [...items, { media_id: asset.id, in_ms: 0, out_ms: 5000 }])}>Add {asset.filename} to timeline</button>}
+      </li>)}</ul>
+    </section>
+    <section className="panel">
+      <form onSubmit={submit}>
+        <fieldset disabled={busy}>
+          <OrderedTimeline clips={clips} media={media} disabled={busy} onChange={setClips} />
+          <label><input type="checkbox" checked={!!title} onChange={(e) => setTitle(e.target.checked ? emptyOverlay() : undefined)} /> Include title</label>
+          {title && <OverlayFields label="Title" value={title} onChange={setTitle} />}
+          <h3>Optional captions</h3>
+          {captions.map((cue, index) => <div key={index}>
+            <OverlayFields label={`Caption ${index + 1}`} value={cue} onChange={(value) =>
+              setCaptions((items) => items.map((item, i) => i === index ? value : item))} />
+            <button type="button" onClick={() => setCaptions((items) => items.filter((_, i) => i !== index))}>Remove caption {index + 1}</button>
+          </div>)}
+          <button type="button" disabled={captions.length >= 100} onClick={() => setCaptions((items) => [...items, emptyOverlay()])}>Add caption</button>
+          <label>Optional audio track<select value={audioId} onChange={(e) => setAudioId(e.target.value)}>
+            <option value="">None</option>
+            {media.filter((asset) => asset.content_type.startsWith("audio/")).map((asset) =>
+              <option key={asset.id} value={asset.id}>{asset.filename}</option>)}
+          </select></label>
+          {audioId && <>
+            <label>Audio in (ms)<input required type="number" min={0} max={120000} step={1} value={audioIn} onChange={(e) => setAudioIn(Number(e.target.value))} /></label>
+            <label>Volume (%)<input required type="number" min={0} max={100} step={1} value={volume} onChange={(e) => setVolume(Number(e.target.value))} /></label>
+          </>}
+          <button className="primary" type="submit" disabled={!clips.length}>Submit preview render</button>
+        </fieldset>
+      </form>
+    </section>
+    <section className="panel" aria-labelledby="job-heading">
+      <h2 id="job-heading">Render status</h2>
+      {jobError && <p role="alert" className="notice error">{jobError}</p>}
+      {!job && <p>No render submitted in this project session.</p>}
+      {job && <>
+        <p aria-live="polite">Job {job.id}: {job.status.replaceAll("_", " ")}</p>
+        {job.error && <p role="alert">{job.error}</p>}
+        {ACTIVE.has(job.status) && <p role="status">Checking status every 3 seconds…</p>}
+        {job.status === "awaiting_review" && <p role="status">Verified render complete; awaiting review.</p>}
+        <button disabled={busy} onClick={() => void check()}>Check status</button>
+        {job.artifact && artifactReady(job.status) && <button disabled={busy} onClick={() => void preview()}>Load authorized preview/download</button>}
+        {artifactUrl && <>
+          <video controls preload="metadata" src={artifactUrl} aria-label="Rendered video preview" style={{ maxWidth: "100%" }} />
+          <a className="download-link" href={artifactUrl} download="oju-render.mp4">Download MP4</a>
+          <button onClick={releaseArtifact}>Clear preview</button>
+        </>}
+        <AuthenticatedReview key={job.id} token={token} jobId={job.id} />
+      </>}
+    </section>
+  </>;
 }
