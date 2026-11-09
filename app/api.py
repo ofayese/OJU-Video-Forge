@@ -1963,7 +1963,7 @@ def render_narration(
 @app.post("/v1/projects/{project_id}/narrations/{narration_id}/voice-preview", status_code=202)
 def preview_narration_voice(
     project_id: str, narration_id: str, payload: NarrationOptionsInput,
-    actor: Actor = Depends(require_roles("editor")), db: Session = Depends(db_session),
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
 ):
     row = _narration_row(db, actor, project_id, narration_id, True)
     if row.stage not in {"awaiting_script_approval", "script_approved"} or row.revision != payload.expected_revision:
