@@ -324,5 +324,5 @@ gpu_inference_current_state_addendum:
     full_regression: "One Docker run: 240 passed, 12 skipped, 5 warnings; it preceded the final project-role correction and was not repeated."
   delivery:
     commit_sha: "2ecc8d177ee5c1ef5bc13ed8bddfd1ffcaa63cd0"
-    pull_request: null
-    note: "Phase 4C generation gate passed; PR delivery is pending."
+    pull_request: "https://github.com/ofayese/OJU-Video-Forge/pull/45"
+    note: "Phase 4C generation gate passed and pull request opened; browser acceptance and PR CI/security checks remain unverified."
