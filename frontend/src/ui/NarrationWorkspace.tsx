@@ -64,9 +64,10 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
   }
   useEffect(() => {
     if (!row || !PROCESSING.has(row.stage)) return;
-    const ticket = epoch.current;
     let active = true;
     const timer = setInterval(() => {
+      if (locked.current) return;
+      const ticket = epoch.current;
       void api.getNarration(projectId, row.id, token).then((result) => {
         if (active && ticket === epoch.current) {
           setRow(result); setScript(result.script); setDirty(false);
