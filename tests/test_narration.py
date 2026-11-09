@@ -1,4 +1,5 @@
 import hashlib
+import sys
 import uuid
 
 import httpx
@@ -215,6 +216,59 @@ def test_cancel_before_subprocess_does_not_start_tool(monkeypatch):
     monkeypatch.setattr(narration.subprocess, "Popen", lambda *_args, **_kwargs: pytest.fail("Tool started"))
     with pytest.raises(RuntimeError, match="cancelled"):
         narration.run(["ffmpeg"], cancelled)
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_subprocess_output_limit_kills_tool(monkeypatch, stream):
+    child_processes = []
+    popen = narration.subprocess.Popen
+
+    def tracked_popen(*args, **kwargs):
+        process = popen(*args, **kwargs)
+        child_processes.append(process)
+        return process
+
+    monkeypatch.setattr(narration.subprocess, "Popen", tracked_popen)
+    code = (f"import sys,time; sys.{stream}.write('x' * {2 * 1024 * 1024 + 1}); "
+            f"sys.{stream}.flush(); time.sleep(30)")
+    with pytest.raises(narration.NarrationError, match="media_diagnostics_limit"):
+        narration.run([sys.executable, "-c", code], lambda: None, timeout=5)
+    assert child_processes[0].poll() is not None
+
+
+def test_subprocess_timeout_kills_and_reaps_tool(monkeypatch):
+    child_processes = []
+    popen = narration.subprocess.Popen
+
+    def tracked_popen(*args, **kwargs):
+        process = popen(*args, **kwargs)
+        child_processes.append(process)
+        return process
+
+    monkeypatch.setattr(narration.subprocess, "Popen", tracked_popen)
+    with pytest.raises(narration.NarrationError, match="media_timeout"):
+        narration.run([sys.executable, "-c", "import time; time.sleep(30)"],
+                      lambda: None, timeout=0.1)
+    assert child_processes[0].poll() is not None
+
+
+def test_subprocess_cancellation_kills_and_reaps_tool(monkeypatch):
+    child_processes = []
+    popen = narration.subprocess.Popen
+
+    def tracked_popen(*args, **kwargs):
+        process = popen(*args, **kwargs)
+        child_processes.append(process)
+        return process
+
+    def check():
+        if child_processes:
+            raise RuntimeError("cancelled")
+
+    monkeypatch.setattr(narration.subprocess, "Popen", tracked_popen)
+    with pytest.raises(RuntimeError, match="cancelled"):
+        narration.run([sys.executable, "-c", "import time; time.sleep(30)"], check)
+    assert child_processes[0].poll() is not None
 
 
 def test_timing_overrun_requires_revision_instead_of_truncation(monkeypatch, tmp_path):

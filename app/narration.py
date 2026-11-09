@@ -10,6 +10,7 @@ import math
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Literal
@@ -65,25 +66,58 @@ def run(args: list[str], check: Callable[[], None], timeout: int = 120) -> bytes
     check()
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
     deadline = time.monotonic() + timeout
+    stdout = bytearray()
+    overflow = threading.Event()
+
+    def kill():
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+    def drain(stream, output=None):
+        size = 0
+        try:
+            while chunk := stream.read1(4096):
+                size += len(chunk)
+                if size > 2 * 1024 * 1024:
+                    overflow.set()
+                    kill()
+                    return
+                if output is not None:
+                    output.extend(chunk)
+        finally:
+            stream.close()
+
+    readers = [
+        threading.Thread(target=drain, args=(process.stdout, stdout), daemon=True),
+        threading.Thread(target=drain, args=(process.stderr,), daemon=True),
+    ]
     try:
-        while True:
+        for reader in readers:
+            reader.start()
+        check()
+        while process.poll() is None:
+            if overflow.is_set():
+                raise NarrationError("media_diagnostics_limit")
             check()
             if time.monotonic() > deadline:
                 raise NarrationError("media_timeout")
-            try:
-                stdout, stderr = process.communicate(timeout=0.25)
-                break
-            except subprocess.TimeoutExpired:
-                continue
+            time.sleep(0.05)
+        for reader in readers:
+            reader.join()
+        if overflow.is_set():
+            raise NarrationError("media_diagnostics_limit")
         if process.returncode:
             raise NarrationError(f"media_command_failed:{Path(args[0]).name}:exit_{process.returncode}")
-        if len(stdout) > 2 * 1024 * 1024 or len(stderr) > 2 * 1024 * 1024:
-            raise NarrationError("media_diagnostics_limit")
-        return stdout
+        return bytes(stdout)
     finally:
         if process.poll() is None:
-            process.kill()
-            process.wait()
+            kill()
+        process.wait()
+        for reader in readers:
+            if reader.is_alive():
+                reader.join()
 
 
 def probe(path: Path, check: Callable[[], None]) -> dict:
