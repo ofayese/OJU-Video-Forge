@@ -334,7 +334,7 @@ def mux(source: Path, audio: Path | None, output: Path, metadata: dict,
         args += ["-filter_complex",
                  f"[0:a:0]volume={options.original_volume / 100}[orig];"
                  f"[1:a:0]volume={options.narration_gain / 100}[voice];"
-                 "[orig][voice]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[mix]",
+                 "[orig][voice]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95[mix]",
                  "-map", "[mix]"]
     else:
         args += ["-map", "1:a:0", "-af", f"volume={options.narration_gain / 100},alimiter=limit=0.95"]
