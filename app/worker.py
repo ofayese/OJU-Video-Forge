@@ -639,6 +639,7 @@ def execute(job_id: str):
                     job,
                     'awaiting_review',
                     artifact=artifact,
+                    artifact_id=artifact_id,
                     artifact_sha256=artifact_sha256,
                 )
             else:
