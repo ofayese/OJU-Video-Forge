@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 
 import httpx
@@ -147,6 +148,41 @@ def test_artifact_listing_is_narration_scoped(context):
         db.commit()
     result = client.get(f"/v1/projects/project/narrations/{narration_id}").json()
     assert [item["id"] for item in result["artifacts"]] == ["ours"]
+
+
+def test_narration_job_artifact_uses_project_scoped_download(context, tmp_path, monkeypatch):
+    client, sessions, _ = context
+    narration_id = start(client)
+    content = b"synthetic narration video"
+    digest = hashlib.sha256(content).hexdigest()
+    with sessions() as db:
+        row = db.get(Narration, narration_id)
+        job = db.get(Job, row.job_id)
+        artifact_id = str(uuid.uuid4())
+        relative_path = f"{job.id}/{artifact_id}/video.mp4"
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True)
+        path.write_bytes(content)
+        job.status = "awaiting_review"
+        job.artifact = relative_path
+        job.artifact_id = artifact_id
+        job.artifact_sha256 = digest
+        db.add(WorkflowArtifact(
+            id=artifact_id, job_id=job.id, project_id=row.project_id, owner=job.owner,
+            relative_path=relative_path, filename="video.mp4", media_type="video/mp4",
+            sha256=digest, size_bytes=len(content),
+        ))
+        db.commit()
+        job_id = job.id
+    monkeypatch.setattr(api, "ARTIFACT_ROOT", tmp_path)
+
+    job = client.get(f"/v1/jobs/{job_id}").json()
+    assert job["artifact"] == f"/v1/projects/project/artifacts/{artifact_id}"
+    assert job["project_artifact_id"] == artifact_id
+    response = client.get(job["artifact"])
+    assert response.status_code == 200
+    assert response.content == content
+    assert response.headers["X-Content-SHA256"] == digest
 
 
 @pytest.mark.parametrize("script", [

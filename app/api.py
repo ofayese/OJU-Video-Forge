@@ -455,6 +455,10 @@ def _is_project_membership_conflict(exc: IntegrityError) -> bool:
 def _artifact_url(job: Job) -> str | None:
     if job.operation == "audio_workflow":
         return job.artifact
+    if job.operation == "narrate_existing_video":
+        if job.status == "awaiting_review" and job.project_id and job.artifact_id:
+            return f"/v1/projects/{job.project_id}/artifacts/{job.artifact_id}"
+        return None
     return f"/v1/jobs/{job.id}/artifact" if job.status == "awaiting_review" and job.artifact else None
 
 
@@ -1718,7 +1722,9 @@ def _job_result(
     else:
         can_review = bool({"reviewer", "administrator"} & roles)
     project_artifact_id = None
-    if job.operation == "wan22_t2v" and db is not None:
+    if job.operation == "narrate_existing_video":
+        project_artifact_id = job.artifact_id
+    elif job.operation == "wan22_t2v" and db is not None:
         project_artifact_id = db.scalar(
             select(WorkflowArtifact.id).where(WorkflowArtifact.job_id == job.id)
         )
