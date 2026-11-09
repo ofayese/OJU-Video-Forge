@@ -1852,12 +1852,14 @@ def start_narration(
     ))
     if existing:
         row = db.get(Narration, existing.spec.get("narration_id"))
-        if not row or row.project_id != project_id or row.media_id != asset.id or row.options != options:
+        if (not row or row.project_id != project_id or row.media_id != asset.id
+                or existing.spec.get("request_options") != options):
             raise HTTPException(409, "Idempotency-Key belongs to a different request")
         return _narration_result(db, row)
     row = Narration(id=str(uuid.uuid4()), project_id=project_id, media_id=asset.id,
                     source_sha256=asset.sha256, revision=0, options=options, analysis={})
     job = _new_narration_job(db, actor, row, "analysis")
+    job.spec = {**job.spec, "request_options": options}
     job.idempotency_key = idempotency_key
     db.add(row)
     try:
