@@ -165,7 +165,7 @@ describe("ApiClient", () => {
 
   it("uses the documented model route and bearer authorization", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ models: [{ id: "wan22-ti2v-5b", operation: "wan22_t2v", status: "requires_local_gpu_profile_and_approved_workflow" }] }),
+      jsonResponse({ models: [{ id: "wan22-ti2v-5b", operation: "wan22_t2v", status: "configured" }] }),
     );
     const client = new ApiClient("http://localhost:8000", fetcher);
 
@@ -175,6 +175,50 @@ describe("ApiClient", () => {
     const request = fetcher.mock.calls[0];
     expect(request?.[0]).toBe("http://localhost:8000/v1/models");
     expect(new Headers(request?.[1]?.headers).get("Authorization")).toBe(["Bearer", "session-token"].join(" "));
+  });
+
+  it("submits a project-scoped Wan generation job with idempotency", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      id: "job-1",
+      operation: "wan22_t2v",
+      status: "queued",
+      artifact: null,
+      error: null,
+      review_contract_version: 1,
+      review_version: 0,
+      review_enabled: false,
+      can_review: false,
+      review_artifact: null,
+    }));
+    const client = new ApiClient("http://localhost:8000", fetcher);
+
+    await client.createWanGenerationJob("project/one", {
+      operation: "wan22_t2v",
+      prompt: "synthetic coastline",
+      negative_prompt: "",
+      width: 512,
+      height: 288,
+      frames: 17,
+      fps: 8,
+      seed: 42,
+    }, "request-key", "session-token");
+
+    const [url, options] = fetcher.mock.calls[0] ?? [];
+    expect(url).toBe("http://localhost:8000/v1/jobs");
+    expect(options?.method).toBe("POST");
+    expect(new Headers(options?.headers).get("Idempotency-Key")).toBe("request-key");
+    expect(new Headers(options?.headers).get("Authorization")).toBe("Bearer session-token");
+    expect(JSON.parse(String(options?.body))).toEqual({
+      operation: "wan22_t2v",
+      project_id: "project/one",
+      prompt: "synthetic coastline",
+      negative_prompt: "",
+      width: 512,
+      height: 288,
+      frames: 17,
+      fps: 8,
+      seed: 42,
+    });
   });
 
   it("downloads an artifact through the owner-authorized API route", async () => {
@@ -190,6 +234,20 @@ describe("ApiClient", () => {
       ["Bearer", "session-token"].join(" "),
     );
     expect(request?.[1]?.cache).toBe("no-store");
+  });
+
+  it("downloads a project artifact through the membership-authorized route", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("video"));
+    const client = new ApiClient("http://localhost:8000", fetcher);
+
+    const artifact = await client.getProjectArtifact("project/one", "artifact/one", "session-token");
+
+    expect(await artifact.text()).toBe("video");
+    const request = fetcher.mock.calls[0];
+    expect(request?.[0]).toBe(
+      "http://localhost:8000/v1/projects/project%2Fone/artifacts/artifact%2Fone",
+    );
+    expect(new Headers(request?.[1]?.headers).get("Authorization")).toBe("Bearer session-token");
   });
 
   it("notifies the app and rejects when a session has expired", async () => {

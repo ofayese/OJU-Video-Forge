@@ -28,6 +28,33 @@ use `postgres:5432` and `redis:6379` on their own private network. PostgreSQL, R
 and ComfyUI have no published ports. A frontend must never join another project's
 backend network or use another project's API address.
 
+## Optional Wan GPU service
+
+The GPU overlay enables the private ComfyUI service and routes generation jobs to
+the existing Redis-backed `gpu` queue. Model weights stay in the
+`oju-video-forge_models` named volume; never copy them into the repository or
+publish ComfyUI's port. These commands apply only to the canonical local project and
+do not start or recreate PostgreSQL, Redis, or unrelated services.
+
+PowerShell, after the approved model assets are installed:
+
+```powershell
+$env:COMFYUI_ENABLED = "true"
+docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.gpu.yaml --profile gpu build api render-worker
+docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.gpu.yaml --profile gpu up -d --no-deps api render-worker comfyui
+```
+
+To return API and worker to CPU-only operation, stop ComfyUI and reapply the base
+configuration. This preserves all named volumes:
+
+```powershell
+docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.gpu.yaml --profile gpu stop comfyui
+$env:COMFYUI_ENABLED = "false"
+docker compose --project-name oju-video-forge --env-file .env -f compose.yaml up -d --no-deps api render-worker
+```
+
+Never use `down -v` to disable GPU generation.
+
 ## Overrides and safeguards
 
 Compose project-name precedence is `--project-name`/`-p`, then

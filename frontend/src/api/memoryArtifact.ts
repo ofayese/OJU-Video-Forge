@@ -15,10 +15,20 @@ export class MemoryArtifact {
     this.url = "";
   }
 
-  async load(jobId: string, token: string): Promise<string | null> {
+  async load(
+    jobId: string,
+    token: string,
+    projectArtifact?: { projectId: string; artifactId: string },
+  ): Promise<string | null> {
     this.clear();
     const generation = this.generation;
-    const blob = await this.client.getArtifact(jobId, token);
+    const blob = projectArtifact
+      ? await this.client.getProjectArtifact(
+          projectArtifact.projectId,
+          projectArtifact.artifactId,
+          token,
+        )
+      : await this.client.getArtifact(jobId, token);
     if (generation !== this.generation) return null;
     this.url = this.urls.createObjectURL(blob);
     return this.url;

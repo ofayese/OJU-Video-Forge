@@ -1,11 +1,13 @@
-# Pin this base digest and ComfyUI commit during Gate D approval.
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
-RUN apt-get update && apt-get install -y --no-install-recommends git ffmpeg \
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime@sha256:c16f4c749e2d9e96878875cdf6cc45cddda1d1a36fddd371dd6f2360f1b6e2a2
+RUN apt-get update && apt-get install -y --no-install-recommends gcc git ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt
-ARG COMFYUI_REF=master
-RUN git clone https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI \
- && cd /opt/ComfyUI && git checkout "$COMFYUI_REF" \
+ARG COMFYUI_COMMIT=0decb39ee5b5e17c200334589fc317dbbe98310e
+RUN git clone --filter=blob:none --no-checkout https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI \
+ && cd /opt/ComfyUI \
+ && git fetch --depth 1 origin "$COMFYUI_COMMIT" \
+ && git checkout --detach FETCH_HEAD \
+ && test "$(git rev-parse HEAD)" = "$COMFYUI_COMMIT" \
  && pip install --no-cache-dir -r requirements.txt
 WORKDIR /opt/ComfyUI
 RUN groupadd --gid 10001 forge \

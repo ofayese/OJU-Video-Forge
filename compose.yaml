@@ -112,6 +112,7 @@ services:
   comfyui:
     <<: *common
     profiles: [gpu]
+    image: oju-video-forge-comfyui:2.7.1-cuda12.8-0decb39
     build: {context: ., dockerfile: services/comfyui/Dockerfile}
     cpus: 4.0
     mem_limit: 16g

@@ -52,7 +52,12 @@ WORKFLOW = Path("/workflows/wan22-t2v-api.json")
 GPU_LOCK_NAME = "oju-video-forge:comfyui:generation"
 GPU_LOCK_SECONDS = 7200
 GPU_WAIT_SECONDS = 3000
-GPU_INPUTS = {"positive_prompt", "seed", "width", "height", "frames", "fps"}
+GPU_INPUTS = {
+    "positive_prompt", "negative_prompt", "seed", "width", "height", "frames", "fps",
+}
+WAN_MODEL_ID = "wan22-ti2v-5b"
+WAN_MODEL_REVISION = "ee6f4a40737a995bf5818954cfce6d59443b0f04"
+WAN_WORKFLOW_VERSION = "wan22-ti2v-5b@ea7faae6999fb31338f43408ff4a575bd3f7d9a0"
 MAX_WORKFLOW_BYTES = 16 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
@@ -120,6 +125,10 @@ def _validate_generation_spec(spec):
     if (type(prompt) is not str or not prompt.strip() or len(prompt) > 1000
             or any(not char.isprintable() and char not in "\n\t" for char in prompt)):
         raise ValueError("Invalid generation prompt")
+    negative_prompt = spec.get("negative_prompt", "")
+    if (type(negative_prompt) is not str or len(negative_prompt) > 1000
+            or any(not char.isprintable() and char not in "\n\t" for char in negative_prompt)):
+        raise ValueError("Invalid generation negative prompt")
     bounds = {
         "width": (256, 1280),
         "height": (144, 720),
@@ -133,11 +142,12 @@ def _validate_generation_spec(spec):
         if type(value) is not int or not lower <= value <= upper:
             raise ValueError("Invalid generation settings")
         values[field] = value
-    if (values["width"] % 16 or values["height"] % 16
+    if (values["width"] % 32 or values["height"] % 32
             or (values["frames"] - 1) % 4 or values["fps"] not in {8, 16, 24}):
         raise ValueError("Unsupported generation settings")
     return {
         "positive_prompt": prompt.strip(),
+        "negative_prompt": negative_prompt.strip(),
         "seed": values["seed"],
         "width": values["width"],
         "height": values["height"],
@@ -209,7 +219,33 @@ def _verify_generated_mp4(output, spec):
         raise RuntimeError("ComfyUI output duration does not match the request")
 
 
-def _generate_wan22(job, output_dir):
+def _validate_generation_project(db, job):
+    if not job.project_id:
+        raise ValueError("AI generation requires a project")
+    project = db.get(Project, job.project_id)
+    user = db.scalar(select(User).where(User.username == job.owner))
+    if user:
+        membership = db.scalar(select(ProjectMembership).where(
+            ProjectMembership.project_id == job.project_id,
+            ProjectMembership.user_id == user.id,
+        ))
+        authorized = (
+            not user.disabled
+            and membership is not None
+            and membership.role in {"owner", "editor"}
+        )
+    else:
+        has_members = db.scalar(
+            select(ProjectMembership.id).where(
+                ProjectMembership.project_id == job.project_id
+            )
+        ) is not None
+        authorized = project is not None and project.owner == job.owner and not has_members
+    if not project or not authorized:
+        raise ValueError("AI generation project authorization no longer valid")
+
+
+def _generate_wan22(job, output_dir, artifact_id=None):
     spec = _validate_generation_spec(job.spec)
     registry = _workflow_registration()
     work_dir = output_dir / ".comfyui"
@@ -250,8 +286,24 @@ def _generate_wan22(job, output_dir):
         provenance = {
             "schema_version": 1,
             "job_id": job.id,
+            "project_id": getattr(job, "project_id", None),
+            "artifact_id": artifact_id,
             "operation": job.operation,
+            "status": "verified",
+            "model": {
+                "id": WAN_MODEL_ID,
+                "revision": WAN_MODEL_REVISION,
+                "license": "Apache-2.0",
+            },
+            "workflow": {
+                "version": WAN_WORKFLOW_VERSION,
+                "source_commit": "ea7faae6999fb31338f43408ff4a575bd3f7d9a0",
+                "sha256": output_provenance["workflow_sha256"],
+            },
             "prompt_sha256": hashlib.sha256(spec["positive_prompt"].encode("utf-8")).hexdigest(),
+            "negative_prompt_sha256": hashlib.sha256(
+                spec["negative_prompt"].encode("utf-8")
+            ).hexdigest(),
             "generation": {key: spec[key] for key in ("seed", "width", "height", "frames", "fps")},
             "output": output_provenance,
         }
@@ -564,10 +616,31 @@ def execute(job_id: str):
                     raise JobCancelled()
                 if not get_settings().comfyui_enabled:
                     raise RuntimeError("ComfyUI generation is disabled")
+                _validate_generation_project(db, job)
                 output_dir = ARTIFACT_ROOT / job.id
                 output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
-                artifact = _generate_wan22(job, output_dir)
-                _finish_or_cancel(db, job, 'awaiting_review', artifact=artifact)
+                artifact_id = str(uuid.uuid4())
+                artifact = _generate_wan22(job, output_dir, artifact_id)
+                artifact_path = private_file(ARTIFACT_ROOT, artifact)
+                artifact_sha256 = sha256(artifact_path)
+                db.add(WorkflowArtifact(
+                    id=artifact_id,
+                    job_id=job.id,
+                    project_id=job.project_id,
+                    owner=job.owner,
+                    relative_path=artifact,
+                    filename="video.mp4",
+                    media_type="video/mp4",
+                    sha256=artifact_sha256,
+                    size_bytes=artifact_path.stat().st_size,
+                ))
+                _finish_or_cancel(
+                    db,
+                    job,
+                    'awaiting_review',
+                    artifact=artifact,
+                    artifact_sha256=artifact_sha256,
+                )
             else:
                 raise RuntimeError("Unsupported operation")
         except JobCancelled:

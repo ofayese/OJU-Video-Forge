@@ -41,3 +41,5 @@ models/
 comfy-input/
 comfy-output/
 config/workflows/*-api.json
+# Commit only the approved pinned Wan API workflow; keep other API workflows local.
+!config/workflows/wan22-t2v-api.json
