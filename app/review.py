@@ -40,6 +40,11 @@ def _artifact_location(job, artifact):
                 and re.fullmatch(r"render-[A-Za-z0-9_-]{1,64}", parts[2])
                 and parts[3] == "output.mp4"):
             return parts[:3], parts[3]
+    if job.operation == "narrate_existing_video":
+        parts = artifact.split("/") if isinstance(artifact, str) else []
+        if (len(parts) == 3 and parts[0] == job.id and parts[1] == job.artifact_id
+                and str(uuid.UUID(parts[1])) == parts[1] and parts[2] == "video.mp4"):
+            return parts[:2], parts[2]
     raise ValueError("Unsupported generated artifact")
 
 

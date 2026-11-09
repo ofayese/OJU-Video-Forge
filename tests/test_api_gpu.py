@@ -92,7 +92,7 @@ def test_artifact_download_is_owner_only_audited_and_hides_storage_key(api_conte
 @pytest.mark.parametrize(
     ("operation", "media_id", "expected"),
     [
-        ("narrate_existing_video", "source-video", 503),
+        ("narrate_existing_video", "source-video", 422),
         ("narrate_existing_video", "source-audio", 422),
         ("narrate_existing_video", "foreign-video", 404),
         ("narrate_existing_video", None, 422),

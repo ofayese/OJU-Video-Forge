@@ -71,6 +71,8 @@ from .core import (
     DispatchOutbox,
     MediaArtifact,
     MediaAsset,
+    Narration,
+    NarrationRevision,
     Project,
     ProjectMembership,
     Review,
@@ -84,6 +86,7 @@ from .private_storage import private_file, write_private_file
 from .dispatcher import dispatch_outbox
 from .review import ArtifactIdentity, ReviewDecision, decide, eligible
 from .rendering import RenderEngine, RenderError, parse_timeline
+from . import narration as narration_media
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +255,34 @@ class JobResult(BaseModel):
     )
     can_review: bool = False
     review_artifact: ArtifactIdentity | None = None
+
+
+class NarrationStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    media_id: str
+    options: dict = Field(default_factory=dict)
+
+
+class NarrationEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(strict=True, ge=1)
+    segments: list[dict] = Field(min_length=1, max_length=200)
+
+
+class NarrationApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(strict=True, ge=1)
+    decision: Literal["approved", "rejected"]
+
+
+class NarrationOptionsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(strict=True, ge=1)
+    voice: Literal["en-us", "en-gb"] = "en-us"
+    rate: int = Field(default=160, strict=True, ge=100, le=220)
+    audio_mode: Literal["replace", "mix", "preserve"] = "replace"
+    original_volume: int = Field(default=20, strict=True, ge=0, le=100)
+    narration_gain: int = Field(default=100, strict=True, ge=0, le=150)
 
 
 class ReviewResult(BaseModel):
@@ -1354,10 +1385,10 @@ def create_job(
             raise HTTPException(422, "Narration requires an uploaded source video")
     if payload.operation == "narrate_existing_video":
         raise HTTPException(
-            503,
-            "Narration unavailable: transcription, scene understanding, and speech synthesis "
-            "are not implemented/configured. No job or derived video was created; "
-            "the original media is unchanged. Wan generation is not a narration fallback.",
+            422,
+            "Use /v1/projects/{project_id}/narrations for analysis and explicit script approval "
+            "before synthesis. Direct narration job submission is unsupported. "
+            "No job or derived video was created; Wan is not a narration fallback.",
         )
     spec = payload.model_dump(exclude={"project_id", "media_id"})
     if idempotency_key:
@@ -1471,6 +1502,8 @@ def retry_job(
         raise HTTPException(403, "Insufficient permissions")
     if original.operation == "audio_workflow":
         raise HTTPException(409, "Use the project-scoped workflow retry endpoint")
+    if original.operation == "narrate_existing_video":
+        raise HTTPException(409, "Use the project-scoped narration retry endpoint")
     if original.operation == "wan22_t2v" and not get_settings().comfyui_enabled:
         raise HTTPException(503, "ComfyUI generation is disabled")
     if original.status == "dispatch_pending":
@@ -1731,6 +1764,226 @@ def get_models(
 ):
     status_value = "configured" if get_settings().comfyui_enabled else "disabled"
     return {"models": [{"id": "wan22-ti2v-5b", "operation": "wan22_t2v", "status": status_value}]}
+
+
+def _narration_row(db, actor, project_id, narration_id, edit=False):
+    if edit:
+        require_project_role(db, actor, project_id, {"owner", "editor"})
+    else:
+        _owned_project(db, project_id, actor)
+    row = db.scalar(select(Narration).where(
+        Narration.id == narration_id, Narration.project_id == project_id,
+    ).with_for_update())
+    if row is None:
+        raise HTTPException(404, "Narration not found")
+    job = db.get(Job, row.job_id)
+    if job is None:
+        raise HTTPException(409, "Narration job identity is unavailable")
+    if job.status == "cancelled" or (job.status == "failed" and row.stage in {
+        "queued", "transcribing", "analyzing_scenes", "drafting_script",
+        "synthesizing_audio", "mixing_audio", "verifying_artifact", "awaiting_review",
+    }):
+        row.stage = job.status
+        if row.error is None:
+            row.error = job.error
+    return row
+
+
+def _narration_result(db, row):
+    revision = db.scalar(select(NarrationRevision).where(
+        NarrationRevision.narration_id == row.id,
+        NarrationRevision.revision == row.revision,
+    ))
+    artifacts = db.execute(
+        select(WorkflowArtifact, Job.spec).join(Job, WorkflowArtifact.job_id == Job.id).where(
+            WorkflowArtifact.project_id == row.project_id,
+            Job.spec["narration_id"].as_string() == row.id,
+        )
+    ).all()
+    return {
+        "id": row.id, "project_id": row.project_id, "media_id": row.media_id,
+        "job_id": row.job_id, "stage": row.stage, "error": row.error,
+        "revision": row.revision, "approved_revision": row.approved_revision,
+        "script": revision.script if revision else [], "analysis": row.analysis,
+        "options": row.options,
+        "artifacts": [{"id": item.id, "job_id": item.job_id, "filename": item.filename,
+                       "media_type": item.media_type, "sha256": item.sha256,
+                       "size_bytes": item.size_bytes,
+                       "script_revision": spec.get("revision", 0)} for item, spec in artifacts],
+    }
+
+
+def _new_narration_job(db, actor, row, phase, attempt=0):
+    job = Job(
+        id=str(uuid.uuid4()), owner=actor.name, owner_principal_kind="user",
+        owner_principal_id=actor.user_id, project_id=row.project_id, media_id=row.media_id,
+        operation="narrate_existing_video", status="dispatch_pending",
+        spec={"narration_id": row.id, "phase": phase, "revision": row.revision, "attempt": attempt},
+    )
+    db.add(job)
+    db.flush()
+    db.add(DispatchOutbox(job_id=job.id, status="pending"))
+    db.add(Audit(job_id=job.id, actor=actor.name, action="dispatch_pending"))
+    row.job_id = job.id
+    row.stage = "queued"
+    row.error = None
+    return job
+
+
+@app.post("/v1/projects/{project_id}/narrations", status_code=202)
+def start_narration(
+    project_id: str, payload: NarrationStart,
+    actor: Actor = Depends(require_roles("viewer")),
+    db: Session = Depends(db_session),
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=1, max_length=128),
+):
+    require_project_role(db, actor, project_id, {"owner", "editor"})
+    try:
+        options = narration_media.NarrationOptions.model_validate(payload.options).model_dump()
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid narration options") from exc
+    asset = db.get(MediaAsset, payload.media_id)
+    if asset is None or asset.project_id != project_id:
+        raise HTTPException(404, "Source media not found")
+    if not asset.media_type.startswith("video/") or asset.size_bytes > 512 * 1024 * 1024:
+        raise HTTPException(422, "A bounded uploaded source video is required")
+    existing = db.scalar(select(Job).where(
+        Job.owner == actor.name, Job.idempotency_key == idempotency_key,
+    ))
+    if existing:
+        row = db.get(Narration, existing.spec.get("narration_id"))
+        if not row or row.project_id != project_id or row.media_id != asset.id or row.options != options:
+            raise HTTPException(409, "Idempotency-Key belongs to a different request")
+        return _narration_result(db, row)
+    row = Narration(id=str(uuid.uuid4()), project_id=project_id, media_id=asset.id,
+                    source_sha256=asset.sha256, revision=0, options=options, analysis={})
+    job = _new_narration_job(db, actor, row, "analysis")
+    job.idempotency_key = idempotency_key
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Duplicate narration request; reload the existing request") from exc
+    dispatch_outbox(job.id)
+    return _narration_result(db, row)
+
+
+@app.get("/v1/projects/{project_id}/narrations/{narration_id}")
+def get_narration(
+    project_id: str, narration_id: str,
+    actor: Actor = Depends(require_roles(*READ_ROLES)), db: Session = Depends(db_session),
+):
+    return _narration_result(db, _narration_row(db, actor, project_id, narration_id))
+
+
+@app.put("/v1/projects/{project_id}/narrations/{narration_id}/script")
+def edit_narration(
+    project_id: str, narration_id: str, payload: NarrationEdit,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id, True)
+    if row.stage not in {"awaiting_script_approval", "script_approved", "script_rejected", "failed", "awaiting_review"} or not row.analysis:
+        raise HTTPException(409, "Narration is not editable during processing")
+    if row.revision != payload.expected_revision:
+        raise HTTPException(409, "Script revision changed; reload before editing")
+    try:
+        script = narration_media.validate_script(payload.segments, round(
+            float(row.analysis["media"]["format"]["duration"]) * 1000))
+        evidence = {"manual"} | {item["id"] for item in row.analysis["scenes"]} | {
+            item["id"] for item in row.analysis["transcript"]["segments"]}
+        if any(set(item["evidence"]) - evidence for item in script):
+            raise ValueError("Invalid evidence reference")
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid script timing, text, or evidence references") from exc
+    row.revision += 1
+    row.approved_revision = None
+    row.stage = "awaiting_script_approval"
+    row.error = None
+    db.add(NarrationRevision(id=str(uuid.uuid4()), narration_id=row.id, revision=row.revision,
+                             script=script, editor_id=actor.user_id))
+    db.add(Audit(job_id=row.job_id, actor=actor.name, action=f"script_revision:{row.revision}"))
+    db.commit()
+    return _narration_result(db, row)
+
+
+@app.post("/v1/projects/{project_id}/narrations/{narration_id}/approval")
+def approve_narration(
+    project_id: str, narration_id: str, payload: NarrationApproval,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id, True)
+    if row.stage != "awaiting_script_approval" or row.revision != payload.expected_revision:
+        raise HTTPException(409, "Script revision is no longer awaiting approval")
+    revision = db.scalar(select(NarrationRevision).where(
+        NarrationRevision.narration_id == row.id, NarrationRevision.revision == row.revision))
+    if not revision or not any(item["text"].strip() for item in revision.script):
+        raise HTTPException(422, "Author at least one narration segment before approval")
+    if payload.decision == "approved":
+        revision.approved_by = actor.user_id
+        revision.approved_at = datetime.now(timezone.utc)
+        row.approved_revision = row.revision
+        row.stage = "script_approved"
+    else:
+        row.approved_revision = None
+        row.stage = "script_rejected"
+    db.add(Audit(job_id=row.job_id, actor=actor.name, action=f"script_{payload.decision}:{row.revision}"))
+    db.commit()
+    return _narration_result(db, row)
+
+
+@app.post("/v1/projects/{project_id}/narrations/{narration_id}/render", status_code=202)
+def render_narration(
+    project_id: str, narration_id: str, payload: NarrationOptionsInput,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id, True)
+    if row.stage != "script_approved" or row.approved_revision != payload.expected_revision:
+        raise HTTPException(409, "Approve the current script before synthesis")
+    try:
+        row.options = narration_media.NarrationOptions.model_validate({
+            **row.options, **payload.model_dump(exclude={"expected_revision"}),
+        }).model_dump()
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid voice/audio settings") from exc
+    job = _new_narration_job(db, actor, row, "render")
+    db.commit()
+    dispatch_outbox(job.id)
+    return _narration_result(db, row)
+
+
+@app.post("/v1/projects/{project_id}/narrations/{narration_id}/voice-preview", status_code=202)
+def preview_narration_voice(
+    project_id: str, narration_id: str, payload: NarrationOptionsInput,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id, True)
+    if row.stage not in {"awaiting_script_approval", "script_approved"} or row.revision != payload.expected_revision:
+        raise HTTPException(409, "Voice preview requires a current draft")
+    return_stage = row.stage
+    row.options = {**row.options, "voice": payload.voice, "rate": payload.rate}
+    job = _new_narration_job(db, actor, row, "voice_preview")
+    job.spec = {**job.spec, "return_stage": return_stage}
+    db.commit()
+    dispatch_outbox(job.id)
+    return _narration_result(db, row)
+
+
+@app.post("/v1/projects/{project_id}/narrations/{narration_id}/retry", status_code=202)
+def retry_narration(
+    project_id: str, narration_id: str,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id, True)
+    previous = db.get(Job, row.job_id)
+    if row.stage != "failed" or previous.status != "failed" or previous.spec["attempt"] >= 2:
+        raise HTTPException(409, "Only failed eligible narration operations can be retried twice")
+    job = _new_narration_job(db, actor, row, previous.spec["phase"], previous.spec["attempt"] + 1)
+    if previous.spec["phase"] == "voice_preview":
+        job.spec = {**job.spec, "return_stage": previous.spec["return_stage"]}
+    db.commit()
+    dispatch_outbox(job.id)
+    return _narration_result(db, row)
 
 
 @app.post(

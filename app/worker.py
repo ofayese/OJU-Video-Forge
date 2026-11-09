@@ -47,6 +47,7 @@ from .core import (
 from .private_storage import private_file, write_private_file
 from .review import generated_checksum
 from .rendering import RenderEngine
+from . import narration_jobs
 
 WORKFLOW = Path("/workflows/wan22-t2v-api.json")
 GPU_LOCK_NAME = "oju-video-forge:comfyui:generation"
@@ -585,6 +586,30 @@ def execute(job_id: str):
                 return
             if job.operation == "audio_workflow":
                 _execute_audio_workflow(db, job)
+            elif job.operation == "narrate_existing_video":
+                _validate_generation_project(db, job)
+
+                def check_narration():
+                    if _cancel_requested(job.id):
+                        raise JobCancelled()
+
+                redis_client = Redis.from_url(REDIS_URL)
+                lock = redis_client.lock("oju-video-forge:narration:cpu", timeout=3900, blocking_timeout=5)
+                try:
+                    if not lock.acquire(blocking=True):
+                        raise narration_jobs.media.NarrationError("narration_capacity_busy; retry later")
+                    try:
+                        result = narration_jobs.execute(db, job, check_narration)
+                    finally:
+                        lock.release()
+                finally:
+                    redis_client.close()
+                if result:
+                    artifact_id, artifact, output_hash = result
+                    _finish_or_cancel(db, job, "awaiting_review", artifact=artifact,
+                                      artifact_id=artifact_id, artifact_sha256=output_hash)
+                else:
+                    _finish_or_cancel(db, job, "awaiting_review")
             elif job.operation == 'render_test':
                 if Path(job.id).name != job.id or job.id in {'.', '..'}:
                     raise ValueError('Invalid artifact identifier')
@@ -650,6 +675,11 @@ def execute(job_id: str):
             else:
                 raise RuntimeError("Unsupported operation")
         except JobCancelled:
+            if job.operation == "narrate_existing_video":
+                row = db.get(narration_jobs.Narration, job.spec["narration_id"])
+                if row:
+                    row.stage = "cancelled"
+                    db.commit()
             db.refresh(job)
             if job.status == 'running':
                 transition(db, job, 'cancel_requested', 'worker')
@@ -658,6 +688,12 @@ def execute(job_id: str):
         except Exception as exc:
             db.rollback()
             db.refresh(job)
+            if job.operation == "narrate_existing_video":
+                row = db.get(narration_jobs.Narration, job.spec["narration_id"])
+                if row:
+                    row.stage = "failed"
+                    row.error = str(exc)[:500] if isinstance(exc, narration_jobs.media.NarrationError) else "narration_failed; inspect private worker diagnostics"
+                    db.commit()
             if job.operation == 'render_timeline_v1':
                 if result is not None and inputs is not None:
                     _cleanup_render_output(inputs, result)

@@ -12,6 +12,9 @@ import type {
   VideoJob,
   JobReview,
   ReviewDecision,
+  NarrationResult,
+  NarrationSegment,
+  NarrationSettings,
 } from "./types";
 
 // Production reaches the private API only through nginx on the page's origin.
@@ -214,6 +217,56 @@ export class ApiClient {
       token,
       "blob",
     );
+  }
+
+  async startNarration(projectId: string, mediaId: string, options: Record<string, unknown>,
+    key: string, token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations`, {
+      method: "POST", headers: { "Idempotency-Key": key },
+      body: JSON.stringify({ media_id: mediaId, options }),
+    }, token);
+  }
+
+  async getNarration(projectId: string, id: string, token: string): Promise<NarrationResult> {
+    const result = await this.request<NarrationResult>(
+      `/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}`, {}, token);
+    if (result.id !== id || result.project_id !== projectId) {
+      throw new ApiError("Narration response identity mismatch.", 409);
+    }
+    return result;
+  }
+
+  async editNarration(projectId: string, id: string, revision: number,
+    segments: NarrationSegment[], token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/script`,
+      { method: "PUT", body: JSON.stringify({ expected_revision: revision, segments }) }, token);
+  }
+
+  async approveNarration(projectId: string, id: string, revision: number,
+    decision: "approved" | "rejected", token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/approval`,
+      { method: "POST", body: JSON.stringify({ expected_revision: revision, decision }) }, token);
+  }
+
+  async renderNarration(projectId: string, id: string, revision: number,
+    settings: NarrationSettings, token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/render`,
+      { method: "POST", body: JSON.stringify({ expected_revision: revision, ...settings }) }, token);
+  }
+
+  async retryNarration(projectId: string, id: string, token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/retry`,
+      { method: "POST" }, token);
+  }
+
+  async previewNarrationVoice(projectId: string, id: string, revision: number,
+    settings: NarrationSettings, token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/voice-preview`,
+      { method: "POST", body: JSON.stringify({ expected_revision: revision, ...settings }) }, token);
+  }
+
+  async cancelJob(id: string, token: string): Promise<VideoJob> {
+    return this.request(`/v1/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }, token);
   }
 }
 
