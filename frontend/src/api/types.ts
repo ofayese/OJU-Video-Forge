@@ -126,3 +126,44 @@ export interface LoginInput {
   username: string;
   password: string;
 }
+
+export interface NarrationSegment {
+  id: string;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  evidence: string[];
+  uncertainty: string;
+  estimated_ms: number;
+}
+
+export interface NarrationSettings {
+  voice: "en-us" | "en-gb";
+  rate: number;
+  audio_mode: "replace" | "mix" | "preserve";
+  original_volume: number;
+  narration_gain: number;
+}
+
+export interface NarrationResult {
+  id: string;
+  project_id: string;
+  media_id: string;
+  job_id: string;
+  stage: string;
+  error: string | null;
+  revision: number;
+  approved_revision: number | null;
+  script: NarrationSegment[];
+  options: Record<string, unknown>;
+  analysis: {
+    media?: { format: { duration: string } };
+    transcript?: { status: string; language?: string | null };
+    scene_analysis?: { status: string; error: string | null };
+    vision?: string;
+    scenes?: { id: string; timestamp_ms: number; major_change: boolean; ocr: string | null;
+      vision: { text: string; uncertain: boolean } | null }[];
+  };
+  artifacts: { id: string; job_id: string; filename: string; media_type: string;
+    sha256: string; size_bytes: number; script_revision: number }[];
+}

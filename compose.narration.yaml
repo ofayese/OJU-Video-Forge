@@ -1,0 +1,20 @@
+services:
+  render-worker:
+    build:
+      context: .
+      dockerfile: services/narration/Dockerfile
+    mem_limit: 4g
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=1g"
+    environment:
+      NARRATION_ASR_MODEL: /models/asr/faster-whisper-tiny
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
+      NARRATION_VISION_URL: ${NARRATION_VISION_URL:-}
+      NARRATION_VISION_MODEL: ${NARRATION_VISION_MODEL:-}
+    volumes:
+      - narration-models:/models/asr:ro
+
+volumes:
+  narration-models: {}

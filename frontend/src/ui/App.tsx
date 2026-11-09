@@ -13,6 +13,7 @@ import type {
   VideoModel,
 } from "../api/types";
 import { AuthenticatedReview, ReviewPanel } from "./ReviewPanel";
+import { NarrationWorkspace } from "./NarrationWorkspace";
 
 const ACTIVE = new Set(["queued", "dispatch_pending", "running", "verifying"]);
 const errorText = (error: unknown) => error instanceof Error ? error.message : "Request failed.";
@@ -230,6 +231,7 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
   const [error, setError] = useState("");
   const [job, setJob] = useState<VideoJob | null>(null);
   const [jobError, setJobError] = useState("");
+  const [narrationSession, setNarrationSession] = useState(0);
   const [artifactUrl, setArtifactUrl] = useState("");
   const [models, setModels] = useState<VideoModel[]>([]);
   const [modelError, setModelError] = useState("");
@@ -312,16 +314,17 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
     if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
     const key = pending.current.key;
     locked.current = true; setBusy(true); releaseArtifact();
-    jobGeneration.current++; setJob(null);
+    const generation = ++jobGeneration.current;
+    setJob(null); setNarrationSession((value) => value + 1);
     try {
       const result = await api.createRenderJob(projectId, input, key, token);
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         if (result.id !== job?.id) jobGeneration.current++;
         setJob(result);
         pending.current = null;
       }
     } catch (reason) {
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         setError(errorText(reason));
         if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) pending.current = null;
       }
@@ -344,18 +347,19 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
     if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
     setError(""); setJobError("");
     locked.current = true; setBusy(true); releaseArtifact();
-    jobGeneration.current++; setJob(null);
+    const generation = ++jobGeneration.current;
+    setJob(null); setNarrationSession((value) => value + 1);
     try {
       const result = await api.createWanGenerationJob(
         projectId, input, pending.current.key, token,
       );
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         if (result.id !== job?.id) jobGeneration.current++;
         setJob(result);
         pending.current = null;
       }
     } catch (reason) {
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         setError(errorText(reason));
         if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) {
           pending.current = null;
@@ -392,12 +396,18 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
   const generationReady = generationModel?.status === "configured";
   async function check() {
     if (!job || locked.current) return;
+    const generation = jobGeneration.current;
     locked.current = true; setBusy(true); setJobError("");
     try {
       const result = await api.getJob(job.id, token);
-      if (live.current) { setJob(result); if (!artifactReady(result.status)) releaseArtifact(); }
+      if (live.current && generation === jobGeneration.current) {
+        setJob(result);
+        if (!artifactReady(result.status)) releaseArtifact();
+      }
     } catch (reason) {
-      if (live.current) { setJob(null); releaseArtifact(); setJobError(errorText(reason)); }
+      if (live.current && generation === jobGeneration.current) {
+        setJob(null); releaseArtifact(); setJobError(errorText(reason));
+      }
     } finally { locked.current = false; if (live.current) setBusy(false); }
   }
   async function preview() {
@@ -432,12 +442,9 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
           setClips((items) => [...items, { media_id: asset.id, in_ms: 0, out_ms: 5000 }])}>Add {asset.filename} to timeline</button>}
       </li>)}</ul>
     </section>
-    <section className="panel" aria-labelledby="narration-heading">
-      <h2 id="narration-heading">Narrate existing video</h2>
-      <p role="status">Unavailable: source-video transcription, scene understanding, and speech synthesis
-        are not implemented/configured. No narrated video can be produced. Your uploaded media is unchanged.</p>
-      <button disabled>Narration unavailable</button>
-    </section>
+    <NarrationWorkspace key={narrationSession} projectId={projectId} token={token} media={media} onActivate={() => {
+      jobGeneration.current++; setJob(null); releaseArtifact();
+    }} />
     <section className="panel" aria-labelledby="ai-generation-heading">
       <h2 id="ai-generation-heading">AI video generation</h2>
       <p>Operation: wan22_t2v. Creates a new video from text, not narration of an upload.
