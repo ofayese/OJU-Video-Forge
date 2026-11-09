@@ -212,10 +212,10 @@ current_gates:
       - "Use only an explicitly approved browser fixture-access mechanism; until available, retain the successful isolated API-to-MP4 acceptance as backend evidence and do not claim browser acceptance."
   - gate_id: gpu-inference
     requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
-    status: PARTIAL
+    status: PASS
     evidence_reference:
       - "docs/reviews/ERE-GPU-VALIDATION.md"
-    commit_sha: null
+    commit_sha: "2ecc8d177ee5c1ef5bc13ed8bddfd1ffcaa63cd0"
     test_command: |
       docker build --pull=false -f services/comfyui/Dockerfile -t oju-video-forge-comfyui:2.7.1-cuda12.8-0decb39 .
       Result: exit 0; corrected image sha256:b6a263ba21f9b17fc965e3facfd9093b633c814abdcec6bfbe59663787d7b7aa
@@ -232,7 +232,6 @@ current_gates:
     exit_code: 0
     validation_date: "2026-11-08"
     remaining_gaps:
-      - "Record the implementation commit SHA before marking this acceptance gate PASS."
       - "Browser-driven React generation acceptance and pull-request CI/security checks remain unverified; the authenticated API generation and retrieval path passed."
   - gate_id: local-release
     requirement: "A clean local setup passes the end-to-end product acceptance suite and recovery checks."
@@ -324,6 +323,6 @@ gpu_inference_current_state_addendum:
     focused_backend_tests: "19 passed before final authorization correction; after correction, tests/test_api_gpu.py passed with 12 tests."
     full_regression: "One Docker run: 240 passed, 12 skipped, 5 warnings; it preceded the final project-role correction and was not repeated."
   delivery:
-    commit_sha: null
+    commit_sha: "2ecc8d177ee5c1ef5bc13ed8bddfd1ffcaa63cd0"
     pull_request: null
     note: "Phase 4C generation gate passed; PR delivery is pending."
