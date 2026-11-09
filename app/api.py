@@ -1695,10 +1695,12 @@ def _job_result(
 
 
 def _same_job_request(job: Job, payload: CreateJob, spec: dict) -> bool:
+    existing_spec = dict(job.spec)
+    existing_spec.setdefault("negative_prompt", "")
     return (
         job.project_id == payload.project_id
         and job.media_id == payload.media_id
-        and job.spec == spec
+        and existing_spec == spec
     )
 
 

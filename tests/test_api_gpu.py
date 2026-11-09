@@ -181,6 +181,38 @@ def test_gpu_job_is_persisted_before_gpu_queue_dispatch(api_context, monkeypatch
         assert db.get(DispatchOutbox, job_id).status == "dispatched"
 
 
+def test_idempotency_replays_legacy_job_without_negative_prompt(api_context):
+    client, sessions, _set_actor, _root = api_context
+    job_id = "legacy-render-job"
+    legacy_spec = api.CreateJob(operation="render_test").model_dump(
+        exclude={"project_id", "media_id"}
+    )
+    legacy_spec.pop("negative_prompt")
+    with sessions() as db:
+        db.add(
+            Job(
+                id=job_id,
+                owner="owner",
+                operation="render_test",
+                status="queued",
+                spec=legacy_spec,
+                idempotency_key="legacy-render-key",
+            )
+        )
+        db.commit()
+
+    response = client.post(
+        "/v1/jobs",
+        json={"operation": "render_test"},
+        headers={"Idempotency-Key": "legacy-render-key"},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["id"] == job_id
+    with sessions() as db:
+        assert db.get(Job, job_id).spec == legacy_spec
+
+
 def test_authenticated_project_owner_can_submit_gpu_job(api_context, monkeypatch):
     client, sessions, _set_actor, _root = api_context
     with sessions() as db:
