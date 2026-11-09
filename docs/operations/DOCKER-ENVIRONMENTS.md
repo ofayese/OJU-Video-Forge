@@ -40,7 +40,7 @@ PowerShell, after the approved model assets are installed:
 
 ```powershell
 $env:COMFYUI_ENABLED = "true"
-docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.gpu.yaml --profile gpu build api render-worker
+docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.gpu.yaml --profile gpu build api render-worker comfyui
 docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.gpu.yaml --profile gpu up -d --no-deps api render-worker comfyui
 ```
 
