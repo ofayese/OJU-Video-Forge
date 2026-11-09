@@ -41,7 +41,7 @@ def context(monkeypatch):
                     ProjectMembership(project_id="project", user_id="viewer", role="viewer")])
         db.add(MediaAsset(id="source", project_id="project", filename="synthetic.mp4",
                           media_type="video/mp4", size_bytes=12, sha256="a" * 64,
-                          storage_key="synthetic.mp4"))
+                          storage_key="uploads/synthetic-source.mp4"))
         db.commit()
     dispatches = []
     monkeypatch.setattr(api, "dispatch_outbox", lambda job_id: dispatches.append(job_id))

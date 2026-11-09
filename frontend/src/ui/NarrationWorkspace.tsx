@@ -42,6 +42,11 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
     urls.current = [];
     setVideoUrl(""); setAudioUrl(""); setSourceUrl(""); setDownloads({});
   }
+  function safeBlobUrl(blob: Blob) {
+    const url = URL.createObjectURL(blob);
+    if (!url.startsWith("blob:")) throw new Error("Unexpected object URL.");
+    return url;
+  }
   useEffect(() => () => {
     epoch.current++;
     for (const url of urls.current) URL.revokeObjectURL(url);
@@ -88,7 +93,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
     try {
       const blob = await api.getProjectArtifact(projectId, id, token);
       if (ticket !== epoch.current) return;
-      const url = URL.createObjectURL(blob);
+      const url = safeBlobUrl(blob);
       urls.current.push(url);
       if (kind === "source") setSourceUrl(url);
       else if (kind === "video") setVideoUrl(url);
@@ -230,12 +235,12 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       {audioUrl && <audio controls src={audioUrl} aria-label="Approved narration audio" />}
       {output && <button onClick={() => void download(output.id, "video")}>Preview completed narration MP4</button>}
       {videoUrl && <><video controls src={videoUrl} aria-label="Narrated source video" style={{ maxWidth: "100%" }} />
-        <a href={videoUrl} download="narrated-video.mp4">Download narrated MP4</a></>}
+        <a href={videoUrl} download="narrated-video.mp4" rel="noopener">Download narrated MP4</a></>}
       {row.artifacts.filter((item) => item.filename !== "video.mp4" &&
         (item.script_revision === row.revision || item.filename.startsWith("transcript.") ||
          item.filename === "analysis.json")).map((item) =>
         <p key={item.id}><button onClick={() => void download(item.id, "download")}>Load {item.filename}</button>
-          {downloads[item.id] && <a href={downloads[item.id]} download={item.filename}>Download {item.filename}</a>}</p>)}
+          {downloads[item.id] && <a href={downloads[item.id]} download={String(item.filename).replace(/[^\w.\-]+/g,"_")} rel="noopener">Download {item.filename}</a>}</p>)}
     </>}
   </section>;
 }

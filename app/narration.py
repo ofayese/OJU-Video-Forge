@@ -148,9 +148,26 @@ def transcribe(source: Path, directory: Path, metadata: dict, check: Callable[[]
     run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(source), "-map", "0:a:0",
          "-t", str(MAX_DURATION), "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
          "-threads", "2", str(wav)], check)
+    # Decode WAV ourselves: faster_whisper 1.2.1 + av 19.x can raise
+    # TypeError on av.open(metadata_errors=...). Pass float32 mono 16k samples.
+    import wave
+    import numpy as np
+    with wave.open(str(wav), "rb") as handle:
+        frames = handle.readframes(handle.getnframes())
+        channels = handle.getnchannels()
+        sample_width = handle.getsampwidth()
+    if sample_width == 2:
+        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    elif sample_width == 4:
+        audio = np.frombuffer(frames, dtype=np.int32).astype(np.float32) / 2147483648.0
+    else:
+        audio = np.frombuffer(frames, dtype=np.uint8).astype(np.float32)
+        audio = (audio - 128.0) / 128.0
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
     engine = WhisperModel(str(model), device="cpu", compute_type="int8",
                           cpu_threads=2, num_workers=1, local_files_only=True)
-    segments, info = engine.transcribe(str(wav), beam_size=3, vad_filter=True,
+    segments, info = engine.transcribe(audio, beam_size=3, vad_filter=True,
                                        condition_on_previous_text=False)
     transcript = []
     for item in segments:

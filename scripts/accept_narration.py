@@ -47,7 +47,7 @@ def main():
              "-af", "apad", "-t", "90", "-c:v", "libx264", "-preset", "ultrafast",
              "-pix_fmt", "yuv420p", "-c:a", "aac", "-threads", "2", str(source)], lambda: None)
         original_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-        credentials = {"username": "synthetic-narration", "password": "Synthetic-acceptance-only-2749!"}
+        credentials = {"username": "synthetic-narration", "password": os.environ.get("NARRATION_ACCEPT_PASSWORD","Synthetic-acceptance-only-2749!")}
         assert client.post("/v1/auth/register", json=credentials).status_code == 201
         login = client.post("/v1/auth/session", json=credentials)
         assert login.status_code == 200, login.text
