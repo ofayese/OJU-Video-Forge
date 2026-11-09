@@ -183,6 +183,9 @@ Starlette/httpx and Python 3.12 SQLite datetime-adapter deprecations.
 The single full regression preceded the two-line preview retry correction;
 the real targeted acceptance above verified that final correction.
 The optional narration image was rebuilt successfully with the final code.
+CI reports all HIGH/CRITICAL narration-image findings and fails when Trivy
+identifies an available fix. Unfixed findings remain visible and are not
+considered remediated by a passing gate.
 `docker compose --env-file .env.development.example -f compose.yaml -f compose.narration.yaml config --quiet`
 also exited 0 without starting services.
 
