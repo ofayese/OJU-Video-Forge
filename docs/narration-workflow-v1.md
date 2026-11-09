@@ -15,9 +15,9 @@ overlay if already used). Build `services/narration/Dockerfile` before approved
 deployment. API and frontend must also be rebuilt from this revision; a successful
 test against read-only source mounts does not update running services.
 
-The worker image pins Python 3.12 Bookworm by digest, eSpeak NG
-`1.51+dfsg-10+deb12u2` (GPL-3.0-or-later; bundled English voices),
-FFmpeg `7:5.1.9-0+deb12u1`, Tesseract `5.3.0-2`, and English OCR data
+The worker image pins Python 3.12 Trixie by digest, eSpeak NG
+`1.52.0+dfsg-5` (GPL-3.0-or-later; bundled English voices),
+FFmpeg `7:7.1.5-0+deb13u1`, Tesseract `5.5.0-1+b1`, and English OCR data
 `1:4.1.0-2`. Python ASR dependencies are hash-locked in
 `requirements-narration.lock.txt`: faster-whisper `1.2.1` and CTranslate2
 `4.6.0`. Packages imported successfully in the built Linux container.
