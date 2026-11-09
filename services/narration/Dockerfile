@@ -4,6 +4,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg=7:7.1.5-0+deb13u1 \
     espeak-ng=1.52.0+dfsg-5 tesseract-ocr=5.5.0-1+b1 \
     tesseract-ocr-eng=1:4.1.0-2 libgomp1=14.2.0-19 fonts-dejavu-core=2.37-8 \
+    zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 10001 forge && useradd --uid 10001 --gid 10001 --create-home forge \
  && mkdir -p /artifacts/projects /models/asr /usr/share/fonts/dejavu \
