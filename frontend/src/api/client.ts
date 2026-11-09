@@ -1,5 +1,6 @@
 import type {
   AuthSession,
+  CreateWanGenerationInput,
   CreateRenderInput,
   CreateProjectInput,
   LoginInput,
@@ -160,6 +161,23 @@ export class ApiClient {
     );
   }
 
+  async createWanGenerationJob(
+    projectId: string,
+    input: CreateWanGenerationInput,
+    idempotencyKey: string,
+    token: string,
+  ): Promise<VideoJob> {
+    return this.request<VideoJob>(
+      "/v1/jobs",
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ ...input, project_id: projectId }),
+      },
+      token,
+    );
+  }
+
   async listModels(token: string): Promise<ModelList> {
     return this.request<ModelList>("/v1/models", {}, token);
   }
@@ -183,6 +201,15 @@ export class ApiClient {
   async getArtifact(jobId: string, token: string): Promise<Blob> {
     return this.request<Blob>(
       `/v1/jobs/${encodeURIComponent(jobId)}/artifact`,
+      {},
+      token,
+      "blob",
+    );
+  }
+
+  async getProjectArtifact(projectId: string, artifactId: string, token: string): Promise<Blob> {
+    return this.request<Blob>(
+      `/v1/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}`,
       {},
       token,
       "blob",

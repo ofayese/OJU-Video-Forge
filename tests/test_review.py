@@ -28,6 +28,7 @@ from app.core import (
     ProjectMembership,
     Review,
     User,
+    WorkflowArtifact,
     transition,
 )
 
@@ -42,6 +43,7 @@ def setup(tmp_path, monkeypatch):
     settings = Settings(forge_openwebui_token="synthetic-owner", forge_chatgpt_token="synthetic-other")
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     monkeypatch.setattr(api, "get_settings", lambda: settings)
+    monkeypatch.setattr(api, "ARTIFACT_ROOT", tmp_path)
     monkeypatch.setattr(review, "ARTIFACT_ROOT", tmp_path)
     monkeypatch.setattr(worker, "ARTIFACT_ROOT", tmp_path)
     monkeypatch.setattr(worker, "SessionLocal", sessions)
@@ -517,26 +519,77 @@ def test_comfy_generation_never_records_review_identity(setup, monkeypatch):
     settings.comfyui_enabled = True
     monkeypatch.setattr(worker, "get_settings", lambda: settings)
     with sessions() as db:
+        db.add(Project(id="wan-project", owner="openwebui", name="WAN project"))
         job = db.get(Job, job_id)
         job.status = "queued"
         job.operation = "wan22_t2v"
+        job.project_id = "wan-project"
+        job.owner_principal_kind = "service"
+        job.owner_principal_id = job.owner
         job.spec = {"prompt": "synthetic", "seed": 42}
         job.artifact = job.artifact_id = job.artifact_sha256 = None
         db.commit()
 
-    def generate(job, output_dir):
+    def generate(job, output_dir, artifact_id):
+        assert artifact_id
         generated = output_dir / "generated.mp4"
         generated.write_bytes(b"synthetic generated output")
         return f"{job.id}/generated.mp4"
 
     monkeypatch.setattr(worker, "_generate_wan22", generate)
     worker.execute(job_id)
+    generated = artifact.parent / "generated.mp4"
     with sessions() as db:
         job = db.get(Job, job_id)
         assert job.status == "awaiting_review"
         assert job.artifact.endswith("/generated.mp4")
-        assert job.artifact_id is None and job.artifact_sha256 is None
+        assert job.artifact_id is None
+        assert job.artifact_sha256 == hashlib.sha256(generated.read_bytes()).hexdigest()
+        project_artifact = db.scalar(
+            select(WorkflowArtifact).where(WorkflowArtifact.job_id == job_id)
+        )
+        assert project_artifact is not None
+        assert project_artifact.project_id == "wan-project"
+        assert project_artifact.relative_path == job.artifact
+        artifact_id = project_artifact.id
+        assert job.artifact_id is None
     assert post(client, job_id, payload).status_code == 409
+    status = client.get(f"/v1/jobs/{job_id}", headers=headers())
+    assert status.json()["project_artifact_id"] == artifact_id
+    download = client.get(
+        f"/v1/projects/wan-project/artifacts/{artifact_id}",
+        headers=headers(),
+    )
+    assert download.status_code == 200
+    assert download.content == b"synthetic generated output"
+
+
+def test_service_generation_identity_is_not_confused_with_local_username(setup, monkeypatch):
+    client, sessions, settings, _job_id, _payload, _artifact = setup
+    settings.comfyui_enabled = True
+    monkeypatch.setattr(api, "dispatch_outbox", lambda _job_id: None)
+    project_id = "service-owned-project"
+    with sessions() as db:
+        db.add(User(id="local-user-id", username="openwebui", password_hash="unused"))
+        db.add(Project(id=project_id, owner="openwebui", name="Service project"))
+        db.commit()
+
+    response = client.post(
+        "/v1/jobs",
+        headers=headers(),
+        json={
+            "operation": "wan22_t2v",
+            "project_id": project_id,
+            "prompt": "synthetic prompt",
+        },
+    )
+
+    assert response.status_code == 202
+    with sessions() as db:
+        job = db.get(Job, response.json()["id"])
+        assert job.owner_principal_kind == "service"
+        assert job.owner_principal_id == "openwebui"
+        worker._validate_generation_project(db, job)
 
 
 def test_review_openapi_contract():

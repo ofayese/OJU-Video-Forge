@@ -198,18 +198,41 @@ current_gates:
     validation_date: "2026-11-07"
     remaining_gaps:
       - "Browser-driven media upload and render UI interaction remain unverified; the backend acceptance workflow passed."
-  - gate_id: gpu-inference
-    requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
+  - gate_id: browser-ui-acceptance
+    requirement: "The browser uploads synthetic media, submits and follows a timeline render, previews and downloads the authorized MP4, rejects unauthorized retrieval, and revokes the session on logout."
     status: BLOCKED
     evidence_reference:
-      - "docs/reviews/ERE-GPU-VALIDATION.md"
-    commit_sha: "8e462ec233c3cecc1fcf225a0f02e0d551ef50f8"
-    test_command: null
-    execution_environment: "ERE local GPU workload not run."
+      - "docs/reviews/DOCKER-NAMING-RECONCILIATION.md"
+    commit_sha: "6911399f6e31a10ee99f1c182c05deed0be92e13"
+    test_command: "Not rerun: the prior supported browser upload request was denied for the synthetic fixture path; no alternate tool or path was attempted."
+    execution_environment: "ERE browser against the canonical local frontend at 127.0.0.1:5173; upload and downstream UI steps were not exercised in this task."
     exit_code: null
-    validation_date: "2026-11-05"
+    validation_date: "2026-11-08"
     remaining_gaps:
-      - "ComfyUI, model/workflow, scheduling, and generated output have not been validated."
+      - "Use only an explicitly approved browser fixture-access mechanism; until available, retain the successful isolated API-to-MP4 acceptance as backend evidence and do not claim browser acceptance."
+  - gate_id: gpu-inference
+    requirement: "GPU inference and full ComfyUI model/workflow compatibility are operational."
+    status: PASS
+    evidence_reference:
+      - "docs/reviews/ERE-GPU-VALIDATION.md"
+    commit_sha: "2ecc8d177ee5c1ef5bc13ed8bddfd1ffcaa63cd0"
+    test_command: |
+      docker build --pull=false -f services/comfyui/Dockerfile -t oju-video-forge-comfyui:2.7.1-cuda12.8-0decb39 .
+      Result: exit 0; corrected image sha256:b6a263ba21f9b17fc965e3facfd9093b633c814abdcec6bfbe59663787d7b7aa
+      docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.gpu.yaml --profile gpu up -d --no-deps --no-build comfyui
+      Result: exit 0; running as 10001:10001, OOMKilled=false, no host ports, original model volume mounted
+      ComfyUI /object_info: HTTP 200; 1,047 nodes and all 10 required workflow nodes present; all three verified assets visible
+      docker run --rm oju-video-forge-api-test:phase4c python -m pytest -q -p no:cacheprovider
+      Result: exit 0; 240 passed, 12 skipped, 5 warnings; this one full run preceded the final project-role correction
+      docker run --rm oju-video-forge-api-test:phase4c python -m pytest -q -p no:cacheprovider tests/test_api_gpu.py
+      Result: exit 0; 12 passed, 1 deprecation warning after the project-role correction
+      Authenticated local project-owner API submission, PostgreSQL persistence, Redis/RQ dispatch, worker-to-ComfyUI generation, registered artifact, and authorized HTTP 200 retrieval
+      Result: PASS; 512x288 H.264 MP4, 2.125 seconds, 8 fps, 283931 bytes, SHA-256 fd030495349cf02d058809a06e1969ee6d70e0a695d136b078edbd31e74a664c
+    execution_environment: "ERE Windows 11 with Docker Desktop Linux containers; pinned PyTorch 2.7.1/CUDA 12.8 and ComfyUI commit; RTX 5070 Ti; ComfyUI UID/GID 10001:10001; private Compose networks and persistent volumes."
+    exit_code: 0
+    validation_date: "2026-11-08"
+    remaining_gaps:
+      - "Browser-driven React generation acceptance and pull-request CI/security checks remain unverified; the authenticated API generation and retrieval path passed."
   - gate_id: local-release
     requirement: "A clean local setup passes the end-to-end product acceptance suite and recovery checks."
     status: PARTIAL
@@ -225,7 +248,7 @@ current_gates:
     validation_date: "2026-11-07"
     remaining_gaps:
       - "Browser-driven upload/render/progress/artifact retrieval are not verified; the browser file-upload tool denied the synthetic file path."
-      - "GitHub CI at the PR head has not completed; no merge was performed."
+      - "PR #44 was merged on 2026-11-08 after its required checks passed; no merge was performed for this Phase 4 task."
       - "GPU inference remains separately BLOCKED."
       - "Trivy HIGH DS-0002 for the ComfyUI container remains open under issue #16."
       - "GitHub Frontend CI run 42278655804 failed on a separate dependency-update PR: @vitejs/plugin-react@6.2.1 requires Vite 8 while that PR resolved Vite 6.4.5; disposition is pending outside this change."
@@ -258,3 +281,48 @@ current_gates:
     remaining_gaps:
       - "The historical oju-phase3-final frontend is stopped but retained; its other services and volumes were not changed."
       - "The integration project was configuration-validated but not started; no integration secret file was created."
+issue_status_corrections:
+  - issue: "https://github.com/ofayese/OJU-Video-Forge/issues/16"
+    state: "CLOSED"
+    closed_date: "2026-11-06"
+    note: "Older issue-open statements above are retained as historical validation snapshots; issue #16 is currently closed."
+gpu_inference_current_state_addendum:
+  observed_date: "2026-11-08"
+  status: "PASS"
+  supersedes: "The initial compiler startup failure and first SaveVideo workflow failure; historical evidence remains unchanged."
+  model_installation:
+    source_repository: "Comfy-Org/Wan-2.2"
+    pinned_revision: "ee6f4a40737a995bf5818954cfce6d59443b0f04"
+    license: "Apache-2.0"
+    destination: "Private Docker volume oju-video-forge_models at /opt/ComfyUI/models"
+    verified_asset_count: 3
+    verified_total_bytes: 18144966705
+    checksum_status: "PASS; all three verified SHA-256 values are recorded in docs/reviews/ERE-GPU-VALIDATION.md"
+  comfyui:
+    image: "oju-video-forge-comfyui:2.7.1-cuda12.8-0decb39"
+    image_id: "sha256:b6a263ba21f9b17fc965e3facfd9093b633c814abdcec6bfbe59663787d7b7aa"
+    uid_gid: "10001:10001"
+    compiler_fix: "Installed the minimal Debian gcc runtime package in the image; no compiler was installed on the Windows host."
+    startup_result: "PASS; ComfyUI remained running, health endpoint returned 200, no host ports published."
+    initial_startup_error: "RuntimeError: Failed to find C compiler. Please specify via CC environment variable."
+    oom_killed: false
+    workflow_api_validation: "PASS; 1,047 nodes registered including all 10 required nodes; all three assets visible in the original model volume."
+    inference_attempts: 2
+    successful_video:
+      model_revision: "ee6f4a40737a995bf5818954cfce6d59443b0f04"
+      workflow_revision: "ea7faae6999fb31338f43408ff4a575bd3f7d9a0"
+      workflow_sha256: "d0b553551ec130e4395b229e1d3f98c7164e17862686ce7b65e920a96db154eb"
+      ffprobe: "MP4/H.264, 512x288, 2.125 seconds, 8/1 fps"
+      size_bytes: 283931
+      sha256: "fd030495349cf02d058809a06e1969ee6d70e0a695d136b078edbd31e74a664c"
+      retrieval: "PASS; authenticated project-artifact HTTP 200 and downloaded bytes matched the registered SHA-256."
+  application_integration: "PASS; authenticated local project owner submission, PostgreSQL job/outbox persistence, Redis dispatch, GPU queue worker, ComfyUI execution, artifact registration, and authorized retrieval verified."
+  test_evidence:
+    frontend_typecheck_and_build: "PASS in Docker before this task; frontend source was unchanged after that check."
+    frontend_client_tests: "PASS in Docker; 31 passed before this task; frontend source was unchanged after that check."
+    focused_backend_tests: "19 passed before final authorization correction; after correction, tests/test_api_gpu.py passed with 12 tests."
+    full_regression: "One Docker run: 240 passed, 12 skipped, 5 warnings; it preceded the final project-role correction and was not repeated."
+  delivery:
+    commit_sha: "2ecc8d177ee5c1ef5bc13ed8bddfd1ffcaa63cd0"
+    pull_request: "https://github.com/ofayese/OJU-Video-Forge/pull/45"
+    note: "Phase 4C generation gate passed and pull request opened; browser acceptance and PR CI/security checks remain unverified."

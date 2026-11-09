@@ -13,6 +13,7 @@ from app.config import Settings
 def generation_spec(**changes):
     spec = {
         "prompt": "a synthetic test prompt",
+        "negative_prompt": "",
         "seed": 42,
         "width": 512,
         "height": 288,
@@ -134,11 +135,16 @@ def test_worker_serializes_and_registers_verified_output(monkeypatch, tmp_path):
         return instance
 
     monkeypatch.setattr(worker, "ComfyUIAdapter", fake_adapter)
-    job = SimpleNamespace(id="job-1", operation="wan22_t2v", spec=generation_spec())
+    job = SimpleNamespace(
+        id="job-1",
+        project_id="project-1",
+        operation="wan22_t2v",
+        spec=generation_spec(),
+    )
     output_dir = tmp_path / "artifacts" / job.id
     output_dir.mkdir(parents=True)
 
-    artifact = worker._generate_wan22(job, output_dir)
+    artifact = worker._generate_wan22(job, output_dir, "artifact-1")
 
     assert artifact == "job-1/generated.mp4"
     assert (output_dir / "generated.mp4").read_bytes() == b"synthetic MP4"
@@ -150,7 +156,14 @@ def test_worker_serializes_and_registers_verified_output(monkeypatch, tmp_path):
         b"a synthetic test prompt"
     ).hexdigest()
     assert provenance["output"]["local_filename"] == "generated.mp4"
+    assert provenance["model"]["id"] == worker.WAN_MODEL_ID
+    assert provenance["model"]["revision"] == worker.WAN_MODEL_REVISION
+    assert provenance["workflow"]["version"] == worker.WAN_WORKFLOW_VERSION
+    assert provenance["project_id"] == "project-1"
+    assert provenance["artifact_id"] == "artifact-1"
+    assert provenance["status"] == "verified"
     assert adapter_instances[0].submitted_inputs["positive_prompt"] == "a synthetic test prompt"
+    assert adapter_instances[0].submitted_inputs["negative_prompt"] == ""
     assert redis_client.lock_value.acquired and redis_client.lock_value.released
     assert redis_client.closed
     assert not (output_dir / ".comfyui").exists()
@@ -161,9 +174,11 @@ def test_worker_serializes_and_registers_verified_output(monkeypatch, tmp_path):
     [
         generation_spec(width=True),
         generation_spec(width=513),
+        generation_spec(width=272),
         generation_spec(frames=32),
         generation_spec(fps=12),
         generation_spec(prompt=" "),
+        generation_spec(negative_prompt="x" * 1001),
     ],
 )
 def test_worker_rejects_invalid_generation_settings(spec):

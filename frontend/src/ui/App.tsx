@@ -2,7 +2,16 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import { artifactReady, buildRenderInput, moveClip } from "../api/timeline";
 import { MemoryArtifact } from "../api/memoryArtifact";
-import type { MediaAsset, Project, TimelineClip, TimelineOverlay, User, VideoJob } from "../api/types";
+import type {
+  CreateWanGenerationInput,
+  MediaAsset,
+  Project,
+  TimelineClip,
+  TimelineOverlay,
+  User,
+  VideoJob,
+  VideoModel,
+} from "../api/types";
 import { AuthenticatedReview, ReviewPanel } from "./ReviewPanel";
 
 const ACTIVE = new Set(["queued", "dispatch_pending", "running", "verifying"]);
@@ -222,6 +231,15 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
   const [job, setJob] = useState<VideoJob | null>(null);
   const [jobError, setJobError] = useState("");
   const [artifactUrl, setArtifactUrl] = useState("");
+  const [models, setModels] = useState<VideoModel[]>([]);
+  const [modelError, setModelError] = useState("");
+  const [generationPrompt, setGenerationPrompt] = useState("");
+  const [negativePrompt, setNegativePrompt] = useState("");
+  const [width, setWidth] = useState(512);
+  const [height, setHeight] = useState(288);
+  const [frames, setFrames] = useState(17);
+  const [fps, setFps] = useState(8);
+  const [seed, setSeed] = useState(42);
   const live = useLifetime();
   const [artifact] = useState(() => new MemoryArtifact(api));
   const pending = useRef<{ payload: string; key: string } | null>(null);
@@ -248,6 +266,21 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
     } finally { locked.current = false; if (live.current) setBusy(false); }
   }
   useEffect(() => { void loadMedia(); }, [projectId, token]);
+  useEffect(() => {
+    let active = true;
+    void api.listModels(token).then((result) => {
+      if (active && live.current) {
+        setModels(result.models);
+        setModelError("");
+      }
+    }).catch((reason: unknown) => {
+      if (active && live.current) {
+        setModels([]);
+        setModelError(errorText(reason));
+      }
+    });
+    return () => { active = false; };
+  }, [token]);
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (locked.current) return;
@@ -293,6 +326,41 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
       }
     } finally { locked.current = false; if (live.current) setBusy(false); }
   }
+  async function submitGeneration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (locked.current) return;
+    const input: CreateWanGenerationInput = {
+      operation: "wan22_t2v",
+      prompt: generationPrompt.trim(),
+      negative_prompt: negativePrompt.trim(),
+      width,
+      height,
+      frames,
+      fps,
+      seed,
+    };
+    const payload = JSON.stringify({ ...input, project_id: projectId });
+    if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
+    setError(""); setJobError("");
+    locked.current = true; setBusy(true); releaseArtifact();
+    try {
+      const result = await api.createWanGenerationJob(
+        projectId, input, pending.current.key, token,
+      );
+      if (live.current) {
+        if (result.id !== job?.id) jobGeneration.current++;
+        setJob(result);
+        pending.current = null;
+      }
+    } catch (reason) {
+      if (live.current) {
+        setError(errorText(reason));
+        if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) {
+          pending.current = null;
+        }
+      }
+    } finally { locked.current = false; if (live.current) setBusy(false); }
+  }
   useEffect(() => {
     if (!job || !ACTIVE.has(job.status)) return;
     let active = true;
@@ -318,6 +386,8 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
     timeout = setTimeout(() => void poll(), 3000);
     return () => { active = false; clearTimeout(timeout); };
   }, [job?.id, job?.status, token]);
+  const generationModel = models.find((model) => model.operation === "wan22_t2v");
+  const generationReady = generationModel?.status === "configured";
   async function check() {
     if (!job || locked.current) return;
     locked.current = true; setBusy(true); setJobError("");
@@ -332,7 +402,10 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
     if (!job || !artifactReady(job.status) || locked.current) return;
     locked.current = true; setBusy(true); setJobError(""); releaseArtifact();
     try {
-      const result = await artifact.load(job.id, token);
+      const projectArtifact = job.operation === "wan22_t2v" && job.project_artifact_id
+        ? { projectId, artifactId: job.project_artifact_id }
+        : undefined;
+      const result = await artifact.load(job.id, token, projectArtifact);
       if (live.current && result) setArtifactUrl(result);
     } catch (reason) { if (live.current) setJobError(errorText(reason)); }
     finally { locked.current = false; if (live.current) setBusy(false); }
@@ -356,6 +429,42 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
         {asset.content_type.startsWith("video/") && <button disabled={busy || clips.length >= 16} onClick={() =>
           setClips((items) => [...items, { media_id: asset.id, in_ms: 0, out_ms: 5000 }])}>Add {asset.filename} to timeline</button>}
       </li>)}</ul>
+    </section>
+    <section className="panel" aria-labelledby="ai-generation-heading">
+      <h2 id="ai-generation-heading">AI video generation</h2>
+      <p>Model: {generationModel?.id ?? "Wan 2.2 TI2V-5B"} · {generationModel?.status ?? "checking"}</p>
+      {modelError && <p role="alert" className="notice error">{modelError}</p>}
+      <form onSubmit={submitGeneration}>
+        <fieldset disabled={busy || !generationReady}>
+          <label htmlFor="generation-prompt">Prompt</label>
+          <textarea id="generation-prompt" required maxLength={1000} value={generationPrompt}
+            onChange={(event) => setGenerationPrompt(event.target.value)} />
+          <label htmlFor="generation-negative-prompt">Negative prompt (optional)</label>
+          <textarea id="generation-negative-prompt" maxLength={1000} value={negativePrompt}
+            onChange={(event) => setNegativePrompt(event.target.value)} />
+          <div className="inline-form">
+            <label htmlFor="generation-width">Width</label>
+            <input id="generation-width" type="number" min={256} max={1280} step={32}
+              value={width} onChange={(event) => setWidth(Number(event.target.value))} />
+            <label htmlFor="generation-height">Height</label>
+            <input id="generation-height" type="number" min={160} max={720} step={32}
+              value={height} onChange={(event) => setHeight(Number(event.target.value))} />
+            <label htmlFor="generation-frames">Frames</label>
+            <input id="generation-frames" type="number" min={17} max={81} step={4}
+              value={frames} onChange={(event) => setFrames(Number(event.target.value))} />
+            <label htmlFor="generation-fps">FPS</label>
+            <select id="generation-fps" value={fps} onChange={(event) => setFps(Number(event.target.value))}>
+              <option value={8}>8</option><option value={16}>16</option><option value={24}>24</option>
+            </select>
+            <label htmlFor="generation-seed">Seed</label>
+            <input id="generation-seed" type="number" min={0} max={4294967295}
+              value={seed} onChange={(event) => setSeed(Number(event.target.value))} />
+          </div>
+          <button className="primary" type="submit" disabled={!generationReady || !generationPrompt.trim()}>
+            Generate AI video
+          </button>
+        </fieldset>
+      </form>
     </section>
     <section className="panel">
       <form onSubmit={submit}>
@@ -384,14 +493,14 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
       </form>
     </section>
     <section className="panel" aria-labelledby="job-heading">
-      <h2 id="job-heading">Render status</h2>
+      <h2 id="job-heading">Job status</h2>
       {jobError && <p role="alert" className="notice error">{jobError}</p>}
       {!job && <p>No render submitted in this project session.</p>}
       {job && <>
         <p aria-live="polite">Job {job.id}: {job.status.replaceAll("_", " ")}</p>
         {job.error && <p role="alert">{job.error}</p>}
         {ACTIVE.has(job.status) && <p role="status">Checking status every 3 seconds…</p>}
-        {job.status === "awaiting_review" && <p role="status">Verified render complete; awaiting review.</p>}
+        {job.status === "awaiting_review" && <p role="status">Verified video complete; awaiting review.</p>}
         <button disabled={busy} onClick={() => void check()}>Check status</button>
         {job.artifact && artifactReady(job.status) && <button disabled={busy} onClick={() => void preview()}>Load authorized preview/download</button>}
         {artifactUrl && <>

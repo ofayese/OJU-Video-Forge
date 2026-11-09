@@ -45,6 +45,12 @@ backend on every project request. Unknown and cross-project reads return `404`;
 known members without the required role receive `403`. Service bearer tokens cannot
 create, enumerate, or access local-user projects.
 
+Authenticated local users may submit project-scoped render and Wan generation
+jobs only as project owners or editors; the API checks membership on submission.
+Viewers may read project data but cannot submit jobs. Local-user job submissions
+must include a project ID. Service-token submissions retain the producer or
+administrator role requirement and do not gain access to local-user projects.
+
 ## Schema and compatibility
 
 The account/session/project routes are versioned under `/v1`. Apply Alembic revision

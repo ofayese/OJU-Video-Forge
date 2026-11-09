@@ -60,11 +60,23 @@ export interface CreateRenderInput {
   timeline: TimelineV1;
 }
 
+export interface CreateWanGenerationInput {
+  operation: "wan22_t2v";
+  prompt: string;
+  negative_prompt: string;
+  width: number;
+  height: number;
+  frames: number;
+  fps: number;
+  seed: number;
+}
+
 export interface VideoJob {
   id: string;
   operation?: string;
   status: string;
   artifact: string | null;
+  project_artifact_id?: string | null;
   error: string | null;
   dispatch_attempts?: number;
   dispatch_error?: string | null;

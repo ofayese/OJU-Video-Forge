@@ -194,6 +194,8 @@ class Job(Base):
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     owner: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    owner_principal_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    owner_principal_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     project_id: Mapped[str | None] = mapped_column(
         String(40), ForeignKey("projects.id"), nullable=True, index=True
     )

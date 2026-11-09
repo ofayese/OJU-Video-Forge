@@ -187,6 +187,7 @@ class CreateJob(BaseModel):
     project_id: str | None = None
     media_id: str | None = None
     prompt: str = Field(default="", max_length=1000)
+    negative_prompt: str = Field(default="", max_length=1000)
     width: int = Field(default=512, strict=True, ge=256, le=1280)
     height: int = Field(default=288, strict=True, ge=144, le=720)
     frames: int = Field(default=33, strict=True, ge=17, le=81)
@@ -196,11 +197,14 @@ class CreateJob(BaseModel):
     @model_validator(mode="after")
     def validate_generation_controls(self):
         if self.operation == "wan22_t2v":
+            if not self.project_id:
+                raise ValueError("Project required for AI generation")
             if not self.prompt.strip():
                 raise ValueError("Prompt required for AI generation")
-            if any(not char.isprintable() and char not in "\n\t" for char in self.prompt):
-                raise ValueError("Prompt contains unsupported control characters")
-            if self.width % 16 or self.height % 16 or (self.frames - 1) % 4:
+            for value in (self.prompt, self.negative_prompt):
+                if any(not char.isprintable() and char not in "\n\t" for char in value):
+                    raise ValueError("Prompt contains unsupported control characters")
+            if self.width % 32 or self.height % 32 or (self.frames - 1) % 4:
                 raise ValueError("Generation dimensions and frame count must match the Wan workflow")
             if self.fps not in {8, 16, 24}:
                 raise ValueError("Unsupported generation frame rate")
@@ -231,6 +235,7 @@ class JobResult(BaseModel):
     operation: str
     status: str
     artifact: str | None = Field(description="Artifact ID for audio workflows or authenticated video download URL when ready")
+    project_artifact_id: str | None = None
     error: str | None
     dispatch_attempts: int = 0
     dispatch_error: str | None = None
@@ -1310,17 +1315,25 @@ def get_project_artifact(
 @app.post("/v1/jobs", response_model=JobResult, status_code=202, operation_id="submitVideoJob")
 def create_job(
     payload: CreateJob,
-    actor: Actor = Depends(require_roles("producer", "administrator", "agent_service")),
+    actor: Actor = Depends(require_roles("viewer", "producer", "administrator", "agent_service")),
     db: Session = Depends(db_session),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     reject_agent_service(actor)
     if payload.operation not in {"render_test", "wan22_t2v"}:
         raise HTTPException(422, "Unsupported job operation")
+    if actor.user_id is not None:
+        if not payload.project_id:
+            raise HTTPException(422, "Project required for authenticated job submission")
+        require_project_role(db, actor, payload.project_id, {"owner", "editor"})
+    elif not {"producer", "administrator"} & set(actor.roles):
+        raise HTTPException(403, "Insufficient permissions")
     if payload.operation == "wan22_t2v" and not get_settings().comfyui_enabled:
         raise HTTPException(503, "ComfyUI generation is disabled")
     if payload.operation == "wan22_t2v" and not payload.prompt.strip():
         raise HTTPException(422, "Prompt required for AI generation")
+    if payload.operation == "wan22_t2v" and not payload.project_id:
+        raise HTTPException(422, "Project required for AI generation")
     if idempotency_key is not None and not 1 <= len(idempotency_key) <= 128:
         raise HTTPException(422, "Invalid Idempotency-Key")
     if payload.media_id and not payload.project_id:
@@ -1346,6 +1359,8 @@ def create_job(
     job = Job(
         id=str(uuid.uuid4()),
         owner=actor.name,
+        owner_principal_kind="user" if actor.user_id is not None else "service",
+        owner_principal_id=actor.user_id if actor.user_id is not None else actor.name,
         operation=payload.operation,
         project_id=payload.project_id,
         media_id=payload.media_id,
@@ -1491,6 +1506,8 @@ def retry_job(
     retry = Job(
         id=str(uuid.uuid4()),
         owner=original.owner,
+        owner_principal_kind=original.owner_principal_kind,
+        owner_principal_id=original.owner_principal_id,
         project_id=original.project_id,
         media_id=original.media_id,
         retry_of_job_id=original.id,
@@ -1652,11 +1669,17 @@ def _job_result(
         can_review = project_role in {"owner", "reviewer"}
     else:
         can_review = bool({"reviewer", "administrator"} & roles)
+    project_artifact_id = None
+    if job.operation == "wan22_t2v" and db is not None:
+        project_artifact_id = db.scalar(
+            select(WorkflowArtifact.id).where(WorkflowArtifact.job_id == job.id)
+        )
     return JobResult(
         id=job.id,
         operation=job.operation,
         status=job.status,
         artifact=_artifact_url(job),
+        project_artifact_id=project_artifact_id,
         error=job.error,
         dispatch_attempts=job.dispatch_attempts,
         dispatch_error=job.dispatch_error,
@@ -1676,10 +1699,12 @@ def _job_result(
 
 
 def _same_job_request(job: Job, payload: CreateJob, spec: dict) -> bool:
+    existing_spec = dict(job.spec)
+    existing_spec.setdefault("negative_prompt", "")
     return (
         job.project_id == payload.project_id
         and job.media_id == payload.media_id
-        and job.spec == spec
+        and existing_spec == spec
     )
 
 
@@ -1687,7 +1712,8 @@ def _same_job_request(job: Job, payload: CreateJob, spec: dict) -> bool:
 def get_models(
     actor: Actor = Depends(require_roles("viewer", "producer", "reviewer", "publisher", "auditor", "administrator", "agent_service"))
 ):
-    return {"models": [{"id": "wan22-ti2v-5b", "operation": "wan22_t2v", "status": "requires_local_gpu_profile_and_approved_workflow"}]}
+    status_value = "configured" if get_settings().comfyui_enabled else "disabled"
+    return {"models": [{"id": "wan22-ti2v-5b", "operation": "wan22_t2v", "status": status_value}]}
 
 
 @app.post(

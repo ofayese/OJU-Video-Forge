@@ -16,4 +16,4 @@ services:
     environment:
       COMFYUI_URL: http://comfyui:8188
       COMFYUI_ENABLED: ${COMFYUI_ENABLED:-true}
-      WAN_NODE_MAPPING: ${WAN_NODE_MAPPING:-{}}
+      WAN_NODE_MAPPING: '{"positive_prompt":["6","text"],"negative_prompt":["7","text"],"seed":["3","seed"],"width":["55","width"],"height":["55","height"],"frames":["55","length"],"fps":["57","fps"]}'

@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,7 +9,16 @@ from sqlalchemy.pool import StaticPool
 from app import api
 from app.auth import Actor, get_current_actor
 from app.config import Settings
-from app.core import Audit, Base, DispatchOutbox, Job
+from app.core import (
+    Audit,
+    Base,
+    DispatchOutbox,
+    Job,
+    Project,
+    ProjectMembership,
+    User,
+    WorkflowArtifact,
+)
 
 
 @pytest.fixture
@@ -123,6 +134,9 @@ def test_retry_creates_audited_job_and_dispatches_from_outbox(api_context, monke
 def test_gpu_job_is_persisted_before_gpu_queue_dispatch(api_context, monkeypatch):
     client, sessions, _set_actor, _root = api_context
     dispatches = []
+    with sessions() as db:
+        db.add(Project(id="project-1", owner="owner", name="Test project"))
+        db.commit()
 
     class QueueStub:
         def __init__(self, name):
@@ -148,7 +162,11 @@ def test_gpu_job_is_persisted_before_gpu_queue_dispatch(api_context, monkeypatch
     )
     response = client.post(
         "/v1/jobs",
-        json={"operation": "wan22_t2v", "prompt": "synthetic prompt"},
+        json={
+            "operation": "wan22_t2v",
+            "project_id": "project-1",
+            "prompt": "synthetic prompt",
+        },
     )
 
     assert response.status_code == 202
@@ -158,7 +176,97 @@ def test_gpu_job_is_persisted_before_gpu_queue_dispatch(api_context, monkeypatch
     with sessions() as db:
         job_id = response.json()["id"]
         assert db.get(Job, job_id).status == "queued"
+        assert db.get(Job, job_id).project_id == "project-1"
+        assert db.get(Job, job_id).spec["negative_prompt"] == ""
         assert db.get(DispatchOutbox, job_id).status == "dispatched"
+
+
+def test_idempotency_replays_legacy_job_without_negative_prompt(api_context):
+    client, sessions, _set_actor, _root = api_context
+    job_id = "legacy-render-job"
+    legacy_spec = api.CreateJob(operation="render_test").model_dump(
+        exclude={"project_id", "media_id"}
+    )
+    legacy_spec.pop("negative_prompt")
+    with sessions() as db:
+        db.add(
+            Job(
+                id=job_id,
+                owner="owner",
+                operation="render_test",
+                status="queued",
+                spec=legacy_spec,
+                idempotency_key="legacy-render-key",
+            )
+        )
+        db.commit()
+
+    response = client.post(
+        "/v1/jobs",
+        json={"operation": "render_test"},
+        headers={"Idempotency-Key": "legacy-render-key"},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["id"] == job_id
+    with sessions() as db:
+        assert db.get(Job, job_id).spec == legacy_spec
+
+
+def test_authenticated_project_owner_can_submit_gpu_job(api_context, monkeypatch):
+    client, sessions, _set_actor, _root = api_context
+    with sessions() as db:
+        db.add(User(id="user-1", username="owner", password_hash="test-hash"))
+        db.add(Project(id="project-1", owner="owner", name="Test project"))
+        db.add(ProjectMembership(project_id="project-1", user_id="user-1", role="owner"))
+        db.commit()
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="owner", roles=["viewer"], user_id="user-1"
+    )
+
+    class QueueStub:
+        def fetch_job(self, _job_id):
+            return None
+
+        def enqueue(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr("app.dispatcher.SessionLocal", sessions)
+    monkeypatch.setattr("app.dispatcher.queue", lambda _name="video": QueueStub())
+    response = client.post(
+        "/v1/jobs",
+        json={
+            "operation": "wan22_t2v",
+            "project_id": "project-1",
+            "prompt": "synthetic prompt",
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json()["operation"] == "wan22_t2v"
+
+
+def test_authenticated_project_viewer_cannot_submit_gpu_job(api_context):
+    client, sessions, _set_actor, _root = api_context
+    with sessions() as db:
+        db.add(User(id="user-1", username="viewer", password_hash="test-hash"))
+        db.add(Project(id="project-1", owner="owner", name="Test project"))
+        db.add(ProjectMembership(project_id="project-1", user_id="user-1", role="viewer"))
+        db.commit()
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="viewer", roles=["viewer"], user_id="user-1"
+    )
+
+    response = client.post(
+        "/v1/jobs",
+        json={
+            "operation": "wan22_t2v",
+            "project_id": "project-1",
+            "prompt": "synthetic prompt",
+        },
+    )
+
+    assert response.status_code == 403
 
 
 def test_retry_limit_is_three_audited_attempts(api_context):
@@ -191,10 +299,96 @@ def test_generation_is_disabled_by_default(api_context, monkeypatch):
 
     response = client.post(
         "/v1/jobs",
-        json={"operation": "wan22_t2v", "prompt": "synthetic prompt"},
+        json={
+            "operation": "wan22_t2v",
+            "project_id": "project-1",
+            "prompt": "synthetic prompt",
+        },
     )
 
     assert response.status_code == 503
+
+
+def test_gpu_generation_requires_a_project(api_context):
+    client, _sessions, _set_actor, _root = api_context
+
+    response = client.post(
+        "/v1/jobs",
+        json={"operation": "wan22_t2v", "prompt": "synthetic prompt"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_gpu_generation_requires_project_membership(api_context):
+    client, sessions, set_actor, _root = api_context
+    with sessions() as db:
+        db.add(Project(id="project-1", owner="owner", name="Test project"))
+        db.commit()
+    set_actor("other")
+
+    response = client.post(
+        "/v1/jobs",
+        json={
+            "operation": "wan22_t2v",
+            "project_id": "project-1",
+            "prompt": "synthetic prompt",
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_generated_project_artifact_is_membership_authorized_and_audited(api_context):
+    client, sessions, set_actor, root = api_context
+    data = b"verified synthetic video"
+    digest = hashlib.sha256(data).hexdigest()
+    artifact_dir = root / "job-1"
+    artifact_dir.mkdir()
+    (artifact_dir / "generated.mp4").write_bytes(data)
+    with sessions() as db:
+        db.add(Project(id="project-1", owner="owner", name="Test project"))
+        db.add(Job(
+            id="job-1",
+            owner="owner",
+            operation="wan22_t2v",
+            project_id="project-1",
+            status="awaiting_review",
+            spec={},
+            artifact="job-1/generated.mp4",
+        ))
+        db.add(WorkflowArtifact(
+            id="artifact-1",
+            job_id="job-1",
+            project_id="project-1",
+            owner="owner",
+            relative_path="job-1/generated.mp4",
+            filename="video.mp4",
+            media_type="video/mp4",
+            sha256=digest,
+            size_bytes=len(data),
+        ))
+        db.commit()
+
+    response = client.get("/v1/projects/project-1/artifacts/artifact-1")
+
+    assert response.status_code == 200
+    assert response.content == data
+    assert response.headers["X-Content-SHA256"] == digest
+    with sessions() as db:
+        assert db.query(Audit).filter_by(
+            job_id="job-1", actor="owner", action="artifact_download"
+        ).count() == 1
+    set_actor("other")
+    assert client.get("/v1/projects/project-1/artifacts/artifact-1").status_code == 404
+
+
+def test_models_report_gpu_configuration(api_context, monkeypatch):
+    client, _sessions, _set_actor, _root = api_context
+
+    assert client.get("/v1/models").json()["models"][0]["status"] == "configured"
+    monkeypatch.setattr(api, "get_settings", lambda: Settings(comfyui_enabled=False))
+    assert client.get("/v1/models").json()["models"][0]["status"] == "disabled"
 
 
 def test_openapi_documents_authenticated_mp4_download(api_context):
