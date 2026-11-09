@@ -204,6 +204,8 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
         body = response.json()
     check()
     observation = json.loads(body.get("response", ""))
+    if not isinstance(observation, dict):
+        raise NarrationError("invalid_visual_observation")
     text = observation.get("observation")
     if not isinstance(text, str) or len(text) > 2000:
         raise NarrationError("invalid_visual_observation")
