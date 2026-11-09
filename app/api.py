@@ -183,7 +183,7 @@ app.add_middleware(UploadLimitMiddleware)
 
 class CreateJob(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    operation: Literal["render_test", "wan22_t2v", "render_timeline_v1"]
+    operation: Literal["render_test", "wan22_t2v", "render_timeline_v1", "narrate_existing_video"]
     project_id: str | None = None
     media_id: str | None = None
     prompt: str = Field(default="", max_length=1000)
@@ -196,7 +196,11 @@ class CreateJob(BaseModel):
 
     @model_validator(mode="after")
     def validate_generation_controls(self):
+        if self.operation == "narrate_existing_video" and (not self.project_id or not self.media_id):
+            raise ValueError("Narration requires a project and uploaded source video")
         if self.operation == "wan22_t2v":
+            if self.media_id is not None:
+                raise ValueError("Wan text-to-video does not narrate or preserve uploaded media")
             if not self.project_id:
                 raise ValueError("Project required for AI generation")
             if not self.prompt.strip():
@@ -233,6 +237,8 @@ class CreateAudioWorkflow(BaseModel):
 class JobResult(BaseModel):
     id: str
     operation: str
+    project_id: str | None = None
+    media_id: str | None = None
     status: str
     artifact: str | None = Field(description="Artifact ID for audio workflows or authenticated video download URL when ready")
     project_artifact_id: str | None = None
@@ -1320,7 +1326,7 @@ def create_job(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     reject_agent_service(actor)
-    if payload.operation not in {"render_test", "wan22_t2v"}:
+    if payload.operation not in {"render_test", "wan22_t2v", "narrate_existing_video"}:
         raise HTTPException(422, "Unsupported job operation")
     if actor.user_id is not None:
         if not payload.project_id:
@@ -1344,6 +1350,15 @@ def create_job(
         media = db.get(MediaAsset, payload.media_id)
         if media is None or media.project_id != payload.project_id:
             raise HTTPException(404, "Media not found")
+        if payload.operation == "narrate_existing_video" and not media.media_type.startswith("video/"):
+            raise HTTPException(422, "Narration requires an uploaded source video")
+    if payload.operation == "narrate_existing_video":
+        raise HTTPException(
+            503,
+            "Narration unavailable: transcription, scene understanding, and speech synthesis "
+            "are not implemented/configured. No job or derived video was created; "
+            "the original media is unchanged. Wan generation is not a narration fallback.",
+        )
     spec = payload.model_dump(exclude={"project_id", "media_id"})
     if idempotency_key:
         existing = db.scalar(
@@ -1677,6 +1692,8 @@ def _job_result(
     return JobResult(
         id=job.id,
         operation=job.operation,
+        project_id=job.project_id,
+        media_id=job.media_id,
         status=job.status,
         artifact=_artifact_url(job),
         project_artifact_id=project_artifact_id,

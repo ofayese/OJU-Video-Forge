@@ -14,6 +14,7 @@ from app.core import (
     Base,
     DispatchOutbox,
     Job,
+    MediaAsset,
     Project,
     ProjectMembership,
     User,
@@ -86,6 +87,79 @@ def test_artifact_download_is_owner_only_audited_and_hides_storage_key(api_conte
 
     set_actor("other")
     assert client.get(f"/v1/jobs/{job_id}/artifact").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("operation", "media_id", "expected"),
+    [
+        ("narrate_existing_video", "source-video", 503),
+        ("narrate_existing_video", "source-audio", 422),
+        ("narrate_existing_video", "foreign-video", 404),
+        ("narrate_existing_video", None, 422),
+        ("wan22_t2v", "source-video", 422),
+    ],
+)
+def test_narration_never_dispatches_wan_or_changes_media(
+    api_context, monkeypatch, operation, media_id, expected,
+):
+    client, sessions, _set_actor, root = api_context
+    source_bytes = b"synthetic source video with audio"
+    source = root / "source.mp4"
+    source.write_bytes(source_bytes)
+    with sessions() as db:
+        db.add_all([
+            Project(id="project-1", owner="owner", name="Synthetic project"),
+            Project(id="project-2", owner="other", name="Other project"),
+        ])
+        db.flush()
+        for asset_id, project_id, media_type in (
+            ("source-video", "project-1", "video/mp4"),
+            ("source-audio", "project-1", "audio/wav"),
+            ("foreign-video", "project-2", "video/mp4"),
+        ):
+            db.add(MediaAsset(
+                id=asset_id, project_id=project_id, filename="synthetic",
+                media_type=media_type, size_bytes=len(source_bytes),
+                sha256=hashlib.sha256(source_bytes).hexdigest(),
+                storage_key="source.mp4" if asset_id == "source-video" else f"{asset_id}.mp4",
+            ))
+        db.commit()
+    dispatch = []
+    monkeypatch.setattr(api, "dispatch_outbox", lambda job_id: dispatch.append(job_id))
+    response = client.post("/v1/jobs", json={
+        "operation": operation, "project_id": "project-1",
+        "media_id": media_id, "prompt": "Synthetic narration request",
+    })
+    assert response.status_code == expected
+    if expected == 503:
+        assert "Narration unavailable" in response.json()["detail"]
+    assert not dispatch
+    assert source.read_bytes() == source_bytes
+    with sessions() as db:
+        assert db.query(Job).count() == 0
+        assert db.query(DispatchOutbox).count() == 0
+        assert db.query(WorkflowArtifact).count() == 0
+        assert db.query(MediaAsset).count() == 3
+
+
+def test_narration_requires_project_submission_permission(api_context):
+    client, sessions, _set_actor, _root = api_context
+    with sessions() as db:
+        db.add(User(id="local-user", username="owner", password_hash="unused"))
+        db.add(Project(id="project-1", owner="owner", name="Synthetic project"))
+        db.flush()
+        db.add(ProjectMembership(project_id="project-1", user_id="local-user", role="viewer"))
+        db.commit()
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="owner", roles=["viewer"], user_id="local-user",
+    )
+    response = client.post("/v1/jobs", json={
+        "operation": "narrate_existing_video", "project_id": "project-1",
+        "media_id": "source-video",
+    })
+    assert response.status_code == 403
+    with sessions() as db:
+        assert db.query(Job).count() == 0
 
 
 def test_retry_creates_audited_job_and_dispatches_from_outbox(api_context, monkeypatch):

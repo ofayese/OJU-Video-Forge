@@ -76,6 +76,25 @@ licensing, execution, output validation, and GPU behavior are therefore **NOT
 VERIFIED**. No external model service is contacted. The existing render operations
 and timeline v1 remain unchanged when these optional steps are not used.
 
+## Narration of an uploaded video
+
+`narrate_existing_video` is distinct from `wan22_t2v` and
+`render_timeline_v1`. `/v1/jobs` requires a project and `media_id`, validates
+project submission permission and that the source belongs to that project and is
+a video, then returns HTTP 503 because source-video transcription, scene
+understanding, speech synthesis, synchronization, and audio mixing are not
+implemented/configured. No job, dispatch, or derived artifact is created and no
+source bytes are changed. The frontend disables narration and identifies Wan
+outputs as new generated videos, not narrated uploads. Wan requests reject
+`media_id`; there is no narration-to-Wan fallback.
+
+The existing `audio_workflow` narration step is an unavailable text-to-speech
+request, not narration of an uploaded video. Deterministic caption export is
+implemented; transcription and real speech generation remain unavailable.
+Source-preserving narration, original/narration/mixed audio selection, and
+aspect-ratio/duration preservation require a separately implemented and verified
+derived-video pipeline. No source events or scripts are inferred by this core.
+
 ## Migration and validation
 
 Apply Alembic revision `0004` after `0003` on a fresh isolated database. Unit/API
