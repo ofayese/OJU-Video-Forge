@@ -37,6 +37,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
   const pendingStart = useRef<{ payload: string; key: string } | null>(null);
   const urls = useRef<string[]>([]);
   function clearUrls() {
+    epoch.current++;
     for (const url of urls.current) URL.revokeObjectURL(url);
     urls.current = [];
     setVideoUrl(""); setAudioUrl(""); setSourceUrl(""); setDownloads({});
