@@ -23,6 +23,12 @@ FFmpeg `7:7.1.5-0+deb13u1`, Tesseract `5.5.0-1+b1`, and English OCR data
 `4.6.0`. Packages imported successfully in the built Linux container.
 No Windows runtime dependencies were installed.
 
+The narration image additionally pins Debian's zlib security backport
+`1:1.3.dfsg+really1.3.1-1+deb13u1`. Its security gate remains blocked on other
+unresolved Trixie vulnerabilities; see the
+[2026-11-09 image remediation evidence](reviews/2026-11-09-NARRATION-IMAGE-SECURITY.md).
+The successful runtime smoke is not a security acceptance or deployment approval.
+
 ### ASR model authorization gate
 
 No ASR model was downloaded or inferred during this implementation.
