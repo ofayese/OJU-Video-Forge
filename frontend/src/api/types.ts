@@ -159,6 +159,7 @@ export interface NarrationResult {
   analysis: {
     media?: { format: { duration: string } };
     transcript?: { status: string; language?: string | null };
+    scene_analysis?: { status: string; error: string | null };
     vision?: string;
     scenes?: { id: string; timestamp_ms: number; major_change: boolean; ocr: string | null;
       vision: { text: string; uncertain: boolean } | null }[];

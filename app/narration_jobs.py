@@ -8,6 +8,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import httpx
 from sqlalchemy import select
 
 from . import narration as media
@@ -75,11 +76,30 @@ def execute(db, job, check):
                 else {"status": "manual_not_transcribed", "segments": [], "language": None}
             )
             stage(db, row, "analyzing_scenes", check)
-            observations = media.scenes(source, directory, metadata, options, check)
+            scene_error = None
+            try:
+                observations = media.scenes(source, directory, metadata, options, check)
+            except (media.NarrationError, httpx.HTTPError, json.JSONDecodeError) as exc:
+                observations = []
+                scene_error = (
+                    (str(exc) or "optional_visual_analysis_failed")
+                    if isinstance(exc, media.NarrationError)
+                    else "visual_provider_request_or_response_failed"
+                )
+                db.add(Audit(job_id=job.id, actor="worker",
+                             action="narration:optional_scene_analysis_unavailable"))
             stage(db, row, "drafting_script", check)
             row.analysis = {
                 "media": metadata, "transcript": transcript, "scenes": observations,
-                "vision": "local_model_observations_require_review" if options.vision else "unavailable_not_requested",
+                "scene_analysis": {
+                    "status": "unavailable" if scene_error else "complete",
+                    "error": scene_error,
+                },
+                "vision": (
+                    "unavailable_optional_scene_analysis" if scene_error
+                    else "local_model_observations_require_review" if options.vision
+                    else "unavailable_not_requested"
+                ),
                 "style": options.style, "instructions": options.instructions,
                 "language": options.language,
             }

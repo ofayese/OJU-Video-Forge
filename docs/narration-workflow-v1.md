@@ -49,6 +49,13 @@ empty; missing model/runtime and failed inference never become transcripts.
 
 ### Optional visual understanding
 
+Visual analysis is an enhancement, not a prerequisite for narration. Unavailable
+OCR/vision, media-analysis errors and local vision request failures are recorded
+as an explicit `scene_analysis.status: unavailable` warning and audited. They do
+not discard a successful transcript or block manual script authoring/approval.
+Cancellation still stops the job; ASR failures are not converted into successful
+transcripts.
+
 OCR is local Tesseract, not scene/action understanding. At most 12 timestamped
 frames are sampled over a maximum 600-second source. Sampled grayscale change
 detection identifies major visual changes, not exact mouse actions or a complete
@@ -182,11 +189,51 @@ also exited 0 without starting services.
 No Phase 5 GitHub CI, CodeQL, image vulnerability scan or browser acceptance pass
 is claimed. A PR stacked on the still-open safeguard branch does not match the
 existing `main`-only pull-request CI filters. PostgreSQL-specific migration and
-locking acceptance, automatic ASR, local VLM inference, browser interaction and
-approved canonical deployment remain outstanding.
+locking acceptance, automatic ASR, browser interaction and approved canonical
+deployment remain outstanding. Local VLM inference is a separate optional
+acceptance criterion.
 
 The canonical database, Docker services, Wan model volume, private recordings,
 backups and generated media were not changed. The disposable acceptance
-containers/network and synthetic media were removed. Full automatic ASR + visual
-narration acceptance is **NOT PASS** until the model gate and real ASR verification
-are completed. This evidence does not supersede the outstanding browser gate.
+containers/network and synthetic media were removed. Initial transcript-based
+narration acceptance is **NOT_VERIFIED** until the model gate and real ASR
+verification are completed. Visual understanding is not a prerequisite.
+This evidence does not supersede the outstanding browser gate.
+
+## Initial narration release acceptance
+
+The initial release requires real local transcription when speech exists,
+editable timestamped scripts, human approval, local TTS, synchronized
+source-preserving MP4 rendering, FFprobe/SHA-256 verification, authorized
+retrieval and functional frontend controls. Videos without speech may use
+user-authored or user-corrected scripts. No visual observations or technical
+procedures may be invented.
+
+OCR and automated visual interpretation have separate optional acceptance
+criteria. OCR has real synthetic acceptance evidence above; automated local
+vision inference remains **NOT_VERIFIED**. Neither is an initial narration
+release blocker, and no new vision models/infrastructure are required.
+
+The verified manual-script path remains valid. Initial speech-based narration
+acceptance is still **NOT_VERIFIED**, pending approved Whisper model transfer
+and real transcription validation. The separate browser, authorization and
+deployment limitations above are unchanged.
+
+### Optional-visual isolation follow-up validation
+
+The priority clarification above adds focused worker regressions for missing
+vision, a vision request timeout, failed OCR in manual mode, speech-free sources,
+and cancellation. These use synthetic storage and mocked provider outcomes;
+they verify failure isolation, not real transcription or vision inference.
+
+- `python -m pytest -q -p no:cacheprovider tests/test_narration.py -k optional_visual_failure`:
+  initial exit 1 because the new fixture used an invalid private-storage key.
+  Correcting the fixture to use the unchanged private-storage helper produced
+  exit 0: **5 passed, 12 deselected**, one existing Starlette/httpx warning.
+- `ruff check app/narration_jobs.py tests/test_narration.py`: exit 0.
+- `npm run typecheck && npm test -- src/ui/NarrationWorkspace.test.tsx`:
+  exit 0; type checking and **4 tests passed**.
+
+Checks used the same Linux Docker test/build images and read-only source mounts
+described above, with networking disabled. No full regression, real inference,
+model transfer, image rebuild or canonical service change was repeated.

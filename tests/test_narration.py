@@ -1,17 +1,19 @@
 import uuid
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import api, narration
+from app import api, narration, narration_jobs
 from app.auth import Actor, get_current_actor
 from app.core import (
     Base, DispatchOutbox, Job, MediaAsset, Narration, NarrationRevision,
     Project, ProjectMembership, User, WorkflowArtifact,
 )
+from app.worker import JobCancelled
 
 
 @pytest.fixture
@@ -218,3 +220,64 @@ def test_draft_does_not_invent_source_events():
     assert script[0]["text"] == "A synthetic instruction."
     assert script[0]["evidence"] == ["speech-1"]
     assert "hypothesis" in script[0]["uncertainty"]
+
+
+@pytest.mark.parametrize("mode,speech,failure", [
+    ("transcript", True, narration.NarrationError("vision_unavailable")),
+    ("transcript", True, httpx.ReadTimeout("local vision timed out")),
+    ("manual", False, narration.NarrationError("media_command_failed:tesseract:exit_1")),
+    ("transcript", False, narration.NarrationError("vision_unavailable")),
+    ("transcript", True, JobCancelled()),
+])
+def test_optional_visual_failure_preserves_narration_or_cancellation(
+    context, monkeypatch, tmp_path, mode, speech, failure,
+):
+    client, sessions, _ = context
+    narration_id = start(client)
+    source = tmp_path / "source" / "video.mp4"
+    narration_jobs.write_private_file(tmp_path, "source/video.mp4", b"synthetic123")
+    source_hash = narration.digest(source)
+    monkeypatch.setattr(narration_jobs, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(narration, "probe", lambda *_args: {
+        "format": {"duration": "90"}, "streams": [{"codec_type": "video"}],
+    })
+    transcript = {
+        "status": "transcribed" if speech else "no_audio", "language": "en" if speech else None,
+        "segments": [{"id": "speech-1", "start_ms": 0, "end_ms": 2000,
+                      "text": "Verified synthetic speech."}] if speech else [],
+    }
+
+    def transcribe(*_args):
+        assert mode == "transcript"
+        return transcript
+
+    def unavailable(*_args):
+        raise failure
+
+    monkeypatch.setattr(narration, "transcribe", transcribe)
+    monkeypatch.setattr(narration, "scenes", unavailable)
+    with sessions() as db:
+        row = db.get(Narration, narration_id)
+        row.source_sha256 = source_hash
+        row.options = {**row.options, "analysis_mode": mode, "vision": True}
+        asset = db.get(MediaAsset, row.media_id)
+        asset.sha256 = source_hash
+        asset.storage_key = "source/video.mp4"
+        db.commit()
+        job = db.get(Job, row.job_id)
+        if isinstance(failure, JobCancelled):
+            with pytest.raises(JobCancelled):
+                narration_jobs.execute(db, job, lambda: None)
+            assert db.query(NarrationRevision).count() == 0
+            return
+        narration_jobs.execute(db, job, lambda: None)
+        assert row.stage == "awaiting_script_approval"
+        assert row.error is None
+        assert row.analysis["scene_analysis"]["status"] == "unavailable"
+        assert row.analysis["scene_analysis"]["error"]
+        assert row.analysis["scenes"] == []
+        revision = db.query(NarrationRevision).filter_by(narration_id=row.id).one()
+        assert revision.script[0]["text"] == ("Verified synthetic speech." if speech else "")
+        if speech:
+            assert row.analysis["transcript"] == transcript
+            assert revision.script[0]["evidence"] == ["speech-1"]

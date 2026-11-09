@@ -108,7 +108,8 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
   return <section className="panel" aria-labelledby="narration-heading">
     <h2 id="narration-heading">Narrate existing video</h2>
     <p>Preserves the uploaded visuals. CPU speech/OCR require the optional narration worker.
-      ASR needs an approved local Whisper model. Vision is optional and local only.</p>
+      ASR needs an approved local Whisper model. Vision and OCR are optional enhancements;
+      transcript-based and manually authored scripts do not require them.</p>
     {error && <p role="alert">{error}</p>}
     <fieldset disabled={busy || !!processing}>
       <label>Source video<select value={sourceId} onChange={(event) => {
@@ -156,6 +157,8 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       {row.error && <p role="alert">{row.error}</p>}
       {row.analysis.transcript && <p>Speech analysis: {row.analysis.transcript.status}
         · Language: {row.analysis.transcript.language ?? "not detected"}</p>}
+      {row.analysis.scene_analysis && <p role="status">Optional scene analysis: {row.analysis.scene_analysis.status}
+        {row.analysis.scene_analysis.error && ` · ${row.analysis.scene_analysis.error}. Continue with transcript or manual script.`}</p>}
       <p>Vision: {row.analysis.vision ?? "not run"}</p>
       <button disabled={busy} onClick={() => void action(() =>
         api.getNarration(projectId, row.id, token))}>Refresh narration</button>

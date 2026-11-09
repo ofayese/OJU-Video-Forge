@@ -45,6 +45,7 @@ describe("source narration", () => {
       media={[]} onActivate={() => undefined} />);
     expect(html).toContain("Start narration analysis");
     expect(html).toContain("Manual script");
+    expect(html).toContain("Vision and OCR are optional enhancements");
     expect(html).not.toContain("Narrated source video");
     expect(html).not.toContain("Generate AI video");
   });
