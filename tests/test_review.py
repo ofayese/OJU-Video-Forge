@@ -524,6 +524,8 @@ def test_comfy_generation_never_records_review_identity(setup, monkeypatch):
         job.status = "queued"
         job.operation = "wan22_t2v"
         job.project_id = "wan-project"
+        job.owner_principal_kind = "service"
+        job.owner_principal_id = job.owner
         job.spec = {"prompt": "synthetic", "seed": 42}
         job.artifact = job.artifact_id = job.artifact_sha256 = None
         db.commit()
@@ -560,6 +562,34 @@ def test_comfy_generation_never_records_review_identity(setup, monkeypatch):
     )
     assert download.status_code == 200
     assert download.content == b"synthetic generated output"
+
+
+def test_service_generation_identity_is_not_confused_with_local_username(setup, monkeypatch):
+    client, sessions, settings, _job_id, _payload, _artifact = setup
+    settings.comfyui_enabled = True
+    monkeypatch.setattr(api, "dispatch_outbox", lambda _job_id: None)
+    project_id = "service-owned-project"
+    with sessions() as db:
+        db.add(User(id="local-user-id", username="openwebui", password_hash="unused"))
+        db.add(Project(id=project_id, owner="openwebui", name="Service project"))
+        db.commit()
+
+    response = client.post(
+        "/v1/jobs",
+        headers=headers(),
+        json={
+            "operation": "wan22_t2v",
+            "project_id": project_id,
+            "prompt": "synthetic prompt",
+        },
+    )
+
+    assert response.status_code == 202
+    with sessions() as db:
+        job = db.get(Job, response.json()["id"])
+        assert job.owner_principal_kind == "service"
+        assert job.owner_principal_id == "openwebui"
+        worker._validate_generation_project(db, job)
 
 
 def test_review_openapi_contract():

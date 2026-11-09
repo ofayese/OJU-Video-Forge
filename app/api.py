@@ -1359,6 +1359,8 @@ def create_job(
     job = Job(
         id=str(uuid.uuid4()),
         owner=actor.name,
+        owner_principal_kind="user" if actor.user_id is not None else "service",
+        owner_principal_id=actor.user_id if actor.user_id is not None else actor.name,
         operation=payload.operation,
         project_id=payload.project_id,
         media_id=payload.media_id,
@@ -1504,6 +1506,8 @@ def retry_job(
     retry = Job(
         id=str(uuid.uuid4()),
         owner=original.owner,
+        owner_principal_kind=original.owner_principal_kind,
+        owner_principal_id=original.owner_principal_id,
         project_id=original.project_id,
         media_id=original.media_id,
         retry_of_job_id=original.id,

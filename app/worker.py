@@ -223,24 +223,30 @@ def _validate_generation_project(db, job):
     if not job.project_id:
         raise ValueError("AI generation requires a project")
     project = db.get(Project, job.project_id)
-    user = db.scalar(select(User).where(User.username == job.owner))
-    if user:
+    if job.owner_principal_kind == "user" and job.owner_principal_id:
+        user = db.get(User, job.owner_principal_id)
         membership = db.scalar(select(ProjectMembership).where(
             ProjectMembership.project_id == job.project_id,
-            ProjectMembership.user_id == user.id,
+            ProjectMembership.user_id == job.owner_principal_id,
         ))
         authorized = (
-            not user.disabled
+            user is not None
+            and not user.disabled
             and membership is not None
             and membership.role in {"owner", "editor"}
         )
-    else:
+    elif (
+        job.owner_principal_kind == "service"
+        and job.owner_principal_id == job.owner
+    ):
         has_members = db.scalar(
             select(ProjectMembership.id).where(
                 ProjectMembership.project_id == job.project_id
             )
         ) is not None
         authorized = project is not None and project.owner == job.owner and not has_members
+    else:
+        authorized = False
     if not project or not authorized:
         raise ValueError("AI generation project authorization no longer valid")
 
