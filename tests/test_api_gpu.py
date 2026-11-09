@@ -121,7 +121,7 @@ def test_narration_never_dispatches_wan_or_changes_media(
                 id=asset_id, project_id=project_id, filename="synthetic",
                 media_type=media_type, size_bytes=len(source_bytes),
                 sha256=hashlib.sha256(source_bytes).hexdigest(),
-                storage_key=f"{asset_id}.mp4",
+                storage_key="source.mp4" if asset_id == "source-video" else f"{asset_id}.mp4",
             ))
         db.commit()
     dispatch = []
