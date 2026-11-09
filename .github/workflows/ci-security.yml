@@ -108,20 +108,13 @@ jobs:
           -v "$RUNNER_TEMP:/scan:ro"
           aquasec/trivy:0.76.2
           image --input /scan/ovf-worker.tar --exit-code 1 --severity HIGH,CRITICAL
-      - name: Report optional narration image vulnerabilities
+      - name: Scan optional narration image for vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
           docker run --rm
           -v "$RUNNER_TEMP:/scan:ro"
           aquasec/trivy:0.76.2
-          image --input /scan/ovf-narration.tar --exit-code 0 --severity HIGH,CRITICAL
-      - name: Fail on fixable narration image vulnerabilities
-        if: ${{ always() && steps.build-images.outcome == 'success' }}
-        run: >-
-          docker run --rm
-          -v "$RUNNER_TEMP:/scan:ro"
-          aquasec/trivy:0.76.2
-          image --input /scan/ovf-narration.tar --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL
+          image --input /scan/ovf-narration.tar --exit-code 1 --severity HIGH,CRITICAL
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && steps.sbom.outcome == 'success' }}
         with:
