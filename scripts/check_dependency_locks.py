@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LOCKS = (
     (ROOT / "requirements.txt", ROOT / "requirements.lock.txt"),
     (ROOT / "requirements-dev.txt", ROOT / "requirements-dev.lock.txt"),
+    (ROOT / "requirements-narration.txt", ROOT / "requirements-narration.lock.txt"),
 )
 
 

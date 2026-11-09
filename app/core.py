@@ -289,6 +289,33 @@ class WorkflowArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class Narration(Base):
+    __tablename__ = "narrations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    media_id: Mapped[str] = mapped_column(ForeignKey("media_assets.id"))
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    stage: Mapped[str] = mapped_column(String(40), default="queued")
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    approved_revision: Mapped[int | None] = mapped_column(Integer)
+    analysis: Mapped[dict] = mapped_column(JSON, default=dict)
+    options: Mapped[dict] = mapped_column(JSON)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"))
+    error: Mapped[str | None] = mapped_column(String(500))
+
+
+class NarrationRevision(Base):
+    __tablename__ = "narration_revisions"
+    __table_args__ = (UniqueConstraint("narration_id", "revision"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    narration_id: Mapped[str] = mapped_column(ForeignKey("narrations.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    script: Mapped[list] = mapped_column(JSON)
+    editor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AgentProposal(Base):
     __tablename__ = 'agent_proposals'
     id: Mapped[str] = mapped_column(String(40), primary_key=True)

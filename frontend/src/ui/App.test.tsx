@@ -4,10 +4,11 @@ import { JobOutputDescription, ProjectWorkspace } from "./App";
 import type { VideoJob } from "../api/types";
 
 describe("operation and output display", () => {
-  it("disables unavailable narration and distinguishes generative video from uploads", () => {
+  it("requires a source video for narration and distinguishes generation from uploads", () => {
     const html = renderToStaticMarkup(<ProjectWorkspace projectId="project" token="synthetic" />);
     expect(html).toContain("Narrate existing video");
-    expect(html).toContain('<button disabled="">Narration unavailable</button>');
+    expect(html).toContain("Start narration analysis");
+    expect(html).toContain("Select an uploaded video");
     expect(html).toContain("not narration of an upload");
     expect(html).toContain("render_timeline_v1");
     expect(html).not.toContain("Verified video complete");
