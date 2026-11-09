@@ -189,10 +189,10 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       </fieldset>)}
       {editable && <fieldset disabled={busy}>
         <button disabled={script.length >= 200 || (script.at(-1)?.end_ms ?? 0) >=
-          Number(row.analysis.media?.format.duration ?? 0) * 1000}
+          Math.round(Number(row.analysis.media?.format.duration ?? 0) * 1000)}
           onClick={() => {
             const start = script.at(-1)?.end_ms ?? 0;
-            const end = Math.min(start + 5000, Number(row.analysis.media?.format.duration ?? 0) * 1000);
+            const end = Math.min(start + 5000, Math.round(Number(row.analysis.media?.format.duration ?? 0) * 1000));
             setScript((items) => [...items, { id: crypto.randomUUID(), start_ms: start, end_ms: end,
               text: "", evidence: ["manual"], uncertainty: "Manually authored; verify against source", estimated_ms: 0 }]);
             clearUrls(); setDirty(true);
