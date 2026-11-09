@@ -74,6 +74,8 @@ export interface CreateWanGenerationInput {
 export interface VideoJob {
   id: string;
   operation?: string;
+  project_id?: string | null;
+  media_id?: string | null;
   status: string;
   artifact: string | null;
   project_artifact_id?: string | null;

@@ -218,7 +218,7 @@ function OverlayFields({ value, onChange, label }: {
   </fieldset>;
 }
 
-function ProjectWorkspace({ projectId, token }: { projectId: string; token: string }) {
+export function ProjectWorkspace({ projectId, token }: { projectId: string; token: string }) {
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [clips, setClips] = useState<TimelineClip[]>([]);
   const [title, setTitle] = useState<TimelineOverlay | undefined>();
@@ -312,6 +312,7 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
     if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
     const key = pending.current.key;
     locked.current = true; setBusy(true); releaseArtifact();
+    jobGeneration.current++; setJob(null);
     try {
       const result = await api.createRenderJob(projectId, input, key, token);
       if (live.current) {
@@ -343,6 +344,7 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
     if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
     setError(""); setJobError("");
     locked.current = true; setBusy(true); releaseArtifact();
+    jobGeneration.current++; setJob(null);
     try {
       const result = await api.createWanGenerationJob(
         projectId, input, pending.current.key, token,
@@ -430,8 +432,16 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
           setClips((items) => [...items, { media_id: asset.id, in_ms: 0, out_ms: 5000 }])}>Add {asset.filename} to timeline</button>}
       </li>)}</ul>
     </section>
+    <section className="panel" aria-labelledby="narration-heading">
+      <h2 id="narration-heading">Narrate existing video</h2>
+      <p role="status">Unavailable: source-video transcription, scene understanding, and speech synthesis
+        are not implemented/configured. No narrated video can be produced. Your uploaded media is unchanged.</p>
+      <button disabled>Narration unavailable</button>
+    </section>
     <section className="panel" aria-labelledby="ai-generation-heading">
       <h2 id="ai-generation-heading">AI video generation</h2>
+      <p>Operation: wan22_t2v. Creates a new video from text, not narration of an upload.
+        Uploaded visuals, audio, aspect ratio, and duration are not preserved.</p>
       <p>Model: {generationModel?.id ?? "Wan 2.2 TI2V-5B"} · {generationModel?.status ?? "checking"}</p>
       {modelError && <p role="alert" className="notice error">{modelError}</p>}
       <form onSubmit={submitGeneration}>
@@ -467,6 +477,8 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
       </form>
     </section>
     <section className="panel">
+      <h2>Timeline rendering</h2>
+      <p>Operation: render_timeline_v1. Renders only the selected clips and audio track; it does not generate speech.</p>
       <form onSubmit={submit}>
         <fieldset disabled={busy}>
           <OrderedTimeline clips={clips} media={media} disabled={busy} onChange={setClips} />
@@ -498,11 +510,13 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
       {!job && <p>No render submitted in this project session.</p>}
       {job && <>
         <p aria-live="polite">Job {job.id}: {job.status.replaceAll("_", " ")}</p>
+        <JobOutputDescription job={job} media={media} />
         {job.error && <p role="alert">{job.error}</p>}
         {ACTIVE.has(job.status) && <p role="status">Checking status every 3 seconds…</p>}
-        {job.status === "awaiting_review" && <p role="status">Verified video complete; awaiting review.</p>}
         <button disabled={busy} onClick={() => void check()}>Check status</button>
-        {job.artifact && artifactReady(job.status) && <button disabled={busy} onClick={() => void preview()}>Load authorized preview/download</button>}
+        {job.artifact && artifactReady(job.status) &&
+          ["wan22_t2v", "render_timeline_v1", "render_test"].includes(job.operation ?? "") &&
+          <button disabled={busy} onClick={() => void preview()}>Load authorized preview/download</button>}
         {artifactUrl && <>
           <video controls preload="metadata" src={artifactUrl} aria-label="Rendered video preview" style={{ maxWidth: "100%" }} />
           <a className="download-link" href={artifactUrl} download="oju-render.mp4">Download MP4</a>
@@ -511,5 +525,21 @@ function ProjectWorkspace({ projectId, token }: { projectId: string; token: stri
         <AuthenticatedReview key={job.id} token={token} jobId={job.id} />
       </>}
     </section>
+  </>;
+}
+
+export function JobOutputDescription({ job, media }: { job: VideoJob; media: MediaAsset[] }) {
+  const source = media.find((asset) => asset.id === job.media_id);
+  const output = job.operation === "wan22_t2v" ? "AI-generated video (not narration)"
+    : job.operation === "render_timeline_v1" ? "Timeline-rendered video"
+    : job.operation === "render_test" ? "Synthetic test video"
+    : "No verified narrated video";
+  const videoOperation = ["wan22_t2v", "render_timeline_v1", "render_test"].includes(job.operation ?? "");
+  return <>
+    <p>Operation: {job.operation ?? "unknown"} · Output: {output}</p>
+    <p>Source video: {source?.filename ?? (job.media_id ? job.media_id
+      : job.operation === "render_timeline_v1" ? "Selected timeline clips" : "None")}</p>
+    {job.status === "awaiting_review" && videoOperation &&
+      <p role="status">{output} complete; awaiting review. This does not verify narration.</p>}
   </>;
 }
