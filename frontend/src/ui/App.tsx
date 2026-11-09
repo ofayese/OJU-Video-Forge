@@ -314,16 +314,17 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
     if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
     const key = pending.current.key;
     locked.current = true; setBusy(true); releaseArtifact();
-    jobGeneration.current++; setJob(null); setNarrationSession((value) => value + 1);
+    const generation = ++jobGeneration.current;
+    setJob(null); setNarrationSession((value) => value + 1);
     try {
       const result = await api.createRenderJob(projectId, input, key, token);
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         if (result.id !== job?.id) jobGeneration.current++;
         setJob(result);
         pending.current = null;
       }
     } catch (reason) {
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         setError(errorText(reason));
         if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) pending.current = null;
       }
@@ -346,18 +347,19 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
     if (pending.current?.payload !== payload) pending.current = { payload, key: crypto.randomUUID() };
     setError(""); setJobError("");
     locked.current = true; setBusy(true); releaseArtifact();
-    jobGeneration.current++; setJob(null); setNarrationSession((value) => value + 1);
+    const generation = ++jobGeneration.current;
+    setJob(null); setNarrationSession((value) => value + 1);
     try {
       const result = await api.createWanGenerationJob(
         projectId, input, pending.current.key, token,
       );
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         if (result.id !== job?.id) jobGeneration.current++;
         setJob(result);
         pending.current = null;
       }
     } catch (reason) {
-      if (live.current) {
+      if (live.current && generation === jobGeneration.current) {
         setError(errorText(reason));
         if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) {
           pending.current = null;
@@ -394,12 +396,18 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
   const generationReady = generationModel?.status === "configured";
   async function check() {
     if (!job || locked.current) return;
+    const generation = jobGeneration.current;
     locked.current = true; setBusy(true); setJobError("");
     try {
       const result = await api.getJob(job.id, token);
-      if (live.current) { setJob(result); if (!artifactReady(result.status)) releaseArtifact(); }
+      if (live.current && generation === jobGeneration.current) {
+        setJob(result);
+        if (!artifactReady(result.status)) releaseArtifact();
+      }
     } catch (reason) {
-      if (live.current) { setJob(null); releaseArtifact(); setJobError(errorText(reason)); }
+      if (live.current && generation === jobGeneration.current) {
+        setJob(null); releaseArtifact(); setJobError(errorText(reason));
+      }
     } finally { locked.current = false; if (live.current) setBusy(false); }
   }
   async function preview() {
