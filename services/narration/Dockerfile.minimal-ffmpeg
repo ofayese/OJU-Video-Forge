@@ -1,0 +1,114 @@
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS ffmpeg-builder
+
+ARG FFMPEG_VERSION=7.1.5
+ARG FFMPEG_SHA256=16d0e2b20c61f6fbe6381f9d4c1c74fa6946f09e931203479f94233bd83aab19
+ARG X264_COMMIT=b35605ace3ddf7c1a5d67a2eb553f034aef41d55
+
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+    && printf 'Types: deb\nURIs: http://snapshot.debian.org/archive/debian/20261109T000000Z\nSuites: trixie trixie-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.pgp\nCheck-Valid-Until: no\n\nTypes: deb\nURIs: http://snapshot.debian.org/archive/debian-security/20261109T000000Z\nSuites: trixie-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.pgp\nCheck-Valid-Until: no\n' \
+        > /etc/apt/sources.list.d/debian.sources \
+    && apt-get update -o Acquire::Check-Valid-Until=false \
+    && apt-get install -y --no-install-recommends \
+        build-essential pkg-config git curl ca-certificates nasm yasm \
+        libtool autoconf automake \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+RUN git init x264 \
+    && git -C x264 remote add origin https://code.videolan.org/videolan/x264.git \
+    && git -C x264 fetch --depth 1 origin "${X264_COMMIT}" \
+    && git -C x264 checkout --detach FETCH_HEAD \
+    && test "$(git -C x264 rev-parse HEAD)" = "${X264_COMMIT}" \
+    && cd x264 \
+    && ./configure --prefix=/opt/ffmpeg --enable-static --disable-shared \
+        --disable-cli --disable-opencl \
+    && make -j2 \
+    && make install
+
+RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2" \
+        -o ffmpeg.tar.bz2 \
+    && echo "${FFMPEG_SHA256}  ffmpeg.tar.bz2" | sha256sum --check - \
+    && tar xjf ffmpeg.tar.bz2 \
+    && cd "ffmpeg-${FFMPEG_VERSION}" \
+    && PKG_CONFIG_PATH=/opt/ffmpeg/lib/pkgconfig ./configure \
+        --prefix=/opt/ffmpeg \
+        --pkg-config-flags="--static" \
+        --enable-gpl \
+        --enable-libx264 \
+        --disable-shared \
+        --enable-static \
+        --disable-doc \
+        --disable-debug \
+        --disable-ffplay \
+        --enable-ffprobe \
+        --enable-ffmpeg \
+        --disable-avdevice \
+        --disable-postproc \
+        --disable-swscale-alpha \
+        --disable-lzma \
+        --disable-iconv \
+        --disable-zlib \
+        --disable-bzlib \
+        --disable-sdl2 \
+        --disable-xlib \
+        --disable-vaapi \
+        --disable-vdpau \
+        --disable-cuda-llvm \
+        --disable-cuvid \
+        --disable-nvenc \
+        --disable-libdrm \
+        --disable-alsa \
+        --disable-securetransport \
+        --disable-network \
+        --disable-protocols \
+        --disable-demuxers \
+        --disable-muxers \
+        --disable-decoders \
+        --disable-encoders \
+        --disable-filters \
+        --disable-parsers \
+        --disable-bsfs \
+        --enable-protocol=file,pipe \
+        --enable-demuxer=mov,matroska,wav,mp3,rawvideo,lavfi,concat,image2 \
+        --enable-muxer=mp4,hash,rawvideo,concat,image2,wav \
+        --enable-decoder=h264,hevc,av1,mpeg4,aac,mp3,pcm_s16le,pcm_s24le,pcm_f32le,mjpeg \
+        --enable-encoder=libx264,aac,pcm_s16le,mjpeg,rawvideo \
+        --enable-filter=scale,pad,setsar,format,concat,drawtext,loudnorm,amix,volume,alimiter,aresample,apad,setpts,fps,anullsrc \
+        --enable-parser=h264,hevc,av1,mpeg4,aac,mp3 \
+        --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb \
+    && make -j2 \
+    && make install
+
+FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS runtime
+
+WORKDIR /opt/forge
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+    && printf 'Types: deb\nURIs: http://snapshot.debian.org/archive/debian/20261109T000000Z\nSuites: trixie trixie-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.pgp\nCheck-Valid-Until: no\n\nTypes: deb\nURIs: http://snapshot.debian.org/archive/debian-security/20261109T000000Z\nSuites: trixie-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.pgp\nCheck-Valid-Until: no\n' \
+        > /etc/apt/sources.list.d/debian.sources \
+    && apt-get update -o Acquire::Check-Valid-Until=false \
+    && apt-get install -y --no-install-recommends \
+        espeak-ng=1.52.0+dfsg-5 \
+        tesseract-ocr=5.5.0-1+b1 \
+        tesseract-ocr-eng=1:4.1.0-2 \
+        libgomp1=14.2.0-19 \
+        fonts-dejavu-core=2.37-8 \
+        zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 forge \
+    && useradd --uid 10001 --gid 10001 --create-home forge \
+    && mkdir -p /artifacts/projects /models/asr /usr/share/fonts/dejavu \
+    && ln -s /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf /usr/share/fonts/dejavu/DejaVuSans.ttf \
+    && chown -R forge:forge /artifacts
+
+COPY requirements.lock.txt requirements-narration.lock.txt ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock.txt -r requirements-narration.lock.txt
+
+COPY app/ ./app/
+COPY --from=ffmpeg-builder /opt/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg-builder /opt/ffmpeg/bin/ffprobe /usr/local/bin/ffprobe
+
+ENV HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 DO_NOT_TRACK=1 \
+    OMP_NUM_THREADS=2 NARRATION_ASR_MODEL=/models/asr/faster-whisper-tiny
+
+USER 10001:10001
+CMD ["python", "-m", "app.worker"]

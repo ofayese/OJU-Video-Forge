@@ -75,6 +75,16 @@ and no keep-alive. No inference service is exposed publicly or reconfigured.
 Interpretations are explicitly uncertain and require human review. Real VLM
 interpretation was not exercised; installed-model metadata advertised vision.
 
+OCR invokes only `/usr/bin/tesseract` with English and the fixed
+`/usr/share/tesseract-ocr/5/tessdata` directory. The packaged
+`eng.traineddata` must match the pinned SHA-256
+`7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2`;
+`TESSDATA_PREFIX` is removed for the OCR subprocess. Uploaded media is input
+image data only and cannot select or supply traineddata. A missing, symlinked,
+or mismatched trusted asset reports `ocr_traineddata_untrusted` and makes
+optional scene analysis unavailable rather than falling back to an upload or
+environment-selected model.
+
 ## API and review
 
 1. `POST /v1/projects/{project}/narrations` with `Idempotency-Key` and

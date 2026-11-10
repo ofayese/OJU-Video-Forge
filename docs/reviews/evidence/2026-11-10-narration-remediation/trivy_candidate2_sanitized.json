@@ -1,0 +1,3905 @@
+{
+  "schema_version": 1,
+  "image": {
+    "name": "ovf-narration:minimal-ffmpeg-verified",
+    "digest": "sha256:d34d1a7e546eb8011dc355c65d1fccb6b7b459137a5bcee92001c5970dbb33c6",
+    "docker_size_bytes": 1178727043,
+    "installed_os_package_count": 176
+  },
+  "scanner": {
+    "name": "Trivy",
+    "version": "0.76.2",
+    "database_updated_utc": "2026-11-10T19:01:23.081219346Z",
+    "scope": "HIGH and CRITICAL findings; unfixed findings retained; no ignore-unfixed filter"
+  },
+  "summary": {
+    "high": 135,
+    "critical": 1,
+    "finding_rows": 136,
+    "unique_cves": 50,
+    "affected_binary_packages": 33
+  },
+  "results": [
+    {
+      "target": "ovf-narration:minimal-ffmpeg-verified (debian 13.7)",
+      "type": "debian",
+      "vulnerabilities": [
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "bsdutils",
+          "installed_version": "1:2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "bsdutils",
+          "installed_version": "1:2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "bsdutils",
+          "installed_version": "1:2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "bsdutils",
+          "installed_version": "1:2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-54369",
+          "package": "libacl1",
+          "installed_version": "2.3.2-2+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "acl: Symlink traversal privilege escalation via libacl functions",
+          "description": "acl before version 2.4.0 contains a symlink traversal vulnerability in the libacl pathname-based functions acl_get_file(), acl_set_file(), acl_extended_file(), and acl_delete_def_file() that allows local attackers to escalate privileges by replacing any pathname component with a symbolic link. Attackers who control any component of a pathname processed by a privileged caller can redirect ACL read or write operations to arbitrary files or directories, enabling unauthorized manipulation of access control lists and local privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-54369",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 7.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "libblkid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "libblkid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "libblkid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "libblkid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-12064",
+          "package": "libcurl4t64",
+          "installed_version": "8.14.1-2+deb13u7",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "curl: curl: SSH host verification bypass when using schemeless URLs with SFTP/SCP",
+          "description": "When a user invokes curl using a schemeless URL combined with\n`--proto-default` sftp (or scp), a disconnect occurs between the tool layer\nand libcurl. The tool layer incorrectly infers the URL scheme, which\nerroneously bypasses the initialization of critical SSH security options like\nCURLOPT_SSH_HOST_PUBLIC_KEY_SHA256 and CURLOPT_SSH_KNOWNHOSTS. Conversely, the\nlibcurl runtime successfully honors CURLOPT_DEFAULT_PROTOCOL and establishes\nthe connection via SFTP/SCP as specified. Because the tool layer skipped the\nsecurity configuration, these SSH host verification options are silently\nomitted, causing curl to connect to an unverified SSH remote host without\nthrowing an error.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-12064",
+          "vendor_severity": {
+            "amazon": 2,
+            "azure": 3,
+            "julia": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "ubuntu": 1
+          },
+          "cvss": {
+            "julia": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 7.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-8458",
+          "package": "libcurl4t64",
+          "installed_version": "8.14.1-2+deb13u7",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "curl: libcurl: Unauthorized connection reuse due to a logical error",
+          "description": "libcurl might in some circumstances reuse the wrong connection when asked to\ndo Negotiate-authenticated ones, even when they are set to use different\n\"services\".\n\nlibcurl features a pool of recent connections so that subsequent requests can\nreuse an existing connection to avoid overhead.\n\nWhen reusing a connection a range of criteria must be met. Due to a logical\nerror in the code, a request that was issued by an application could\nwrongfully reuse an existing connection to the same server that was\nauthenticated using different services.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-8458",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 2,
+            "julia": 2,
+            "oracle-oval": 3,
+            "photon": 2,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 1
+          },
+          "cvss": {
+            "julia": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 6.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 8.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-113351",
+          "package": "libexpat1",
+          "installed_version": "2.9.0-1~deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "expat: expat: Denial of Service via improper memory tracking in XML_ParserReset",
+          "description": "libexpat 2.7.2 through 2.9.0 contains a denial of service vulnerability because XML_ParserReset zeroes the direct byte count but never offsets tracked heap allocations. Attackers can submit a large XML document so later documents on the same reset parser fail with XML_ERROR_NO_MEMORY until it is recreated.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-113351",
+          "vendor_severity": {
+            "nvd": 3,
+            "redhat": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 5.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-115506",
+          "package": "libexpat1",
+          "installed_version": "2.9.0-1~deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "expat: expat: Denial of Service via delayed entity amplification detection",
+          "description": "libexpat through 2.9.0 contains a denial of service vulnerability because billion laughs protection in accountingDiffTolerated() in xmlparse.c detects entity amplification too late. Attackers can supply a moderately sized XML document with a large DTD and nested entity expansions to consume tens of seconds of CPU per parse.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-115506",
+          "vendor_severity": {
+            "photon": 3,
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-117610",
+          "package": "libexpat1",
+          "installed_version": "2.9.0-1~deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "expat: expat: Denial of Service via NULL pointer dereference in external entity parsing",
+          "description": "libexpat through 2.9.0 contains a NULL pointer dereference vulnerability in externalEntityInitProcessor2() in lib/xmlparse.c that mishandles the XML_TOK_NONE token from empty input. Attackers who control stream chunking can force an empty non-final first parse on an external entity subparser, causing a later parse to crash the application.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-117610",
+          "vendor_severity": {
+            "nvd": 3,
+            "redhat": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 5.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-118370",
+          "package": "libexpat1",
+          "installed_version": "2.9.0-1~deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "expat: expat: Denial of Service via integer overflow during XML attribute parsing",
+          "description": "libexpat through 2.9.0 contains a signed integer overflow vulnerability in storeAtts() in lib/xmlparse.c that allows attackers to trigger out-of-bounds writes via oversized attribute counts. Attackers can supply a multi-gigabyte document with a start tag carrying over 2^30 attributes to overflow attIndex and nPrefixes, crashing applications or corrupting heap memory.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-118370",
+          "vendor_severity": {
+            "nvd": 3,
+            "redhat": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:H",
+              "V3Score": 8.2
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 5.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-107364",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC DoS based on ASN.1 decoder read overrun",
+          "description": "In all released versions of MIT krb5, an unauthenticated attacker can cause a KDC process to perform a large read overrun, likely causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-107364",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112315",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS in RPCSEC_GSS buffer decode failure",
+          "description": "The RPCSEC_GSS authentication routines in lib/rpc/authgss_prot.c in MIT Kerberos 5 (aka krb5) 1.4 and later do not free partially decoded buffers on failure, which allows remote attackers to cause a denial of service (memory leak in kadmind) via crafted RPCSEC_GSS messages.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112315",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112316",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory leak DoS in xdr_krb5_tl_data() decode failure",
+          "description": "xdr_krb5_tl_data() in lib/kadm5/kadm_rpc_xdr.c in MIT Kerberos 5 (aka krb5) does not free partially decoded data on failure, which allows remote authenticated users to cause a denial of service (memory leak in kadmind) via crafted RPC requests that trigger a decode failure.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112316",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112317",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated memory leak DoS in KDB keytab key decryption error path",
+          "description": "krb5_ktkdb_get_entry() in lib/kdb/keytab.c in MIT Kerberos 5 (aka krb5) 1.2.8 and later does not free decrypted key material when a post-decryption check fails, which allows remote attackers to cause a denial of service (memory leak in the KDC or kadmind) via requests that repeatedly trigger key decryption failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112317",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112318",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated DoS exploiting dereference of null policy name pointers",
+          "description": "The policy RPC stubs in kadmin/server/server_stubs.c in MIT Kerberos 5 (aka krb5) 1.5.3 and later do not reject a NULL policy name decoded by xdr_nullstring(), which allows remote authenticated users to cause a denial of service (kadmind crash via NULL pointer dereference) by sending a policy request with an empty policy name that reaches authorization checks or logging code.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112318",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112319",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory exhaustion DoS via unbounded RPC XDR allocation",
+          "description": "The GSS-RPC layer in MIT Kerberos 5 (aka krb5) does not enforce size limits on XDR-decoded data, which allows remote authenticated users to cause a denial of service (memory exhaustion or excessive CPU consumption in kadmind) via crafted RPC requests that trigger unbounded memory allocations during XDR decoding.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112319",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112320",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via GSS-RPC auth flavor switching",
+          "description": "The GSS-RPC transport layer in MIT Kerberos 5 (aka krb5) 1.4 and later does not release the previous authentication context when a client switches from an RPCSEC_GSS or AUTH_GSSAPI flavor to a non-GSS flavor on the same TCP connection. This allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by repeatedly establishing and abandoning GSS authentication contexts.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112320",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112321",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via AUTH_GSSAPI_INIT error paths",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) does not free decoded arguments on certain error paths, which allows remote attackers to cause a denial of service (memory exhaustion in kadmind) via crafted AUTH_GSSAPI_INIT requests that trigger authentication failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112321",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112322",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated CPU DoS via AUTH_GSSAPI client states cleanup",
+          "description": "clean_client() in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) restarts its scan from the head of the client list after each removal, resulting in quadratic CPU cost. Remote attackers can cause a denial of service (CPU consumption in kadmind) by accumulating a large number of AUTH_GSSAPI client entries.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112322",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112323",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory exhaustion via failed AUTH_GSSAPI_INIT requests",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) 1.5.2 and later allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by sending repeated failed AUTH_GSSAPI_INIT requests. Each failed request allocates client state that is only freed after a 15-minute expiration timeout, allowing an attacker to accumulate memory faster than it is reclaimed.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112323",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-118380",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: kadmind: request alteration and protected information disclosure",
+          "description": "In MIT krb5 release 1.4 and later, an active network attacker can alter the arguments sent by a legitimate client to RPC services protected by RPCSEC_GSS, or cause return values to be sent in plain text.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-118380",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 7.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-119079",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated CPU DoS via quadratic ASN.1 SEQUENCE OF decoding",
+          "description": "decode_sequence_of() in lib/krb5/asn.1/asn1_encode.c in MIT Kerberos 5 (aka krb5) 1.11 and later grows the decoded element array one entry at a time, which allows remote attackers to cause a denial of service (CPU consumption in the KDC) by sending an unauthenticated AS-REQ or TGS-REQ with a large number of elements in a SEQUENCE OF field over TCP.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-119079",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71199",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Alteration of authentication indicators in CAMMAC container",
+          "description": "In MIT krb5 release 1.14 and later (since authentication indicator support was added), an authenticated attacker can bypass authentication indicator requirements using an unkeyed checksum in the CAMMAC authdata container.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71199",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 8.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71200",
+          "package": "libgssapi-krb5-2",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC NULL pointer dereference KDC DoS via crafted PKINIT pre-auth request",
+          "description": "If a KDC is configured to allow PKINIT authentication, an unauthenticated attacker can trigger a null pointer dereference, causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71200",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-107364",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC DoS based on ASN.1 decoder read overrun",
+          "description": "In all released versions of MIT krb5, an unauthenticated attacker can cause a KDC process to perform a large read overrun, likely causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-107364",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112315",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS in RPCSEC_GSS buffer decode failure",
+          "description": "The RPCSEC_GSS authentication routines in lib/rpc/authgss_prot.c in MIT Kerberos 5 (aka krb5) 1.4 and later do not free partially decoded buffers on failure, which allows remote attackers to cause a denial of service (memory leak in kadmind) via crafted RPCSEC_GSS messages.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112315",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112316",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory leak DoS in xdr_krb5_tl_data() decode failure",
+          "description": "xdr_krb5_tl_data() in lib/kadm5/kadm_rpc_xdr.c in MIT Kerberos 5 (aka krb5) does not free partially decoded data on failure, which allows remote authenticated users to cause a denial of service (memory leak in kadmind) via crafted RPC requests that trigger a decode failure.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112316",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112317",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated memory leak DoS in KDB keytab key decryption error path",
+          "description": "krb5_ktkdb_get_entry() in lib/kdb/keytab.c in MIT Kerberos 5 (aka krb5) 1.2.8 and later does not free decrypted key material when a post-decryption check fails, which allows remote attackers to cause a denial of service (memory leak in the KDC or kadmind) via requests that repeatedly trigger key decryption failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112317",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112318",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated DoS exploiting dereference of null policy name pointers",
+          "description": "The policy RPC stubs in kadmin/server/server_stubs.c in MIT Kerberos 5 (aka krb5) 1.5.3 and later do not reject a NULL policy name decoded by xdr_nullstring(), which allows remote authenticated users to cause a denial of service (kadmind crash via NULL pointer dereference) by sending a policy request with an empty policy name that reaches authorization checks or logging code.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112318",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112319",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory exhaustion DoS via unbounded RPC XDR allocation",
+          "description": "The GSS-RPC layer in MIT Kerberos 5 (aka krb5) does not enforce size limits on XDR-decoded data, which allows remote authenticated users to cause a denial of service (memory exhaustion or excessive CPU consumption in kadmind) via crafted RPC requests that trigger unbounded memory allocations during XDR decoding.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112319",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112320",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via GSS-RPC auth flavor switching",
+          "description": "The GSS-RPC transport layer in MIT Kerberos 5 (aka krb5) 1.4 and later does not release the previous authentication context when a client switches from an RPCSEC_GSS or AUTH_GSSAPI flavor to a non-GSS flavor on the same TCP connection. This allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by repeatedly establishing and abandoning GSS authentication contexts.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112320",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112321",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via AUTH_GSSAPI_INIT error paths",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) does not free decoded arguments on certain error paths, which allows remote attackers to cause a denial of service (memory exhaustion in kadmind) via crafted AUTH_GSSAPI_INIT requests that trigger authentication failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112321",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112322",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated CPU DoS via AUTH_GSSAPI client states cleanup",
+          "description": "clean_client() in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) restarts its scan from the head of the client list after each removal, resulting in quadratic CPU cost. Remote attackers can cause a denial of service (CPU consumption in kadmind) by accumulating a large number of AUTH_GSSAPI client entries.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112322",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112323",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory exhaustion via failed AUTH_GSSAPI_INIT requests",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) 1.5.2 and later allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by sending repeated failed AUTH_GSSAPI_INIT requests. Each failed request allocates client state that is only freed after a 15-minute expiration timeout, allowing an attacker to accumulate memory faster than it is reclaimed.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112323",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-118380",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: kadmind: request alteration and protected information disclosure",
+          "description": "In MIT krb5 release 1.4 and later, an active network attacker can alter the arguments sent by a legitimate client to RPC services protected by RPCSEC_GSS, or cause return values to be sent in plain text.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-118380",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 7.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-119079",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated CPU DoS via quadratic ASN.1 SEQUENCE OF decoding",
+          "description": "decode_sequence_of() in lib/krb5/asn.1/asn1_encode.c in MIT Kerberos 5 (aka krb5) 1.11 and later grows the decoded element array one entry at a time, which allows remote attackers to cause a denial of service (CPU consumption in the KDC) by sending an unauthenticated AS-REQ or TGS-REQ with a large number of elements in a SEQUENCE OF field over TCP.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-119079",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71199",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Alteration of authentication indicators in CAMMAC container",
+          "description": "In MIT krb5 release 1.14 and later (since authentication indicator support was added), an authenticated attacker can bypass authentication indicator requirements using an unkeyed checksum in the CAMMAC authdata container.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71199",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 8.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71200",
+          "package": "libk5crypto3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC NULL pointer dereference KDC DoS via crafted PKINIT pre-auth request",
+          "description": "If a KDC is configured to allow PKINIT authentication, an unauthenticated attacker can trigger a null pointer dereference, causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71200",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-107364",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC DoS based on ASN.1 decoder read overrun",
+          "description": "In all released versions of MIT krb5, an unauthenticated attacker can cause a KDC process to perform a large read overrun, likely causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-107364",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112315",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS in RPCSEC_GSS buffer decode failure",
+          "description": "The RPCSEC_GSS authentication routines in lib/rpc/authgss_prot.c in MIT Kerberos 5 (aka krb5) 1.4 and later do not free partially decoded buffers on failure, which allows remote attackers to cause a denial of service (memory leak in kadmind) via crafted RPCSEC_GSS messages.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112315",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112316",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory leak DoS in xdr_krb5_tl_data() decode failure",
+          "description": "xdr_krb5_tl_data() in lib/kadm5/kadm_rpc_xdr.c in MIT Kerberos 5 (aka krb5) does not free partially decoded data on failure, which allows remote authenticated users to cause a denial of service (memory leak in kadmind) via crafted RPC requests that trigger a decode failure.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112316",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112317",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated memory leak DoS in KDB keytab key decryption error path",
+          "description": "krb5_ktkdb_get_entry() in lib/kdb/keytab.c in MIT Kerberos 5 (aka krb5) 1.2.8 and later does not free decrypted key material when a post-decryption check fails, which allows remote attackers to cause a denial of service (memory leak in the KDC or kadmind) via requests that repeatedly trigger key decryption failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112317",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112318",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated DoS exploiting dereference of null policy name pointers",
+          "description": "The policy RPC stubs in kadmin/server/server_stubs.c in MIT Kerberos 5 (aka krb5) 1.5.3 and later do not reject a NULL policy name decoded by xdr_nullstring(), which allows remote authenticated users to cause a denial of service (kadmind crash via NULL pointer dereference) by sending a policy request with an empty policy name that reaches authorization checks or logging code.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112318",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112319",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory exhaustion DoS via unbounded RPC XDR allocation",
+          "description": "The GSS-RPC layer in MIT Kerberos 5 (aka krb5) does not enforce size limits on XDR-decoded data, which allows remote authenticated users to cause a denial of service (memory exhaustion or excessive CPU consumption in kadmind) via crafted RPC requests that trigger unbounded memory allocations during XDR decoding.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112319",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112320",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via GSS-RPC auth flavor switching",
+          "description": "The GSS-RPC transport layer in MIT Kerberos 5 (aka krb5) 1.4 and later does not release the previous authentication context when a client switches from an RPCSEC_GSS or AUTH_GSSAPI flavor to a non-GSS flavor on the same TCP connection. This allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by repeatedly establishing and abandoning GSS authentication contexts.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112320",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112321",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via AUTH_GSSAPI_INIT error paths",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) does not free decoded arguments on certain error paths, which allows remote attackers to cause a denial of service (memory exhaustion in kadmind) via crafted AUTH_GSSAPI_INIT requests that trigger authentication failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112321",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112322",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated CPU DoS via AUTH_GSSAPI client states cleanup",
+          "description": "clean_client() in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) restarts its scan from the head of the client list after each removal, resulting in quadratic CPU cost. Remote attackers can cause a denial of service (CPU consumption in kadmind) by accumulating a large number of AUTH_GSSAPI client entries.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112322",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112323",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory exhaustion via failed AUTH_GSSAPI_INIT requests",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) 1.5.2 and later allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by sending repeated failed AUTH_GSSAPI_INIT requests. Each failed request allocates client state that is only freed after a 15-minute expiration timeout, allowing an attacker to accumulate memory faster than it is reclaimed.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112323",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-118380",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: kadmind: request alteration and protected information disclosure",
+          "description": "In MIT krb5 release 1.4 and later, an active network attacker can alter the arguments sent by a legitimate client to RPC services protected by RPCSEC_GSS, or cause return values to be sent in plain text.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-118380",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 7.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-119079",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated CPU DoS via quadratic ASN.1 SEQUENCE OF decoding",
+          "description": "decode_sequence_of() in lib/krb5/asn.1/asn1_encode.c in MIT Kerberos 5 (aka krb5) 1.11 and later grows the decoded element array one entry at a time, which allows remote attackers to cause a denial of service (CPU consumption in the KDC) by sending an unauthenticated AS-REQ or TGS-REQ with a large number of elements in a SEQUENCE OF field over TCP.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-119079",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71199",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Alteration of authentication indicators in CAMMAC container",
+          "description": "In MIT krb5 release 1.14 and later (since authentication indicator support was added), an authenticated attacker can bypass authentication indicator requirements using an unkeyed checksum in the CAMMAC authdata container.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71199",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 8.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71200",
+          "package": "libkrb5-3",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC NULL pointer dereference KDC DoS via crafted PKINIT pre-auth request",
+          "description": "If a KDC is configured to allow PKINIT authentication, an unauthenticated attacker can trigger a null pointer dereference, causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71200",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-107364",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC DoS based on ASN.1 decoder read overrun",
+          "description": "In all released versions of MIT krb5, an unauthenticated attacker can cause a KDC process to perform a large read overrun, likely causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-107364",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112315",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS in RPCSEC_GSS buffer decode failure",
+          "description": "The RPCSEC_GSS authentication routines in lib/rpc/authgss_prot.c in MIT Kerberos 5 (aka krb5) 1.4 and later do not free partially decoded buffers on failure, which allows remote attackers to cause a denial of service (memory leak in kadmind) via crafted RPCSEC_GSS messages.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112315",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112316",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory leak DoS in xdr_krb5_tl_data() decode failure",
+          "description": "xdr_krb5_tl_data() in lib/kadm5/kadm_rpc_xdr.c in MIT Kerberos 5 (aka krb5) does not free partially decoded data on failure, which allows remote authenticated users to cause a denial of service (memory leak in kadmind) via crafted RPC requests that trigger a decode failure.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112316",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112317",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated memory leak DoS in KDB keytab key decryption error path",
+          "description": "krb5_ktkdb_get_entry() in lib/kdb/keytab.c in MIT Kerberos 5 (aka krb5) 1.2.8 and later does not free decrypted key material when a post-decryption check fails, which allows remote attackers to cause a denial of service (memory leak in the KDC or kadmind) via requests that repeatedly trigger key decryption failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112317",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+              "V3Score": 5.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112318",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated DoS exploiting dereference of null policy name pointers",
+          "description": "The policy RPC stubs in kadmin/server/server_stubs.c in MIT Kerberos 5 (aka krb5) 1.5.3 and later do not reject a NULL policy name decoded by xdr_nullstring(), which allows remote authenticated users to cause a denial of service (kadmind crash via NULL pointer dereference) by sending a policy request with an empty policy name that reaches authorization checks or logging code.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112318",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112319",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind authenticated memory exhaustion DoS via unbounded RPC XDR allocation",
+          "description": "The GSS-RPC layer in MIT Kerberos 5 (aka krb5) does not enforce size limits on XDR-decoded data, which allows remote authenticated users to cause a denial of service (memory exhaustion or excessive CPU consumption in kadmind) via crafted RPC requests that trigger unbounded memory allocations during XDR decoding.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112319",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 6.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112320",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via GSS-RPC auth flavor switching",
+          "description": "The GSS-RPC transport layer in MIT Kerberos 5 (aka krb5) 1.4 and later does not release the previous authentication context when a client switches from an RPCSEC_GSS or AUTH_GSSAPI flavor to a non-GSS flavor on the same TCP connection. This allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by repeatedly establishing and abandoning GSS authentication contexts.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112320",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112321",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory leak DoS via AUTH_GSSAPI_INIT error paths",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) does not free decoded arguments on certain error paths, which allows remote attackers to cause a denial of service (memory exhaustion in kadmind) via crafted AUTH_GSSAPI_INIT requests that trigger authentication failures.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112321",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112322",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated CPU DoS via AUTH_GSSAPI client states cleanup",
+          "description": "clean_client() in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) restarts its scan from the head of the client list after each removal, resulting in quadratic CPU cost. Remote attackers can cause a denial of service (CPU consumption in kadmind) by accumulating a large number of AUTH_GSSAPI client entries.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112322",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-112323",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 kadmind unauthenticated memory exhaustion via failed AUTH_GSSAPI_INIT requests",
+          "description": "The AUTH_GSSAPI handler in lib/rpc/svc_auth_gssapi.c in MIT Kerberos 5 (aka krb5) 1.5.2 and later allows remote attackers to cause a denial of service (memory exhaustion in kadmind) by sending repeated failed AUTH_GSSAPI_INIT requests. Each failed request allocates client state that is only freed after a 15-minute expiration timeout, allowing an attacker to accumulate memory faster than it is reclaimed.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-112323",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-118380",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: kadmind: request alteration and protected information disclosure",
+          "description": "In MIT krb5 release 1.4 and later, an active network attacker can alter the arguments sent by a legitimate client to RPC services protected by RPCSEC_GSS, or cause return values to be sent in plain text.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-118380",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 7.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-119079",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: MIT krb5 KDC unauthenticated CPU DoS via quadratic ASN.1 SEQUENCE OF decoding",
+          "description": "decode_sequence_of() in lib/krb5/asn.1/asn1_encode.c in MIT Kerberos 5 (aka krb5) 1.11 and later grows the decoded element array one entry at a time, which allows remote attackers to cause a denial of service (CPU consumption in the KDC) by sending an unauthenticated AS-REQ or TGS-REQ with a large number of elements in a SEQUENCE OF field over TCP.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-119079",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71199",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Alteration of authentication indicators in CAMMAC container",
+          "description": "In MIT krb5 release 1.14 and later (since authentication indicator support was added), an authenticated attacker can bypass authentication indicator requirements using an unkeyed checksum in the CAMMAC authdata container.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71199",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+              "V3Score": 8.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-71200",
+          "package": "libkrb5support0",
+          "installed_version": "1.21.3-5+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "krb5: Unauthenticated KDC NULL pointer dereference KDC DoS via crafted PKINIT pre-auth request",
+          "description": "If a KDC is configured to allow PKINIT authentication, an unauthenticated attacker can trigger a null pointer dereference, causing the process to terminate.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-71200",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "liblastlog2-2",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "liblastlog2-2",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "liblastlog2-2",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "liblastlog2-2",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "libmount1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "libmount1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "libmount1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "libmount1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2025-69720",
+          "package": "libncursesw6",
+          "installed_version": "6.5+20250216-2",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+          "description": "The infocmp command-line tool in ncurses before 6.5-20251213 has a stack-based buffer overflow in analyze_string in progs/infocmp.c.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "vendor_severity": {
+            "alma": 2,
+            "azure": 4,
+            "cbl-mariner": 4,
+            "julia": 3,
+            "nvd": 3,
+            "oracle-oval": 2,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 1
+          },
+          "cvss": {
+            "julia": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "libsmartcols1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "libsmartcols1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "libsmartcols1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "libsmartcols1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-37555",
+          "package": "libsndfile1",
+          "installed_version": "1.2.2-2+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libsndfile: integer overflow in ima_reader_init()",
+          "description": "An issue was discovered in libsndfile 1.2.2 IMA ADPCM codec. The AIFF code path (line 241) was fixed with (sf_count_t) cast, but the WAV code path (line 235) and close path (line 167) were not. When samplesperblock (int) * blocks (int) exceeds INT_MAX, the 32-bit multiplication overflows before being assigned to sf.frames (sf_count_t/int64). With samplesperblock=50000 and blocks=50000, the product 2500000000 overflows to -1794967296. This causes incorrect frame count leading to heap buffer overflow or denial of service. Both values come from the WAV file header and are attacker-controlled. This issue was discovered after an incomplete fix for CVE-2022-33065.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-37555",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:H",
+              "V3Score": 8.2
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-119373",
+          "package": "libsqlite3-0",
+          "installed_version": "3.46.1-7+deb13u2",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "sqlite: sqlite: Denial of service via heap-based buffer overflow in FTS5",
+          "description": "SQLite before 3.54.0 built with FTS5 contains a heap buffer overflow in fts5MergeRowidLists() that undersizes the output buffer when merging detail=none prefix doclists. Attackers who can populate a detail=none FTS5 table with negative rowids and run a prefix MATCH query can write past the allocation, corrupting heap memory and crashing the process.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-119373",
+          "vendor_severity": {
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-119374",
+          "package": "libsqlite3-0",
+          "installed_version": "3.46.1-7+deb13u2",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "sqlite: sqlite: Arbitrary code execution via corrupted FTS5 index",
+          "description": "SQLite before 3.54.0 built with FTS5 contains a heap buffer overflow in fts5DoSecureDelete() that allows attackers to write past the leaf page buffer via crafted footer key offsets. Attackers can supply a database file with a corrupted FTS5 index that, when deleted from with secure-delete enabled, corrupts heap memory and crashes the application.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-119374",
+          "vendor_severity": {
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-119379",
+          "package": "libsqlite3-0",
+          "installed_version": "3.46.1-7+deb13u2",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "sqlite: sqlite: Arbitrary code execution via crafted session changesets",
+          "description": "SQLite before 3.54.0 built with the session extension contains a heap buffer overflow vulnerability in sqlite3changeset_apply() that allows attackers to corrupt heap memory by supplying crafted changesets. Attackers can repeat a table name in a second changeset block with a larger column count, causing sessionUpdateFind() to memset past the undersized aUpdateMask allocation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-119379",
+          "vendor_severity": {
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-16742",
+          "package": "libsystemd0",
+          "installed_version": "257.13-1~deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification",
+          "description": "systemd-homed contains a local privilege escalation bug via arbitrary system group addition to a local, logged in, homed-managed user",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-16742",
+          "vendor_severity": {
+            "amazon": 3,
+            "azure": 2,
+            "redhat": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+              "V3Score": 8.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-73066",
+          "package": "libtesseract5",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata",
+          "description": "Tesseract is an open source OCR engine. Prior to 5.5.3, a crafted .traineddata LSTM model component loaded through Tesseract's deserializer can cause an unchecked signed integer multiplication in Convolve::DeSerialize in src/lstm/convolve.cpp to wrap the convolution output-channel count, undersizing the forward-pass output buffer while writes use the unwrapped element count and causing a heap out-of-bounds write during OCR recognition. This issue is fixed in version 5.5.3.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-73066",
+          "vendor_severity": {
+            "alma": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:H",
+              "V3Score": 7.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88047",
+          "package": "libtesseract5",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, Classify::ReadNormProtos in src/classify/normmatch.cpp parses the NORMPROTO component of a .traineddata file and uses std::istream::operator>>(char*) to extract a whitespace-delimited token into a fixed 61-byte stack buffer without setting a stream width. The 100-byte line buffer can carry a token of up to 99 characters, so a token longer than 60 characters writes up to 39 attacker-controlled bytes past the buffer during TessBaseAPI::Init of the legacy engine, causing stack corruption, denial of service, and potentially control-flow hijacking on affected standard-library implementations. Builds using Apple's libc++ C++20 bounded array overload are incidentally protected, while typical libstdc++ builds remain affected. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88047",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88048",
+          "package": "libtesseract5",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, FullyConnected::DeSerialize in src/lstm/fullyconnected.cpp does not validate the deserialized layer scalars ni_ and no_ against the weight-matrix dimensions. During FullyConnected::Forward, MatrixDotVector in src/lstm/weightmatrix.cpp writes w.dim1() results into temp_line, which is sized from no_, and reads w.dim2() minus one inputs from curr_input, which is sized from ni_. A crafted .traineddata NT_SOFTMAX layer can therefore use inconsistent dimensions to cause a heap out-of-bounds write and read on the default LSTM engine, resulting in heap corruption, a crash, information disclosure, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88048",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:H",
+              "V3Score": 7.1
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88051",
+          "package": "libtesseract5",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, the callback form of GenericVector::read in src/ccutil/genericvector.h reads the independent int32 fields reserved and size_used_ from a .traineddata model without a cap or an invariant check. reserve(reserved) allocates the backing array, but the callback loop writes size_used_ elements. A crafted TESSDATA_INTTEMP component with version_id 4 or later can therefore set reserved to a small value and size_used_ to a large value when fontinfo_table_.read(fp, read_info) is called from src/classify/intproto.cpp, causing a heap out-of-bounds write of FontInfo structures, heap corruption, a crash, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88051",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88052",
+          "package": "libtesseract5",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, UNICHARSET::load_via_fgets in src/ccutil/unicharset.cpp trusts the declared unichar count as a loop bound and uses id as an unchecked index into the unichars vector. unichar_insert_backwards_compatible can leave the vector unchanged for an empty, duplicate, or already-encodable representation, causing id to become larger than unichars.size(). Subsequent set_* calls and the write to unichars[id].properties.enabled then write UNICHAR_PROPERTIES beyond the vector during initialization in both the default LSTM and legacy engines, causing heap corruption, a crash, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88052",
+          "vendor_severity": {
+            "alma": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88053",
+          "package": "libtesseract5",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, Classify::ReadIntTemplates in src/classify/intproto.cpp reads NumClassPruners, NumClasses, and NumProtoSets from the TESSDATA_INTTEMP component of a crafted .traineddata file and uses those values as loop bounds without validating them against MAX_NUM_CLASS_PRUNERS, MAX_NUM_CLASSES, and MAX_NUM_PROTO_SETS. The loops store heap pointers into fixed-capacity ClassPruners and ProtoSets arrays in INT_TEMPLATES_STRUCT and INT_CLASS_STRUCT, so an oversized count causes heap out-of-bounds pointer writes during legacy-classifier initialization before OCR begins, resulting in heap corruption, a crash, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88053",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-36849",
+          "package": "libtiff6",
+          "installed_version": "4.7.0-3+deb13u3",
+          "fixed_version": null,
+          "status": "will_not_fix",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "[Denial of Service via large SamplesPerPixel tag]",
+          "description": "Package updates are available for Amazon Linux 2023 that fix the following vulnerabilities:\nCVE-2026-36849:\n\tDenial of Service via large SamplesPerPixel tag\n\nCVE-2026-12912:\n\tA flaw was found in libtiff. A remote attacker could exploit this vulnerability by providing a specially crafted PixarLog-compressed TIFF image. This issue occurs when decoding Pixarlog codec images with the PIXARLOGDATAFMT_8BITABGR output format and a specific stride value, leading to a heap-based buffer overflow. This could potentially result in arbitrary code execution or a denial of service (DoS).\n",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-36849",
+          "vendor_severity": {
+            "amazon": 3
+          },
+          "cvss": null
+        },
+        {
+          "vulnerability_id": "CVE-2026-52490",
+          "package": "libtiff6",
+          "installed_version": "4.7.0-3+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libtiff: libtiff: Arbitrary code execution via process_command_opts() function",
+          "description": "An issue in libtiff 85f2ac8e0b01cb7db2bbecf4a3b891bdbef67938 allows an attacker to execute arbitrary code via the process_command_opts() function in tools/tiffcrop.c",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-52490",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2025-69720",
+          "package": "libtinfo6",
+          "installed_version": "6.5+20250216-2",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+          "description": "The infocmp command-line tool in ncurses before 6.5-20251213 has a stack-based buffer overflow in analyze_string in progs/infocmp.c.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "vendor_severity": {
+            "alma": 2,
+            "azure": 4,
+            "cbl-mariner": 4,
+            "julia": 3,
+            "nvd": 3,
+            "oracle-oval": 2,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 1
+          },
+          "cvss": {
+            "julia": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-16742",
+          "package": "libudev1",
+          "installed_version": "257.13-1~deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "systemd: systemd-homed: Local privilege escalation via missing home-record signature verification",
+          "description": "systemd-homed contains a local privilege escalation bug via arbitrary system group addition to a local, logged in, homed-managed user",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-16742",
+          "vendor_severity": {
+            "amazon": 3,
+            "azure": 2,
+            "redhat": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+              "V3Score": 8.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "libuuid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "libuuid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "libuuid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "libuuid1",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88806",
+          "package": "libx11-6",
+          "installed_version": "2:1.8.12-1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+          "description": "A malicious X server could exploit a buffer overflow in libX11 before 1.8.14 during handling of XkbGetMap overflowing the key_sym_map.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88806",
+          "package": "libx11-data",
+          "installed_version": "2:1.8.12-1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+          "description": "A malicious X server could exploit a buffer overflow in libX11 before 1.8.14 during handling of XkbGetMap overflowing the key_sym_map.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88806",
+          "package": "libx11-xcb1",
+          "installed_version": "2:1.8.12-1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libX11: libX11: Heap-based buffer overflow via malicious X server",
+          "description": "A malicious X server could exploit a buffer overflow in libX11 before 1.8.14 during handling of XkbGetMap overflowing the key_sym_map.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88806",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-6653",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "CRITICAL",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free",
+          "description": "Use After Free in libxml2's xmlParseInternalSubset from GNOME libxml2 version 2.9.11 to 2.11.0 allows a remote attacker to cause a denial-of-service via maliciously crafted XML input with improper entity resolution handling.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-6653",
+          "vendor_severity": {
+            "alma": 2,
+            "amazon": 2,
+            "julia": 3,
+            "nvd": 4,
+            "oracle-oval": 2,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "julia": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V40Vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:L/VA:L/SC:N/SI:N/SA:N/E:P",
+              "V3Score": 9.8,
+              "V40Score": 7
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 9.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 5.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-74860",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: double-free/UAF in libxml2 Python bindings",
+          "description": "A flaw was found in libxml2 with Python bindings enabled. A remote attacker could exploit this vulnerability by providing a specially crafted XML document containing a Document Type Definition (DTD) with enumerated attribute values. This triggers a double-free error in the SAX attributeDecl callback handler, where a string is freed twice. This flaw can lead to a denial of service (DoS) due to a reproducible crash in Python applications using the libxml2 SAX bindings.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-74860",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H",
+              "V3Score": 8.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-86138",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: libxml2: Arbitrary code execution via heap-based buffer overflow",
+          "description": "In libxml2 before 2.15.4, xmlDictAddQString in dict.c has an integer overflow and resultant heap-based buffer overflow.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86138",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 2,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L",
+              "V3Score": 6.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-86139",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: libxml2: Integer overflow in xmlURIEscapeStr may lead to arbitrary code execution",
+          "description": "In libxml2 before 2.15.4, xmlURIEscapeStr in uri.c has an integer overflow.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86139",
+          "vendor_severity": {
+            "nvd": 3,
+            "photon": 3,
+            "redhat": 2,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L",
+              "V3Score": 6.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-86140",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: libxml2: Arbitrary code execution via stack-based buffer overflow in xmlSnprintfElements",
+          "description": "In libxml2 before 2.15.4, xmlSnprintfElements in valid.c has a strcat stack-based buffer overflow.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86140",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-86142",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: libxml2: Heap-based buffer overflow in xmlXPtrEval due to xpointer length saturation",
+          "description": "In libxml2 before 2.15.4, there is a heap-based buffer overflow in xmlXPtrEvalXPtrPart because of xmlXPtrEval xpointer length saturation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86142",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 2,
+            "nvd": 3,
+            "oracle-oval": 2,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L",
+              "V3Score": 6.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-86143",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: libxml2: Data integrity issues due to integer overflow in write callbacks",
+          "description": "In xmlIO in libxml2 before 2.15.4, an inconsistency in xmlOutputWriteCallback and xmlBufUse causes negative lengths to reach write callbacks, aka a lack of a check for integer overflow before calling writecallback. This has security relevance for many types of uses of that length value within a callback.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86143",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 2,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:L",
+              "V3Score": 7.3
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L",
+              "V3Score": 6.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-86144",
+          "package": "libxml2",
+          "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libxml2: libxml2: Information disclosure, SSRF, or denial of service due to improper parseFlags propagation.",
+          "description": "In xinclude in libxml2 before 2.15.4, xmlXIncludeProcess and xmlXIncludeProcessTree do not propagate parseFlags. This has security relevance for, for example, the XML_PARSE_NONET flag, if (without it) a custom resource loader accesses the internet and triggers XML external entity injection, SSRF, or a denial of service (e.g., for an attacker-controlled internet resource that is intentionally slow).",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-86144",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 2,
+            "azure": 2,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:L",
+              "V3Score": 5.6
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88807",
+          "package": "libxrender1",
+          "installed_version": "1:0.9.12-1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "libXrender: libXrender: Code injection via heap overflow in RenderQueryPictFormats",
+          "description": "A heap overflow in libXrender before 0.9.13 in RenderQueryPictFormats could be used by malicious X servers to inject code into attached X clients.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88807",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:H/A:H",
+              "V3Score": 8.3
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "login",
+          "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "login",
+          "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "login",
+          "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "login",
+          "installed_version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "mount",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "mount",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "mount",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "mount",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2025-69720",
+          "package": "ncurses-base",
+          "installed_version": "6.5+20250216-2",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+          "description": "The infocmp command-line tool in ncurses before 6.5-20251213 has a stack-based buffer overflow in analyze_string in progs/infocmp.c.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "vendor_severity": {
+            "alma": 2,
+            "azure": 4,
+            "cbl-mariner": 4,
+            "julia": 3,
+            "nvd": 3,
+            "oracle-oval": 2,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 1
+          },
+          "cvss": {
+            "julia": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2025-69720",
+          "package": "ncurses-bin",
+          "installed_version": "6.5+20250216-2",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.",
+          "description": "The infocmp command-line tool in ncurses before 6.5-20251213 has a stack-based buffer overflow in analyze_string in progs/infocmp.c.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2025-69720",
+          "vendor_severity": {
+            "alma": 2,
+            "azure": 4,
+            "cbl-mariner": 4,
+            "julia": 3,
+            "nvd": 3,
+            "oracle-oval": 2,
+            "photon": 3,
+            "redhat": 2,
+            "rocky": 2,
+            "ubuntu": 1
+          },
+          "cvss": {
+            "julia": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-9538",
+          "package": "perl-base",
+          "installed_version": "5.40.1-6+deb13u1",
+          "fixed_version": null,
+          "status": "fix_deferred",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "perl-Archive-Tar: perl-Archive-Tar: Denial of Service via crafted tar header with large entry size",
+          "description": "Archive::Tar versions before 3.10 for Perl allow memory exhaustion via attacker controlled entry size field in tar header.\n\n_read_tar() reads each entry's payload with $handle->read($$data, $block), where $block is derived from the entry's 12-byte size field in the tar header with no upper bound on that value.\n\nA crafted header declaring a multi-gigabyte size causes Perl to allocate a scalar of that size.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-9538",
+          "vendor_severity": {
+            "alma": 3,
+            "amazon": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-73066",
+          "package": "tesseract-ocr",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata",
+          "description": "Tesseract is an open source OCR engine. Prior to 5.5.3, a crafted .traineddata LSTM model component loaded through Tesseract's deserializer can cause an unchecked signed integer multiplication in Convolve::DeSerialize in src/lstm/convolve.cpp to wrap the convolution output-channel count, undersizing the forward-pass output buffer while writes use the unwrapped element count and causing a heap out-of-bounds write during OCR recognition. This issue is fixed in version 5.5.3.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-73066",
+          "vendor_severity": {
+            "alma": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:H",
+              "V3Score": 7.1
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88047",
+          "package": "tesseract-ocr",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, Classify::ReadNormProtos in src/classify/normmatch.cpp parses the NORMPROTO component of a .traineddata file and uses std::istream::operator>>(char*) to extract a whitespace-delimited token into a fixed 61-byte stack buffer without setting a stream width. The 100-byte line buffer can carry a token of up to 99 characters, so a token longer than 60 characters writes up to 39 attacker-controlled bytes past the buffer during TessBaseAPI::Init of the legacy engine, causing stack corruption, denial of service, and potentially control-flow hijacking on affected standard-library implementations. Builds using Apple's libc++ C++20 bounded array overload are incidentally protected, while typical libstdc++ builds remain affected. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88047",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88048",
+          "package": "tesseract-ocr",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, FullyConnected::DeSerialize in src/lstm/fullyconnected.cpp does not validate the deserialized layer scalars ni_ and no_ against the weight-matrix dimensions. During FullyConnected::Forward, MatrixDotVector in src/lstm/weightmatrix.cpp writes w.dim1() results into temp_line, which is sized from no_, and reads w.dim2() minus one inputs from curr_input, which is sized from ni_. A crafted .traineddata NT_SOFTMAX layer can therefore use inconsistent dimensions to cause a heap out-of-bounds write and read on the default LSTM engine, resulting in heap corruption, a crash, information disclosure, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88048",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:H",
+              "V3Score": 7.1
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88051",
+          "package": "tesseract-ocr",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, the callback form of GenericVector::read in src/ccutil/genericvector.h reads the independent int32 fields reserved and size_used_ from a .traineddata model without a cap or an invariant check. reserve(reserved) allocates the backing array, but the callback loop writes size_used_ elements. A crafted TESSDATA_INTTEMP component with version_id 4 or later can therefore set reserved to a small value and size_used_ to a large value when fontinfo_table_.read(fp, read_info) is called from src/classify/intproto.cpp, causing a heap out-of-bounds write of FontInfo structures, heap corruption, a crash, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88051",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88052",
+          "package": "tesseract-ocr",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, UNICHARSET::load_via_fgets in src/ccutil/unicharset.cpp trusts the declared unichar count as a loop bound and uses id as an unchecked index into the unichars vector. unichar_insert_backwards_compatible can leave the vector unchanged for an empty, duplicate, or already-encodable representation, causing id to become larger than unichars.size(). Subsequent set_* calls and the write to unichars[id].properties.enabled then write UNICHAR_PROPERTIES beyond the vector during initialization in both the default LSTM and legacy engines, causing heap corruption, a crash, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88052",
+          "vendor_severity": {
+            "alma": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-88053",
+          "package": "tesseract-ocr",
+          "installed_version": "5.5.0-1+b1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file",
+          "description": "Tesseract is an open source OCR engine. In version 5.5.3 and earlier, Classify::ReadIntTemplates in src/classify/intproto.cpp reads NumClassPruners, NumClasses, and NumProtoSets from the TESSDATA_INTTEMP component of a crafted .traineddata file and uses those values as loop bounds without validating them against MAX_NUM_CLASS_PRUNERS, MAX_NUM_CLASSES, and MAX_NUM_PROTO_SETS. The loops store heap pointers into fixed-capacity ClassPruners and ProtoSets arrays in INT_TEMPLATES_STRUCT and INT_CLASS_STRUCT, so an oversized count causes heap out-of-bounds pointer writes during legacy-classifier initialization before OCR begins, resulting in heap corruption, a crash, or potentially controlled corruption. No fixed release is available as of this review.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-88053",
+          "vendor_severity": {
+            "alma": 3,
+            "nvd": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 8.4
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-76642",
+          "package": "util-linux",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks",
+          "description": "util-linux versions through 2.41.5 and 2.42.2 fail to check mount helper exit status before running post-mount hooks, allowing unprivileged users to execute privileged operations on pre-existing filesystems. Attackers can exploit X-mount.idmap or X-mount.owner hooks to clone filesystems with inherited suid bits or modify target inode permissions after a helper fails, achieving privilege escalation.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-76642",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 2,
+            "oracle-oval": 3,
+            "photon": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78408",
+          "package": "util-linux",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority",
+          "description": "The nsenter --join-cgroup option opens the target cgroup.procs file as root and leaves that file descriptor open across later namespace and credential changes and across execve(). Because the kernel checks later cgroup migrations using the credentials from the original open, a program run in an attacker-controlled target can inherit root's ability to move host processes between cgroups. After a privileged operator uses --join-cgroup against that target, an unprivileged user can migrate and terminate unrelated root processes.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78408",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3,
+            "ubuntu": 2
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:C/C:N/I:H/A:H",
+              "V3Score": 7.9
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78409",
+          "package": "util-linux",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks",
+          "description": "The X-mount.subdir option uses a detached-tree fast path on Linux 6.15 and later and passes the configured subdirectory to open_tree() with AT_SYMLINK_NOFOLLOW. That flag does not stop intermediate symlink traversal or keep resolution inside the newly mounted filesystem. A local unprivileged user with an fstab-authorized X-mount.subdir entry can attach a host path at the intended mountpoint.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78409",
+          "vendor_severity": {
+            "redhat": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7
+            }
+          }
+        },
+        {
+          "vulnerability_id": "CVE-2026-78410",
+          "package": "util-linux",
+          "installed_version": "2.41.5-0+deb13u1",
+          "fixed_version": null,
+          "status": "affected",
+          "severity": "HIGH",
+          "data_source": {
+            "ID": "debian",
+            "Name": "Debian Security Tracker",
+            "URL": "https://salsa.debian.org/security-tracker-team/security-tracker"
+          },
+          "title": "util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",
+          "description": "A flaw was found in util-linux. Restricted bind mounts take the source path from fstab but do not pin that source before the privileged mount. A local unprivileged user who can replace the authorized source or a writable ancestor can redirect SUID mount(8) to bind another host directory. If the fstab entry also sets X-mount.owner, X-mount.group, or X-mount.mode, root then changes ownership or mode on that redirected inode.",
+          "primary_url": "https://avd.aquasec.com/nvd/cve-2026-78410",
+          "vendor_severity": {
+            "alma": 3,
+            "azure": 3,
+            "oracle-oval": 3,
+            "redhat": 3,
+            "rocky": 3
+          },
+          "cvss": {
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.8
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
