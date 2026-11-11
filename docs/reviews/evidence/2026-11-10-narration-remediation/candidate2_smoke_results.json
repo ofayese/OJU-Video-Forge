@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "image": {
+    "name": "ovf-narration:minimal-ffmpeg-verified",
+    "digest": "sha256:d34d1a7e546eb8011dc355c65d1fccb6b7b459137a5bcee92001c5970dbb33c6"
+  },
+  "environment": {
+    "network": "none",
+    "root_filesystem": "read-only",
+    "capabilities": "all dropped",
+    "no_new_privileges": true,
+    "cpus": 2,
+    "memory": "2 GiB",
+    "pids_limit": 128,
+    "tmpfs": "512 MiB, noexec, nosuid",
+    "model_volume": "read-only",
+    "database_credentials_passed": false,
+    "docker_socket_mounted": false
+  },
+  "checks": {
+    "ffprobe_h264_aac": "PASS",
+    "ffmpeg_render": "PASS",
+    "faster_whisper_cpu_int8": {
+      "result": "PASS",
+      "transcription_excerpt": "security is important"
+    },
+    "tesseract_english_ocr": {
+      "result": "PASS",
+      "recognized_text": "SYNTHETIC SECURITY",
+      "traineddata_sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    },
+    "espeak_synthesis": "PASS",
+    "source_video_preservation": "PASS",
+    "model_volume_write_probe": "DENIED"
+  },
+  "sha256": {
+    "synthetic_source": "194c72b3fdbc9a304b084ed30e39fa459cf73e62ce62c406652d106f54b98b43",
+    "mixed_output": "9bdf14dd8ee762ca84aa3b10b4f0bc39d5ec734c7d23e33c3bd188d96e6e9c31",
+    "preserved_output": "d099e609c58eb632ffe867e9c6e9a7afa9871f5262b6841a99039e31df7d4546"
+  },
+  "mixed_output_bytes": 55283,
+  "notes": [
+    "Synthetic local media only; no model download or Wan inference.",
+    "Candidate image was not deployed. The smoke container had no network, application credentials, or Docker socket.",
+    "The earlier temporary harness path was not retained, so the exact full smoke command cannot be reconstructed from available history."
+  ]
+}

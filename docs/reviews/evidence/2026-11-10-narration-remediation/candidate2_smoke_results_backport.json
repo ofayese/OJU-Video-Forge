@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "image": {
+    "id": "sha256:22d176c320c73c7b4c31c1b4cca8072b042f6ef763117986f411bb4beb1f9062",
+    "name": "ovf-narration:minimal-ffmpeg-verified"
+  },
+  "fixture_image_id": "sha256:8ac3a73b1ce8d672c368a51914592482f27f03713879a0e8ac901ab8013b06ae",
+  "synthetic_source_sha256": "0210a4d9a755f54efdc8512986011cef08fd24afdddcf8c0cf47fdbd8e02aad7",
+  "environment": {
+    "memory": "2 GiB",
+    "cpus": 2,
+    "model_volume_read_only": true,
+    "docker_socket_mounted": false,
+    "model_volume": "oju-video-forge_narration-models",
+    "root_filesystem": "read-only",
+    "capabilities": "all dropped",
+    "execution_limit_seconds": 300,
+    "database_credentials_passed": false,
+    "network": "none",
+    "no_new_privileges": true,
+    "tmpfs": "512 MiB, noexec, nosuid",
+    "pids_limit": 128,
+    "user": "10001:10001"
+  },
+  "checks": {
+    "asr": {
+      "language": "en",
+      "provider": "faster-whisper-1.2.1/cpu-int8",
+      "segments": [
+        {
+          "avg_logprob": -0.8353366613388061,
+          "end_ms": 2400,
+          "id": "speech-1",
+          "no_speech_prob": 0.15264807641506195,
+          "start_ms": 0,
+          "text": "in a synthetic narration security test."
+        }
+      ],
+      "status": "PASS"
+    },
+    "cpu_compute_types": [
+      "float32",
+      "int16",
+      "int8",
+      "int8_float32"
+    ],
+    "ctranslate2": "4.6.0",
+    "faster_whisper": "1.2.1",
+    "ffprobe": {
+      "format": {
+        "duration": "2.701995"
+      },
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "avg_frame_rate": "12/1",
+          "codec_name": "h264",
+          "codec_type": "video",
+          "duration": "2.666667",
+          "height": 360,
+          "width": 640
+        },
+        {
+          "avg_frame_rate": "0/0",
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "duration": "2.701995"
+        }
+      ]
+    },
+    "media": "PASS",
+    "ocr": "PASS",
+    "ocr_text": "SECURITY\n",
+    "output_bytes": 45156,
+    "output_sha256": "cb68c9c67b912810f0aae49a58f5c200d52261b312e072551ea75362e7a8e6d2",
+    "source_sha256": "0210a4d9a755f54efdc8512986011cef08fd24afdddcf8c0cf47fdbd8e02aad7",
+    "source_visual_identity": "PASS",
+    "tts": "PASS"
+  },
+  "model_volume_write_probe": "DENIED"
+}
