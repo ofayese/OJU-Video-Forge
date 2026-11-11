@@ -15,17 +15,26 @@ import time
 from pathlib import Path
 from typing import Callable, Literal
 from urllib.parse import urlparse
-
 import httpx
+
 from pydantic import BaseModel, ConfigDict, Field
 
 ASR_REVISION = "d90ca5fe260221311c53c58e660288d3deb8d356"
 ASR_SHA256 = "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1"
-TESSERACT_BINARY = "/usr/bin/tesseract"
-TESSDATA_DIR = Path("/usr/share/tesseract-ocr/5/tessdata")
-TESSDATA_ASSET_SHA256 = {
-    "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+
+DOCLING_SERVE_URL = "http://docling-ocr:9623"
+DOCLING_SERVE_VERSION = "1.37.0"
+RAPIDOCR_VERSION = "3.10.0"
+ONNXRUNTIME_VERSION = "1.31.0"
+OCR_MAX_IMAGE_BYTES = 2 * 1024 * 1024
+OCR_MAX_RESPONSE_BYTES = 64 * 1024
+OCR_MAX_TEXT_CHARS = 4000
+OCR_MODEL_SHA256 = {
+    "PP-OCRv6_det_small.onnx": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+    "PP-OCRv6_rec_small.onnx": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+    "ch_ppocr_mobile_v2.0_cls_mobile.onnx": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
 }
+
 VOICES = {"en-us": "English (US)", "en-gb": "English (UK)"}
 MAX_DURATION = 600
 
@@ -156,8 +165,6 @@ def transcribe(source: Path, directory: Path, metadata: dict, check: Callable[[]
     run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(source), "-map", "0:a:0",
          "-t", str(MAX_DURATION), "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
          "-threads", "2", str(wav)], check)
-    # Decode WAV ourselves: faster_whisper 1.2.1 + av 19.x can raise
-    # TypeError on av.open(metadata_errors=...). Pass float32 mono 16k samples.
     import wave
     import numpy as np
     with wave.open(str(wav), "rb") as handle:
@@ -238,25 +245,98 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
             "model_info_sha256": hashlib.sha256(info.content).hexdigest()}
 
 
-def validate_tessdata_assets() -> None:
-    if TESSDATA_DIR.is_symlink() or not TESSDATA_DIR.is_dir():
-        raise NarrationError("ocr_traineddata_untrusted")
-    for language, expected in TESSDATA_ASSET_SHA256.items():
-        asset = TESSDATA_DIR / f"{language}.traineddata"
-        if asset.is_symlink() or not asset.is_file() or digest(asset) != expected:
-            raise NarrationError("ocr_traineddata_untrusted")
+def extract_ocr(frame: Path, check: Callable[[], None]) -> dict:
+    if frame.is_symlink() or not frame.is_file():
+        raise NarrationError("ocr_frame_invalid")
+    try:
+        with frame.open("rb") as image_file:
+            image = image_file.read(OCR_MAX_IMAGE_BYTES + 1)
+    except OSError as exc:
+        raise NarrationError("ocr_frame_unavailable") from exc
+    if (len(image) < 4 or len(image) > OCR_MAX_IMAGE_BYTES
+            or not image.startswith(b"\xff\xd8\xff")
+            or not image.endswith(b"\xff\xd9")):
+        raise NarrationError("ocr_frame_invalid")
+
+    check()
+    form = {
+        "from_formats": "image",
+        "to_formats": "text",
+        "do_ocr": "true",
+        "force_ocr": "true",
+        "ocr_preset": "rapidocr",
+        "ocr_lang": "en",
+    }
+    try:
+        with httpx.Client(
+            timeout=httpx.Timeout(connect=2, read=30, write=5, pool=2),
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
+            with client.stream(
+                "POST",
+                f"{DOCLING_SERVE_URL}/v1/convert/file",
+                data=form,
+                files={"files": ("frame.jpg", image, "image/jpeg")},
+                headers={"Accept": "application/json"},
+            ) as response:
+                check()
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").lower()
+                if "application/json" not in content_type:
+                    raise NarrationError("ocr_service_invalid_response")
+                length = response.headers.get("content-length")
+                if length is not None:
+                    try:
+                        response_length = int(length)
+                    except ValueError as exc:
+                        raise NarrationError("ocr_service_invalid_response") from exc
+                    if response_length < 0 or response_length > OCR_MAX_RESPONSE_BYTES:
+                        raise NarrationError("ocr_response_limit")
+                body = bytearray()
+                for chunk in response.iter_bytes(8192):
+                    check()
+                    if len(body) + len(chunk) > OCR_MAX_RESPONSE_BYTES:
+                        raise NarrationError("ocr_response_limit")
+                    body.extend(chunk)
+    except httpx.TimeoutException as exc:
+        raise NarrationError("ocr_service_timeout") from exc
+    except httpx.HTTPStatusError as exc:
+        raise NarrationError("ocr_service_error") from exc
+    except httpx.RequestError as exc:
+        raise NarrationError("ocr_service_unavailable") from exc
+
+    try:
+        result = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise NarrationError("ocr_service_invalid_response") from exc
+    check()
+    document = result.get("document") if isinstance(result, dict) else None
+    if (not isinstance(document, dict) or result.get("status") != "success"):
+        raise NarrationError("ocr_service_conversion_failed")
+    text = document.get("text_content")
+    if text is None:
+        text = ""
+    if not isinstance(text, str) or len(text) > OCR_MAX_TEXT_CHARS:
+        raise NarrationError("ocr_text_limit")
+
+    return {
+        "text": text.strip(),
+        "provenance": {
+            "provider": "docling-serve",
+            "provider_version": DOCLING_SERVE_VERSION,
+            "engine": "rapidocr",
+            "engine_version": RAPIDOCR_VERSION,
+            "runtime": f"onnxruntime-{ONNXRUNTIME_VERSION}",
+            "model_sha256": dict(OCR_MODEL_SHA256),
+        },
+    }
 
 
 def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOptions,
            check: Callable[[], None]) -> list[dict]:
     duration = float(metadata["format"]["duration"])
     count = min(12, max(1, math.ceil(duration / 10)))
-    tesseract_available = Path(TESSERACT_BINARY).is_file()
-    ocr_env = None
-    if tesseract_available:
-        validate_tessdata_assets()
-        ocr_env = os.environ.copy()
-        ocr_env.pop("TESSDATA_PREFIX", None)
     output = []
     previous = None
     for index in range(count):
@@ -270,14 +350,11 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
                       "-vf", "scale=64:36", "-frames:v", "1", "-pix_fmt", "gray",
                       "-f", "rawvideo", "-"], check, 30)
         change = previous is not None and sum(abs(a - b) for a, b in zip(previous, pixels)) / len(pixels) > 20
+        ocr_result = extract_ocr(frame, check)
         item = {"id": f"frame-{index}", "timestamp_ms": round(seconds * 1000),
                 "frame_sha256": digest(frame), "major_change": change,
-                "ocr": None, "vision": None}
-        if tesseract_available:
-            item["ocr"] = run([
-                TESSERACT_BINARY, str(frame), "stdout", "-l", "eng",
-                "--tessdata-dir", str(TESSDATA_DIR),
-            ], check, 30, env=ocr_env).decode()[:4000]
+                "ocr": ocr_result["text"], "ocr_provenance": ocr_result["provenance"],
+                "vision": None}
         if options.vision and index < 6:
             item["vision"] = vision(frame, check)
         output.append(item)
@@ -305,7 +382,6 @@ def validate_script(script: list[dict], duration_ms: int) -> list[dict]:
 
 
 def draft(analysis: dict, options: NarrationOptions) -> list[dict]:
-    # Copy evidence verbatim rather than inventing instructions or interface actions.
     script = []
     duration = round(float(analysis["media"]["format"]["duration"]) * 1000)
     for item in analysis["transcript"]["segments"]:
@@ -345,7 +421,7 @@ def subtitles(segments: list[dict], fmt: str) -> bytes:
     for index, item in enumerate(segments, 1):
         if item["text"].strip():
             cues.append(f"{index}\n{stamp(item['start_ms'])} --> {stamp(item['end_ms'])}\n{item['text']}\n")
-    return (("WEBVTT\n\n" if fmt == "vtt" else "") + "\n".join(cues)).encode()
+    return (("WEBVTT\n\n" if fmt == 'vtt' else "") + "\n".join(cues)).encode()
 
 
 def synthesize(script: list[dict], directory: Path, options: NarrationOptions,

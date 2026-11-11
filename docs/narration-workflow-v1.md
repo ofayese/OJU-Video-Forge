@@ -11,17 +11,20 @@ Apply Alembic `0011` after `0010` through the normal approved deployment process
 do not apply acceptance migrations to a shared database. The optional
 `compose.narration.yaml` overlay replaces the render-worker **image**, not the
 queue or its volumes. Merge it after the usual Compose files (including the GPU
-overlay if already used). Build `services/narration/Dockerfile` before approved
-deployment. API and frontend must also be rebuilt from this revision; a successful
-test against read-only source mounts does not update running services.
+overlay if already used). It also adds a CPU-only Docling OCR service on a new,
+internal network shared only with the render worker. Build
+`services/narration/Dockerfile` and `services/docling-ocr/Dockerfile.docling-ocr`
+before approved deployment. API and frontend must also be rebuilt from this
+revision; a successful test against read-only source mounts does not update
+running services.
 
 The worker image pins Python 3.12 Trixie by digest, eSpeak NG
-`1.52.0+dfsg-5` (GPL-3.0-or-later; bundled English voices),
-FFmpeg `7:7.1.5-0+deb13u1`, Tesseract `5.5.0-1+b1`, and English OCR data
-`1:4.1.0-2`. Python ASR dependencies are hash-locked in
-`requirements-narration.lock.txt`: faster-whisper `1.2.1` and CTranslate2
-`4.6.0`. Packages imported successfully in the built Linux container.
-No Windows runtime dependencies were installed.
+`1.52.0+dfsg-5` (GPL-3.0-or-later; bundled English voices), and FFmpeg
+`7:7.1.5-0+deb13u1`. OCR runs in the separate pinned Docling Serve CPU image;
+Tesseract is not installed in the narration worker. Python ASR dependencies are
+hash-locked in `requirements-narration.lock.txt`: faster-whisper `1.2.1` and
+CTranslate2 `4.6.0`. Packages imported successfully in the built Linux
+container. No Windows runtime dependencies were installed.
 
 The narration image additionally pins Debian's zlib security backport
 `1:1.3.dfsg+really1.3.1-1+deb13u1`. Its security gate remains blocked on other
@@ -37,7 +40,7 @@ Proposed source: `Systran/faster-whisper-tiny` (MIT), revision
 <https://huggingface.co/Systran/faster-whisper-tiny/tree/d90ca5fe260221311c53c58e660288d3deb8d356>.
 
 | File | Bytes | Published identity |
-|---|---:|---|
+| --- | ---: | --- |
 | model.bin | 75,538,270 | SHA-256 `dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1` |
 | config.json | 2,249 | Git blob `3baa18e2b321a2f489614607852a729fcd516480` |
 | tokenizer.json | 2,203,239 | Git blob `7818adb6de9fa3064d3ff81226fdd675be1f6344` |
@@ -62,11 +65,28 @@ not discard a successful transcript or block manual script authoring/approval.
 Cancellation still stops the job; ASR failures are not converted into successful
 transcripts.
 
-OCR is local Tesseract, not scene/action understanding. At most 12 timestamped
-frames are sampled over a maximum 600-second source. Sampled grayscale change
-detection identifies major visual changes, not exact mouse actions or a complete
-scene-cut timeline. At most six frames may be sent to a configured local Ollama
-vision model with explicit UI opt-in. Set `NARRATION_VISION_URL` to an approved
+OCR uses Docling Serve `1.37.0` and RapidOCR `3.10.0` with the pinned CPU image
+`quay.io/docling-project/docling-serve-cpu@sha256:8376600bcc1ba41d06b26f4af10fe1ba0071578e85d0857447f4c2fdda9308a8`.
+The worker posts only bounded JPEG frames to the fixed
+`http://docling-ocr:9623/v1/convert/file` endpoint, with the `rapidocr` preset.
+The response, extracted text and request time are bounded; redirects, proxy
+environment variables and retries are disabled. The response records Docling,
+RapidOCR, ONNX Runtime and model-file checksum provenance.
+
+The OCR service has no published port, model or application-storage mounts, or
+database/Redis credentials. It is connected only to the worker through the
+internal `narration-ocr` network; its root filesystem is read-only and its
+CPU, memory, process count and temporary storage are bounded. Docling Serve
+1.37.0 does not provide a built-in OCR-preset allowlist: custom OCR configuration
+is disabled, and only the trusted worker client is allowed onto this network;
+the client explicitly sends `rapidocr`. This is a network/client boundary, not
+a server-side preset whitelist.
+
+At most 12 timestamped frames are sampled over a maximum 600-second source.
+Sampled grayscale change detection identifies major visual changes, not exact
+mouse actions or a complete scene-cut timeline. At most six frames may be sent
+to a configured local Ollama vision model with explicit UI opt-in. Set
+`NARRATION_VISION_URL` to an approved
 loopback/`host.docker.internal`/`ollama` HTTP endpoint and
 `NARRATION_VISION_MODEL` to an approved installed model. Public endpoints,
 redirects and environment HTTP proxies are not used. Capability is checked before
@@ -75,15 +95,55 @@ and no keep-alive. No inference service is exposed publicly or reconfigured.
 Interpretations are explicitly uncertain and require human review. Real VLM
 interpretation was not exercised; installed-model metadata advertised vision.
 
-OCR invokes only `/usr/bin/tesseract` with English and the fixed
-`/usr/share/tesseract-ocr/5/tessdata` directory. The packaged
-`eng.traineddata` must match the pinned SHA-256
-`7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2`;
-`TESSDATA_PREFIX` is removed for the OCR subprocess. Uploaded media is input
-image data only and cannot select or supply traineddata. A missing, symlinked,
-or mismatched trusted asset reports `ocr_traineddata_untrusted` and makes
-optional scene analysis unavailable rather than falling back to an upload or
-environment-selected model.
+OCR model files are bundled in the pinned Docling CPU image; the narration
+worker cannot select or supply OCR models. Hugging Face offline mode and
+Docling's remote-service option are disabled. The earlier synthetic OCR
+acceptance used Tesseract before this replacement and is historical evidence;
+it does not validate the Docling service or its RapidOCR inference.
+The current service smoke is `scripts/smoke_docling_ocr.py`; unlike the
+historical Tesseract runtime smoke, it requires the private Docling network but
+does not require or download the Whisper model.
+
+### Docling integration verification and image security (2026-11-11)
+
+The local synthetic MP4 smoke passed through the narration frame extractor and
+the healthy Docling sidecar. RapidOCR returned `SYNTHETIC-OCR-TEST` and
+provenance for Docling Serve 1.37.0, RapidOCR 3.10.0, ONNX Runtime 1.31.0 and
+the three bundled model checksums. No Whisper model or remote inference was
+used. The merged Compose configuration passed; runtime inspection confirmed
+UID 1001, read-only root, CPU/memory/PID limits, dropped capabilities, no
+published ports or credential environment variables, and an internal-only OCR
+network.
+
+Trivy 0.76.2 scanned OS and library vulnerabilities with one refreshed database
+(`UpdatedAt: 2026-11-11T19:04:54Z`), `--scanners vuln
+--severity HIGH,CRITICAL`, and no `--ignore-unfixed`. These are strict findings,
+not security acceptance:
+
+| Image | Local image ID | OS | HIGH | CRITICAL | H/C records | Unique H/C CVEs | Packages |
+|---|---|---|---:|---:|---:|---:|---:|
+| Baseline `ovf-narration:test-security` | `sha256:99a0ab1af5e2b8785dfedb3916de0d209aafa86a3d307e10fc6af9bcd135d83b` | Debian 13.7 | 295 | 1 | 296 | 74 | 44 |
+| Replacement `oju-video-forge-narration:docling-ocr` | `sha256:a6a709b69b2e381eee281a7a241150423ce53e3ed95527e6809d0b5ac880c7af` | Debian 13.7 | 281 | 1 | 282 | 66 | 41 |
+| OCR `oju-video-forge-docling-ocr:1.37.0` | `sha256:61a0357faf78e0e8df2fa5e20058d03a398d0517e6b6e4ad3c0b67c3fead7988` | CentOS Stream 9 | 16 | 0 | 16 | 16 | 8 |
+
+All three strict image scans exited 1. The eight baseline-only CVEs are the six
+Tesseract CVEs and two libcurl CVEs; their `tesseract-ocr`, `libtesseract5` and
+`libcurl4t64` packages are absent from the replacement image. This is package
+removal, not patching or acceptance. No replacement-only H/C CVEs were reported.
+The replacement still has 281 HIGH and one CRITICAL finding, dominated by the
+FFmpeg/libav package family (17 repeated package findings per binary package).
+The Docling findings are in `pyasn1` (4), `aiohttp` (3), Jackson Databind (3),
+Jackson Core (2), and Guava, oauthlib, httpcore5 and virtualenv (one each).
+Trivy reports fixed versions for those Docling findings, but this pinned base
+image does not contain them; refreshing that base requires compatibility
+validation and a new scan. No finding was suppressed and no risk was accepted.
+
+Trivy's Dockerfile configuration scan reported zero HIGH/CRITICAL
+misconfigurations for the narration and Docling Dockerfiles using embedded
+checks. The Compose YAML was not recognized by that misconfiguration scanner;
+its isolation was checked with the focused Compose tests, rendered
+configuration and runtime inspection instead. The image scan JSON was retained
+only in temporary local storage, not committed.
 
 ## API and review
 
@@ -182,7 +242,7 @@ network disabled for tests. The frontend image was
 read-only and network disabled.
 
 | Exact command inside the container | Exit | Actual result |
-|---|---:|---|
+| --- | ---: | --- |
 | `python -m pytest -q -p no:cacheprovider tests/test_narration.py tests/test_narration_media.py tests/test_api_gpu.py tests/test_review.py` | 0 | 109 passed, 5 deprecation warnings |
 | `ruff check app tests alembic scripts` | 0 | Passed |
 | `npm run typecheck && npm test -- src/api/client.test.ts src/ui/App.test.tsx src/ui/NarrationWorkspace.test.tsx && npm run build` | 0 | Type checking, 38 tests, production build passed |

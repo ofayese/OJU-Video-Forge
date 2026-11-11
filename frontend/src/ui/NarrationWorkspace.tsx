@@ -178,6 +178,9 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       <details><summary>Timestamped scene evidence (not confirmed actions)</summary>
         {row.analysis.scenes?.map((scene) => <p key={scene.id}>{scene.id} · {scene.timestamp_ms} ms
           {scene.major_change ? " · visual change detected" : ""} · OCR: {scene.ocr ?? "unavailable"}
+          · OCR engine: {scene.ocr_provenance
+            ? `${scene.ocr_provenance.engine} ${scene.ocr_provenance.engine_version} (${scene.ocr_provenance.provider} ${scene.ocr_provenance.provider_version})`
+            : "unavailable"}
           · Vision: {scene.vision?.text ?? "not analyzed"}</p>)}
       </details>
       {script.map((segment, index) => <fieldset disabled={busy || !editable} key={segment.id}>
