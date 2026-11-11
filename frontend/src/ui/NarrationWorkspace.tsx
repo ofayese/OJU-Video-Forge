@@ -87,6 +87,17 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
     }, 3000);
     return () => { active = false; clearInterval(timer); };
   }, [row?.id, row?.stage, projectId, token]);
+  function safeHref(url: string | undefined) {
+    if (!url) return undefined;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return parsed.protocol === "blob:" || parsed.protocol === "https:" || parsed.protocol === "http:"
+        ? url
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   async function download(id: string, kind: "source" | "video" | "audio" | "download") {
     const ticket = epoch.current;
     setError("");
@@ -240,7 +251,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         (item.script_revision === row.revision || item.filename.startsWith("transcript.") ||
          item.filename === "analysis.json")).map((item) =>
         <p key={item.id}><button onClick={() => void download(item.id, "download")}>Load {item.filename}</button>
-          {downloads[item.id] && <a href={downloads[item.id]} download={String(item.filename).replace(/[^\w.\-]+/g,"_")} rel="noopener">Download {item.filename}</a>}</p>)}
+          {downloads[item.id] && <a href={safeHref(downloads[item.id])} download={String(item.filename).replace(/[^\w.\-]+/g,"_")} rel="noopener">Download {item.filename}</a>}</p>)}
     </>}
   </section>;
 }
