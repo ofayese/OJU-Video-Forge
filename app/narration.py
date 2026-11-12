@@ -269,7 +269,7 @@ def extract_ocr(frame: Path, check: Callable[[], None]) -> dict:
     }
     try:
         with httpx.Client(
-            timeout=httpx.Timeout(connect=2, read=30, write=5, pool=2),
+            timeout=httpx.Timeout(connect=2, read=120, write=5, pool=2),
             trust_env=False,
             follow_redirects=False,
         ) as client:
