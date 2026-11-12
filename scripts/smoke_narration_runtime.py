@@ -66,7 +66,8 @@ def main():
         text = " ".join(segment["text"] for segment in transcript["segments"])
         if "security" not in text.lower():
             raise RuntimeError("Synthetic speech was not recognized")
-        if any(not 0 <= segment["start_ms"] < segment["end_ms"] <= 6150
+        duration_ms = round(float(metadata["format"]["duration"]) * 1000)
+        if any(not 0 <= segment["start_ms"] < segment["end_ms"] <= duration_ms + 150
                for segment in transcript["segments"]):
             raise RuntimeError("Transcription timestamps exceed the synthetic clip")
         report["asr"] = {"status": "PASS", "language": transcript["language"],
