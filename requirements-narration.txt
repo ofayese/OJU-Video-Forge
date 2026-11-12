@@ -1,5 +1,6 @@
 -c requirements.lock.txt
 faster-whisper==1.2.1
+<<<<<<< HEAD
 ctranslate2==4.6.0
 pillow>=13.0.0
 certifi>=2026.10.18
@@ -8,3 +9,6 @@ filelock>=4.2.1
 oauthlib>=4.0.1
 pyasn1>=0.6.5
 virtualenv>=21.14.9
+=======
+ctranslate2==4.8.5
+>>>>>>> origin/main

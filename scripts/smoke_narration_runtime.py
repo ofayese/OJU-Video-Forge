@@ -202,8 +202,9 @@ def _check():
             text = " ".join(segment["text"] for segment in transcript["segments"])
             if transcript["status"] != "transcribed" or "security" not in text.lower():
                 raise RuntimeError(f"synthetic_speech_not_recognized:{text}")
+            duration_ms = round(float(metadata["format"]["duration"]) * 1000)
             if any(
-                not 0 <= segment["start_ms"] < segment["end_ms"] <= 6150
+                not 0 <= segment["start_ms"] < segment["end_ms"] <= duration_ms + 150
                 for segment in transcript["segments"]
             ):
                 raise RuntimeError("transcription_timestamps_out_of_clip")

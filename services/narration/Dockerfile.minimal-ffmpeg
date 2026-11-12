@@ -42,7 +42,8 @@ RUN curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2" \
         --disable-ffplay \
         --enable-ffprobe \
         --enable-ffmpeg \
-        --disable-avdevice \
+        --disable-devices \
+        --enable-indev=lavfi \
         --disable-postproc \
         --disable-swscale-alpha \
         --disable-lzma \
