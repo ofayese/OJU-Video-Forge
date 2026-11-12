@@ -1,0 +1,17 @@
+services:
+  docling-ocr:
+    build:
+      context: .
+      dockerfile: services/docling-ocr/Dockerfile.docling-ocr-gpu
+    image: oju-video-forge-docling-ocr:1.37.0-gpu
+    environment:
+      DOCLING_DEVICE: cuda:0
+    cpus: 1.0
+    mem_limit: 4g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
