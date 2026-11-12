@@ -5,6 +5,24 @@ import type { MediaAsset, NarrationResult, NarrationSegment, NarrationSettings }
 const PROCESSING = new Set(["queued", "transcribing", "analyzing_scenes", "drafting_script",
   "synthesizing_audio", "mixing_audio", "verifying_artifact"]);
 
+export function safeHref(url: string | undefined, trustedOrigin: string | undefined): string | undefined {
+  if (!url || !trustedOrigin) return undefined;
+  try {
+    const originUrl = new URL(trustedOrigin);
+    if (!["http:", "https:"].includes(originUrl.protocol) || originUrl.username || originUrl.password) {
+      return undefined;
+    }
+    const parsed = new URL(url, originUrl.origin);
+    if (!["blob:", "http:", "https:"].includes(parsed.protocol) ||
+      parsed.origin !== originUrl.origin || parsed.username || parsed.password) {
+      return undefined;
+    }
+    return parsed.href;
+  } catch {
+    return undefined;
+  }
+}
+
 export function narrationVideo(row: NarrationResult) {
   return row.stage === "awaiting_review"
     ? row.artifacts.find((item) => item.job_id === row.job_id &&
@@ -87,18 +105,10 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
     }, 3000);
     return () => { active = false; clearInterval(timer); };
   }, [row?.id, row?.stage, projectId, token]);
-  function safeHref(url: string | undefined) {
-    if (!url) return undefined;
-    try {
-      const base = typeof window !== "undefined" ? window.location.origin : undefined;
-      const parsed = new URL(url, base);
-      return parsed.protocol === "blob:" || parsed.protocol === "https:" || parsed.protocol === "http:"
-        ? parsed.href
-        : undefined;
-    } catch {
-      return undefined;
-    }
-  }
+  const trustedOrigin = typeof globalThis.location === "undefined"
+    ? undefined
+    : globalThis.location.origin;
+  const videoDownloadHref = safeHref(videoUrl, trustedOrigin);
   async function download(id: string, kind: "source" | "video" | "audio" | "download") {
     const ticket = epoch.current;
     setError("");
@@ -247,12 +257,16 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       {audioUrl && <audio controls src={audioUrl} aria-label="Approved narration audio" />}
       {output && <button onClick={() => void download(output.id, "video")}>Preview completed narration MP4</button>}
       {videoUrl && <><video controls src={videoUrl} aria-label="Narrated source video" style={{ maxWidth: "100%" }} />
-        <a href={videoUrl} download="narrated-video.mp4" rel="noopener">Download narrated MP4</a></>}
+        {videoDownloadHref && <a href={videoDownloadHref} download="narrated-video.mp4" rel="noopener">
+          Download narrated MP4</a>}</>}
       {row.artifacts.filter((item) => item.filename !== "video.mp4" &&
         (item.script_revision === row.revision || item.filename.startsWith("transcript.") ||
-         item.filename === "analysis.json")).map((item) =>
-        <p key={item.id}><button onClick={() => void download(item.id, "download")}>Load {item.filename}</button>
-          {downloads[item.id] && <a href={safeHref(downloads[item.id])} download={String(item.filename).replace(/[^\w.\-]+/g,"_")} rel="noopener">Download {item.filename}</a>}</p>)}
+         item.filename === "analysis.json")).map((item) => {
+        const href = safeHref(downloads[item.id], trustedOrigin);
+        return <p key={item.id}><button onClick={() => void download(item.id, "download")}>Load {item.filename}</button>
+          {href && <a href={href} download={String(item.filename).replace(/[^\w.\-]+/g,"_")} rel="noopener">
+            Download {item.filename}</a>}</p>;
+      })}
     </>}
   </section>;
 }

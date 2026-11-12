@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ApiClient } from "../api/client";
 import type { NarrationResult } from "../api/types";
-import { NarrationWorkspace, narrationVideo } from "./NarrationWorkspace";
+import { NarrationWorkspace, narrationVideo, safeHref } from "./NarrationWorkspace";
 
 function result(stage = "awaiting_review"): NarrationResult {
   return {
@@ -16,6 +16,18 @@ function result(stage = "awaiting_review"): NarrationResult {
 }
 
 describe("source narration", () => {
+  it("allows same-origin downloads and rejects unsafe or cross-origin destinations", () => {
+    const origin = "https://forge.example";
+    expect(safeHref("blob:https://forge.example/123", origin)).toBe("blob:https://forge.example/123");
+    expect(safeHref("/v1/artifacts/123", origin)).toBe("https://forge.example/v1/artifacts/123");
+    expect(safeHref("https://forge.example/v1/artifacts/123", origin))
+      .toBe("https://forge.example/v1/artifacts/123");
+    expect(safeHref("https://other.example/file", origin)).toBeUndefined();
+    expect(safeHref("blob:https://other.example/123", origin)).toBeUndefined();
+    expect(safeHref("javascript:alert(1)", origin)).toBeUndefined();
+    expect(safeHref("data:text/html,unsafe", origin)).toBeUndefined();
+    expect(safeHref("blob:https://forge.example/123", undefined)).toBeUndefined();
+  });
   it("only selects a completed artifact from the current narration job", () => {
     expect(narrationVideo(result())?.id).toBe("new-video");
     expect(narrationVideo(result("awaiting_script_approval"))).toBeUndefined();
