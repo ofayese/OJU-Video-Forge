@@ -13,8 +13,14 @@ from sqlalchemy import select
 
 from . import narration as media
 from .core import (
-    ARTIFACT_ROOT, Audit, MediaAsset, Narration, NarrationRevision,
-    ProjectMembership, User, WorkflowArtifact,
+    ARTIFACT_ROOT,
+    Audit,
+    MediaAsset,
+    Narration,
+    NarrationRevision,
+    ProjectMembership,
+    User,
+    WorkflowArtifact,
 )
 from .private_storage import private_file, write_private_file
 
@@ -88,15 +94,37 @@ def execute(db, job, check):
                 )
                 db.add(Audit(job_id=job.id, actor="worker",
                              action="narration:optional_scene_analysis_unavailable"))
+            provider_error = any(
+                item.get("ocr_status") == "unavailable"
+                or item.get("vision_status") == "unavailable"
+                for item in observations
+            )
+            if provider_error:
+                db.add(Audit(job_id=job.id, actor="worker",
+                             action="narration:optional_scene_provider_unavailable"))
             stage(db, row, "drafting_script", check)
             row.analysis = {
                 "media": metadata, "transcript": transcript, "scenes": observations,
                 "scene_analysis": {
-                    "status": "unavailable" if scene_error else "complete",
-                    "error": scene_error,
+                    "status": (
+                        "unavailable" if scene_error
+                        else "partial" if provider_error
+                        else "complete"
+                    ),
+                    "error": scene_error or (
+                        "one_or_more_optional_providers_failed" if provider_error else None
+                    ),
                 },
+                "ocr": (
+                    "unavailable_optional_scene_analysis" if scene_error
+                    else "partial" if any(item.get("ocr_status") == "unavailable" for item in observations)
+                    else "complete" if options.ocr
+                    else "unavailable_not_requested"
+                ),
                 "vision": (
                     "unavailable_optional_scene_analysis" if scene_error
+                    else "partial_local_model_observations_require_review"
+                    if options.vision and any(item.get("vision_status") == "unavailable" for item in observations)
                     else "local_model_observations_require_review" if options.vision
                     else "unavailable_not_requested"
                 ),

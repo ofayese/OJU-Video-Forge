@@ -12,6 +12,14 @@ case "$environment" in
     ;;
   *) printf '%s\n' 'Unknown environment.' >&2; exit 1 ;;
 esac
+if [[ "${1:-}" == "--narration" ]]; then
+  if [[ "$environment" != "application" ]]; then
+    printf '%s\n' 'The narration overlay is supported only for the application environment.' >&2
+    exit 1
+  fi
+  files+=(-f "$root/compose.narration.yaml")
+  shift
+fi
 if [[ -n "${COMPOSE_PROJECT_NAME:-}${COMPOSE_FILE:-}${COMPOSE_PROFILES:-}" ]]; then
   printf '%s\n' 'Unset COMPOSE_PROJECT_NAME, COMPOSE_FILE, and COMPOSE_PROFILES first.' >&2
   exit 1

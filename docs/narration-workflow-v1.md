@@ -10,13 +10,72 @@ is introduced. Canonical services and media were not changed during validation.
 Apply Alembic `0011` after `0010` through the normal approved deployment process;
 do not apply acceptance migrations to a shared database. The optional
 `compose.narration.yaml` overlay replaces the render-worker **image**, not the
-queue or its volumes. Merge it after the usual Compose files (including the GPU
-overlay if already used). It also adds a CPU-only Docling OCR service on a new,
-internal network shared only with the render worker. Build
-`services/narration/Dockerfile` and `services/docling-ocr/Dockerfile.docling-ocr`
-before approved deployment. API and frontend must also be rebuilt from this
-revision; a successful test against read-only source mounts does not update
-running services.
+queue or its volumes. It adds `docling-ocr` to the canonical `oju-video-forge`
+project on an internal network shared with the render worker. The overlay is
+not a standalone Compose file: use it after `compose.yaml`. API, frontend and
+worker images must contain the selected revision; tests against source mounts do
+not update running services.
+
+### Canonical narration lifecycle
+
+After separate deployment approval and verification of the private `.env`,
+select the narration overlay for every lifecycle command:
+
+```powershell
+.\scripts\forge.ps1 -Environment application -Narration -Plan
+.\scripts\forge.ps1 -Environment application -Narration config --quiet
+.\scripts\forge.ps1 -Environment application -Narration up -d --wait
+.\scripts\forge.ps1 -Environment application -Narration ps
+.\scripts\forge.ps1 -Environment application -Narration logs --tail 50 docling-ocr
+.\scripts\forge.ps1 -Environment application -Narration restart docling-ocr
+.\scripts\forge.ps1 -Environment application -Narration stop
+```
+
+The Bash equivalent uses `bash scripts/forge.sh application --narration`
+before the Compose operation. The helpers select `compose.yaml` followed by
+`compose.narration.yaml` under project `oju-video-forge`; omitting the option
+does not manage Docling. The TCP health check shows only that port 9623 accepts
+connections, not that OCR works or that a 120-second end-to-end deadline is
+enforced. Use an authorized synthetic end-to-end smoke to verify actual OCR.
+
+The CPU image is `oju-video-forge/docling-ocr:1.37.0`. Verify its image ID
+against the approved local image before startup; the historical
+`oju-video-forge-docling-ocr:1.37.0` tag is retained for rollback. A local
+image ID is not a registry manifest digest: pin a verified registry digest
+when one is available, rather than assuming a local tag is immutable. No
+retagging or rebuild is needed if the approved image already has both tags.
+
+The worker joins `control`, `inference` and the project-owned internal
+`narration-ocr` network; Docling joins only `narration-ocr`, with no published
+port, database/Redis credentials, Docker socket or mounts. The private DNS name
+is `docling-ocr:9623`. Network attachment does not allocate a GPU. Docling
+runs as UID 1001 with a read-only root, dropped capabilities, no-new-privileges,
+0.5 CPU, 2 GiB memory, 64 PIDs and a 512 MiB restricted temporary filesystem.
+The server's document and synchronous wait limits are 120 seconds; the worker's
+HTTP read timeout is 120 seconds per read, not a proven total wall-clock limit.
+
+RapidOCR models are bundled in the Docling image, not a Docker volume, and
+offline mode prevents model downloads. The independent project-scoped
+`oju-video-forge_narration-models` volume is mounted read-only by the worker
+for approved Whisper assets. Do not create a replacement OCR model volume or
+copy model assets from another project.
+
+The separate GPU overlay is experimental and must be merged after the CPU
+narration overlay in the same project. Do not enable it until its dependency
+lock, resource limits and actual CUDA inference are verified; CPU is the
+default and does not depend on GPU acceptance.
+
+### Cutover and rollback
+
+Keep the historical standalone Docling container and its image until the
+canonical service has passed real private-network OCR and the owner authorizes
+retirement. On a constrained host, arrange an owner-approved maintenance window:
+stop the standalone container without removing it, start and validate the
+canonical service, then retain the standalone container for rollback. Do not
+run two resource-intensive Docling instances concurrently. If cutover fails,
+stop the new service and restore the prior approved worker configuration and
+standalone service; do not delete volumes or use `down -v`. Reconcile the
+application state and obtain approval before restarting any shared service.
 
 The worker image pins Python 3.12 Trixie by digest, eSpeak NG
 `1.52.0+dfsg-5` (GPL-3.0-or-later; bundled English voices), and FFmpeg

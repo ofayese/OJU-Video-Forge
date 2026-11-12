@@ -30,6 +30,9 @@ def main() -> int:
         text = " ".join(frame["ocr"] or "" for frame in frames).upper()
         if not all(word in text for word in ("SYNTHETIC", "OCR", "TEST")):
             raise RuntimeError(f"docling_ocr_smoke_text_mismatch:{text}")
+        if (frames[0]["id"] != "frame-0" or frames[0]["timestamp_ms"] != 0
+                or frames[0]["ocr_status"] != "complete"):
+            raise RuntimeError("docling_ocr_smoke_frame_provenance_mismatch")
         provenance = frames[0]["ocr_provenance"]
         if provenance["provider"] != "docling-serve" or provenance["engine"] != "rapidocr":
             raise RuntimeError("docling_ocr_smoke_unexpected_provenance")

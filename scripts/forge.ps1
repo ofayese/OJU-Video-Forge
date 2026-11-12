@@ -1,6 +1,7 @@
 param(
     [ValidateSet('application', 'acceptance', 'integration')]
     [string]$Environment = 'application',
+    [switch]$Narration,
     [switch]$Plan,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ComposeArgs
@@ -19,6 +20,12 @@ $envFile = Join-Path $root '.env'
 if ($Environment -ne 'application') {
     $files += Join-Path $root "compose.$Environment.yaml"
     $envFile = Join-Path $root ".env.$Environment.local"
+}
+if ($Narration) {
+    if ($Environment -ne 'application') {
+        throw 'The narration overlay is supported only for the application environment.'
+    }
+    $files += Join-Path $root 'compose.narration.yaml'
 }
 
 foreach ($key in @('COMPOSE_PROJECT_NAME', 'COMPOSE_FILE', 'COMPOSE_PROFILES')) {

@@ -14,6 +14,11 @@ Python, Node, FFmpeg, PostgreSQL, Redis, and application tests run in containers
 These overlays extend the existing stack; they are not independent deployments.
 Do not combine test overlays with `compose.dev.yaml`, which publishes a development
 API port. The optional GPU overlay is unrelated to CPU acceptance.
+The canonical application can additionally select `compose.narration.yaml`
+with `-Narration` in the PowerShell helper or `--narration` in the Bash helper.
+This keeps the isolated CPU `docling-ocr` service within the same project and
+lifecycle; see the [narration runbook](../narration-workflow-v1.md) for private
+networking, model ownership, health, cutover and rollback.
 
 Each project gets its own `<project>_{pgdata,redisdata,uploads,artifacts}` named
 volumes and `<project>_{backend,control,inference}` networks. GPU models/input/output

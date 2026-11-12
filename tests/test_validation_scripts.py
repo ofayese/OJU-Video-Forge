@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,8 +11,37 @@ import yaml
 
 from scripts import validate_acceptance_register, validate_repository
 
-
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="Bash is required to exercise the lifecycle helper")
+@pytest.mark.parametrize(("environment", "narration", "expected"), [
+    ("application", False, 0),
+    ("application", True, 0),
+    ("acceptance", True, 1),
+])
+def test_forge_bash_selects_narration_overlay(tmp_path, environment, narration, expected):
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    shutil.copy(ROOT / "scripts" / "forge.sh", scripts / "forge.sh")
+    (tmp_path / ".env").write_text(f"DB_PASSWORD={'x' * 40}\n", encoding="utf-8")
+    docker = tmp_path / "docker"
+    docker.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+    docker.chmod(0o755)
+    env = os.environ.copy()
+    for key in ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "COMPOSE_PROFILES", "DB_PASSWORD"):
+        env.pop(key, None)
+    env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
+    args = ["bash", str(scripts / "forge.sh"), environment]
+    if narration:
+        args.append("--narration")
+    result = subprocess.run([*args, "config", "--quiet"], env=env, capture_output=True, text=True)
+    assert result.returncode == expected
+    if expected == 0:
+        assert ("compose.narration.yaml" in result.stdout) is narration
+        assert result.stdout.splitlines()[1:3] == ["--project-name", "oju-video-forge"]
+    else:
+        assert "only for the application environment" in result.stderr
 
 
 def test_customization_validation_rejects_list_apply_to(tmp_path, monkeypatch):

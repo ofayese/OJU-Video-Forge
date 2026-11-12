@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import signal
 import tempfile
 import time
@@ -57,8 +58,10 @@ def _security_controls(model: Path) -> dict:
         raise RuntimeError("process_limit_exceeds_128")
 
     interfaces = sorted(item.name for item in Path("/sys/class/net").iterdir())
-    if interfaces != ["lo"]:
-        raise RuntimeError("network_namespace_has_non_loopback_interface")
+    if interfaces != ["eth0", "lo"]:
+        raise RuntimeError("network_namespace_is_not_limited_to_ocr_interface")
+    if shutil.which("tesseract") is not None:
+        raise RuntimeError("obsolete_tesseract_runtime_present")
 
     if model.is_symlink() or not model.is_dir() or not (model / "model.bin").is_file():
         raise RuntimeError("local_asr_model_missing_or_untrusted")
@@ -184,8 +187,16 @@ def _check():
             recognized = " ".join(frame["ocr"] or "" for frame in frames)
             if "SYNTHETIC" not in recognized or "SECURITY" not in recognized:
                 raise RuntimeError(f"synthetic_title_ocr_failed:{recognized.strip()}")
-            report["checks"]["tesseract_english_ocr"] = "PASS"
+            if (not frames or frames[0]["id"] != "frame-0"
+                    or frames[0]["timestamp_ms"] != 0
+                    or frames[0]["ocr_status"] != "complete"
+                    or frames[0]["ocr_provenance"]["engine"] != "rapidocr"):
+                raise RuntimeError("synthetic_ocr_provenance_or_timestamp_failed")
+            report["checks"]["docling_rapidocr"] = "PASS"
+            report["checks"]["tesseract_absent"] = "PASS"
             report["ocr_text"] = recognized.strip()
+            report["ocr_timestamp_ms"] = frames[0]["timestamp_ms"]
+            report["ocr_frame_id"] = frames[0]["id"]
 
             transcript = narration.transcribe(source, directory, metadata, check)
             text = " ".join(segment["text"] for segment in transcript["segments"])
@@ -204,25 +215,28 @@ def _check():
                 "model_revision": transcript.get("model_revision"),
             }
 
-            mixed_output = directory / "mixed.mp4"
-            mixed_metadata = narration.mux(
-                source, audio, mixed_output, metadata, options, check,
-            )
-            if not any(
-                stream["codec_type"] == "audio"
-                for stream in mixed_metadata["streams"]
-            ):
-                raise RuntimeError("mixed_audio_stream_missing")
+            outputs = {}
+            for mode in ("replace", "mix", "preserve"):
+                output_path = directory / f"{mode}.mp4"
+                render_options = narration.NarrationOptions(audio_mode=mode)
+                output_metadata = narration.mux(
+                    source, None if mode == "preserve" else audio,
+                    output_path, metadata, render_options, check,
+                )
+                if not any(stream["codec_name"] == "h264" and stream["codec_type"] == "video"
+                           for stream in output_metadata["streams"]):
+                    raise RuntimeError(f"{mode}_render_video_stream_missing")
+                if not any(stream["codec_name"] == "aac" and stream["codec_type"] == "audio"
+                           for stream in output_metadata["streams"]):
+                    raise RuntimeError(f"{mode}_render_aac_stream_missing")
+                if narration.video_hash(source, check) != narration.video_hash(output_path, check):
+                    raise RuntimeError(f"{mode}_render_source_video_changed")
+                outputs[mode] = output_path
 
-            preserved_output = directory / "preserved.mp4"
-            preserve_options = narration.NarrationOptions(audio_mode="preserve")
-            narration.mux(
-                source, None, preserved_output, metadata, preserve_options, check,
-            )
-            if narration.video_hash(source, check) != narration.video_hash(mixed_output, check):
-                raise RuntimeError("mixed_render_source_video_changed")
-            if narration.video_hash(source, check) != narration.video_hash(preserved_output, check):
-                raise RuntimeError("preserved_source_video_changed")
+            preserved_output = outputs["preserve"]
+            for mode, output_path in outputs.items():
+                if narration.video_hash(source, check) != narration.video_hash(output_path, check):
+                    raise RuntimeError(f"{mode}_render_source_video_changed")
             if narration.audio_hash(source, check) != narration.audio_hash(preserved_output, check):
                 raise RuntimeError("preserved_source_audio_changed")
             if narration.digest(source) != source_hash:
@@ -230,7 +244,9 @@ def _check():
 
             report["checks"].update({
                 "ffprobe_h264_aac": "PASS",
+                "ffmpeg_replace_render": "PASS",
                 "ffmpeg_mix_render": "PASS",
+                "ffmpeg_preserve_render": "PASS",
                 "espeak_synthesis": "PASS",
                 "source_video_stream_preservation": "PASS",
                 "source_audio_stream_preservation": "PASS",
@@ -240,9 +256,12 @@ def _check():
                 "duration_seconds": float(metadata["format"]["duration"]),
                 "sha256": source_hash,
             }
-            report["mixed_output"] = {
-                "bytes": mixed_output.stat().st_size,
-                "sha256": narration.digest(mixed_output),
+            report["audio_mode_outputs"] = {
+                mode: {
+                    "bytes": output.stat().st_size,
+                    "sha256": narration.digest(output),
+                }
+                for mode, output in outputs.items()
             }
             report["preserved_output"] = {
                 "bytes": preserved_output.stat().st_size,
