@@ -1,6 +1,7 @@
 import hashlib
 import sys
 import uuid
+from pathlib import Path
 
 import httpx
 import pytest
@@ -371,3 +372,73 @@ def test_optional_visual_failure_preserves_narration_or_cancellation(
         if speech:
             assert row.analysis["transcript"] == transcript
             assert revision.script[0]["evidence"] == ["speech-1"]
+
+
+def test_scenes_uses_only_pinned_traineddata_and_ignores_environment_override(
+    monkeypatch, tmp_path,
+):
+    trusted = tmp_path / "trusted-tessdata"
+    trusted.mkdir()
+    model = trusted / "eng.traineddata"
+    model.write_bytes(b"trusted traineddata")
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    (uploads / "eng.traineddata").write_bytes(b"uploaded traineddata")
+    binary = tmp_path / "tesseract"
+    binary.touch()
+    monkeypatch.setattr(narration, "TESSERACT_BINARY", str(binary))
+    monkeypatch.setattr(narration, "TESSDATA_DIR", trusted)
+    monkeypatch.setattr(narration, "TESSDATA_ASSET_SHA256", {
+        "eng": hashlib.sha256(model.read_bytes()).hexdigest(),
+    })
+    monkeypatch.setenv("TESSDATA_PREFIX", str(uploads))
+    commands = []
+
+    def fake_run(args, _check, _timeout=120, env=None):
+        commands.append((args, env))
+        if args[0] == "ffmpeg" and str(args[-1]).endswith(".jpg"):
+            Path(args[-1]).write_bytes(b"synthetic frame")
+            return b""
+        if args[0] == "ffmpeg":
+            return bytes(64 * 36)
+        return b"trusted OCR"
+
+    monkeypatch.setattr(narration, "run", fake_run)
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    result = narration.scenes(
+        uploads / "source.mp4", frames_dir, {"format": {"duration": "1"}},
+        narration.NarrationOptions(analysis_mode="manual"), lambda: None,
+    )
+
+    tesseract_args, tesseract_env = next(
+        (args, env) for args, env in commands if args[0] == str(binary)
+    )
+    assert result[0]["ocr"] == "trusted OCR"
+    assert tesseract_args[tesseract_args.index("-l") + 1] == "eng"
+    assert tesseract_args[tesseract_args.index("--tessdata-dir") + 1] == str(trusted)
+    assert tesseract_env is not None
+    assert "TESSDATA_PREFIX" not in tesseract_env
+
+
+def test_scenes_rejects_modified_allowlisted_traineddata(monkeypatch, tmp_path):
+    trusted = tmp_path / "trusted-tessdata"
+    trusted.mkdir()
+    (trusted / "eng.traineddata").write_bytes(b"tampered traineddata")
+    binary = tmp_path / "tesseract"
+    binary.touch()
+    monkeypatch.setattr(narration, "TESSERACT_BINARY", str(binary))
+    monkeypatch.setattr(narration, "TESSDATA_DIR", trusted)
+    monkeypatch.setattr(narration, "TESSDATA_ASSET_SHA256", {
+        "eng": hashlib.sha256(b"expected traineddata").hexdigest(),
+    })
+    monkeypatch.setattr(
+        narration, "run",
+        lambda *_args, **_kwargs: pytest.fail("Media process started with untrusted traineddata"),
+    )
+
+    with pytest.raises(narration.NarrationError, match="ocr_traineddata_untrusted"):
+        narration.scenes(
+            tmp_path / "source.mp4", tmp_path, {"format": {"duration": "1"}},
+            narration.NarrationOptions(analysis_mode="manual"), lambda: None,
+        )

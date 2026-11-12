@@ -21,6 +21,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ASR_REVISION = "d90ca5fe260221311c53c58e660288d3deb8d356"
 ASR_SHA256 = "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1"
+TESSERACT_BINARY = "/usr/bin/tesseract"
+TESSDATA_DIR = Path("/usr/share/tesseract-ocr/5/tessdata")
+TESSDATA_ASSET_SHA256 = {
+    "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+}
 VOICES = {"en-us": "English (US)", "en-gb": "English (UK)"}
 MAX_DURATION = 600
 
@@ -62,9 +67,12 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def run(args: list[str], check: Callable[[], None], timeout: int = 120) -> bytes:
+def run(args: list[str], check: Callable[[], None], timeout: int = 120,
+        env: dict[str, str] | None = None) -> bytes:
     check()
-    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+    process = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, env=env,
+    )
     deadline = time.monotonic() + timeout
     stdout = bytearray()
     overflow = threading.Event()
@@ -230,10 +238,25 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
             "model_info_sha256": hashlib.sha256(info.content).hexdigest()}
 
 
+def validate_tessdata_assets() -> None:
+    if TESSDATA_DIR.is_symlink() or not TESSDATA_DIR.is_dir():
+        raise NarrationError("ocr_traineddata_untrusted")
+    for language, expected in TESSDATA_ASSET_SHA256.items():
+        asset = TESSDATA_DIR / f"{language}.traineddata"
+        if asset.is_symlink() or not asset.is_file() or digest(asset) != expected:
+            raise NarrationError("ocr_traineddata_untrusted")
+
+
 def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOptions,
            check: Callable[[], None]) -> list[dict]:
     duration = float(metadata["format"]["duration"])
     count = min(12, max(1, math.ceil(duration / 10)))
+    tesseract_available = Path(TESSERACT_BINARY).is_file()
+    ocr_env = None
+    if tesseract_available:
+        validate_tessdata_assets()
+        ocr_env = os.environ.copy()
+        ocr_env.pop("TESSDATA_PREFIX", None)
     output = []
     previous = None
     for index in range(count):
@@ -250,8 +273,11 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
         item = {"id": f"frame-{index}", "timestamp_ms": round(seconds * 1000),
                 "frame_sha256": digest(frame), "major_change": change,
                 "ocr": None, "vision": None}
-        if shutil.which("tesseract"):
-            item["ocr"] = run(["tesseract", str(frame), "stdout", "-l", "eng"], check, 30).decode()[:4000]
+        if tesseract_available:
+            item["ocr"] = run([
+                TESSERACT_BINARY, str(frame), "stdout", "-l", "eng",
+                "--tessdata-dir", str(TESSDATA_DIR),
+            ], check, 30, env=ocr_env).decode()[:4000]
         if options.vision and index < 6:
             item["vision"] = vision(frame, check)
         output.append(item)

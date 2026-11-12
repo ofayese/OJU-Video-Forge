@@ -23,6 +23,12 @@ FFmpeg `7:7.1.5-0+deb13u1`, Tesseract `5.5.0-1+b1`, and English OCR data
 `4.6.0`. Packages imported successfully in the built Linux container.
 No Windows runtime dependencies were installed.
 
+The narration image additionally pins Debian's zlib security backport
+`1:1.3.dfsg+really1.3.1-1+deb13u1`. Its security gate remains blocked on other
+unresolved Trixie vulnerabilities; see the
+[2026-11-09 image remediation evidence](reviews/2026-11-09-NARRATION-IMAGE-SECURITY.md).
+The successful runtime smoke is not a security acceptance or deployment approval.
+
 ### ASR model authorization gate
 
 No ASR model was downloaded or inferred during this implementation.
@@ -68,6 +74,16 @@ inference; the model is requested with `num_gpu=0`, two threads, bounded output
 and no keep-alive. No inference service is exposed publicly or reconfigured.
 Interpretations are explicitly uncertain and require human review. Real VLM
 interpretation was not exercised; installed-model metadata advertised vision.
+
+OCR invokes only `/usr/bin/tesseract` with English and the fixed
+`/usr/share/tesseract-ocr/5/tessdata` directory. The packaged
+`eng.traineddata` must match the pinned SHA-256
+`7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2`;
+`TESSDATA_PREFIX` is removed for the OCR subprocess. Uploaded media is input
+image data only and cannot select or supply traineddata. A missing, symlinked,
+or mismatched trusted asset reports `ocr_traineddata_untrusted` and makes
+optional scene analysis unavailable rather than falling back to an upload or
+environment-selected model.
 
 ## API and review
 
@@ -183,6 +199,9 @@ Starlette/httpx and Python 3.12 SQLite datetime-adapter deprecations.
 The single full regression preceded the two-line preview retry correction;
 the real targeted acceptance above verified that final correction.
 The optional narration image was rebuilt successfully with the final code.
+CI reports all HIGH/CRITICAL narration-image findings and fails when Trivy
+identifies an available fix. Unfixed findings remain visible and are not
+considered remediated by a passing gate.
 `docker compose --env-file .env.development.example -f compose.yaml -f compose.narration.yaml config --quiet`
 also exited 0 without starting services.
 
