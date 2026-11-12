@@ -17,6 +17,9 @@ services:
     volumes:
       - narration-models:/models/asr:ro
     networks: [control, inference, narration-ocr]
+    depends_on:
+      docling-ocr:
+        condition: service_healthy
 
   docling-ocr:
     build:
