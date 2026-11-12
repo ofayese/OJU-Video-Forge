@@ -1,4 +1,4 @@
-FROM quay.io/docling-project/docling-serve-cpu@sha256:8376600bcc1ba41d06b26f4af10fe1ba0071578e85d0857447f4c2fdda9308a8
+FROM quay.io/docling-project/docling-serve-cpu@sha256:6eda9c524992147c1b0b06a1a9be4894bd68b1f43c86d92c32f996c4c60d18a3
 
 WORKDIR /opt/ocr
 COPY --chown=1001:0 services/docling-ocr/requirements-docling-ocr.txt ./requirements-docling-ocr.txt
