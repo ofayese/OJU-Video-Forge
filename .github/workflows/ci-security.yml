@@ -91,30 +91,46 @@ jobs:
           docker build --pull --tag ovf-api:ci --file services/api/Dockerfile .
           docker build --pull --tag ovf-worker:ci --file services/worker/Dockerfile .
           docker build --pull --tag ovf-narration:ci --file services/narration/Dockerfile .
+          docker build --pull --tag ovf-docling:ci --file services/docling-ocr/Dockerfile.docling-ocr .
+          {
+            for image in ovf-api:ci ovf-worker:ci ovf-narration:ci ovf-docling:ci; do
+              printf '%s %s\n' "$image" "$(docker image inspect "$image" --format '{{.Id}}')"
+            done
+          } > "$RUNNER_TEMP/image-ids.txt"
           docker save ovf-api:ci --output "$RUNNER_TEMP/ovf-api.tar"
           docker save ovf-worker:ci --output "$RUNNER_TEMP/ovf-worker.tar"
           docker save ovf-narration:ci --output "$RUNNER_TEMP/ovf-narration.tar"
+      - name: Generate image-specific CycloneDX SBOMs
+        id: image-sboms
+        if: ${{ always() && steps.build-images.outcome == 'success' }}
+        run: |
+          for image in api worker narration docling; do
+            syft "ovf-${image}:ci" --output "cyclonedx-json=$RUNNER_TEMP/ovf-${image}.sbom.cdx.json"
+          done
       - name: Scan API image for vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
           docker run --rm
-          -v "$RUNNER_TEMP:/scan:ro"
+          -v "$RUNNER_TEMP:/scan"
           aquasec/trivy:0.76.2
-          image --input /scan/ovf-api.tar --exit-code 1 --severity HIGH,CRITICAL
+          image --input /scan/ovf-api.tar --format json --output /scan/ovf-api.trivy.json
+          --exit-code 1 --severity HIGH,CRITICAL
       - name: Scan worker image for vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
           docker run --rm
-          -v "$RUNNER_TEMP:/scan:ro"
+          -v "$RUNNER_TEMP:/scan"
           aquasec/trivy:0.76.2
-          image --input /scan/ovf-worker.tar --exit-code 1 --severity HIGH,CRITICAL
+          image --input /scan/ovf-worker.tar --format json --output /scan/ovf-worker.trivy.json
+          --exit-code 1 --severity HIGH,CRITICAL
       - name: Report optional narration image vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
           docker run --rm
-          -v "$RUNNER_TEMP:/scan:ro"
+          -v "$RUNNER_TEMP:/scan"
           aquasec/trivy:0.76.2
-          image --input /scan/ovf-narration.tar --exit-code 0 --severity HIGH,CRITICAL
+          image --input /scan/ovf-narration.tar --format json --output /scan/ovf-narration.trivy.json
+          --exit-code 0 --severity HIGH,CRITICAL
       - name: Fail on fixable narration image vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
@@ -122,11 +138,24 @@ jobs:
           -v "$RUNNER_TEMP:/scan:ro"
           aquasec/trivy:0.76.2
           image --input /scan/ovf-narration.tar --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL
+      - name: Scan Docling image for vulnerabilities
+        if: ${{ always() && steps.build-images.outcome == 'success' }}
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          -v "$RUNNER_TEMP:/reports"
+          aquasec/trivy:0.76.2
+          image --format json --output /reports/ovf-docling.trivy.json
+          --exit-code 1 --severity HIGH,CRITICAL ovf-docling:ci
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && steps.sbom.outcome == 'success' }}
         with:
-          name: dependency-sbom
-          path: sbom.cdx.json
+          name: container-security-evidence
+          path: |
+            sbom.cdx.json
+            ${{ runner.temp }}/image-ids.txt
+            ${{ runner.temp }}/*.sbom.cdx.json
+            ${{ runner.temp }}/*.trivy.json
           if-no-files-found: error
           retention-days: 14
       - name: Assess container configuration
