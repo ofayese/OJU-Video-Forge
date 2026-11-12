@@ -46,7 +46,9 @@ click==8.5.0 \
 croniter==6.2.4 \
     --hash=sha256:8ef3d544107a5c05a150a2d78f8bf5a8eb9c5c4d93405a736b824109574e3f4d \
     --hash=sha256:fc124f751b1b04805c2a04b061898b436b45ab2320b045e1e052ea895de65189
-    # via rq
+    # via
+    #   -c requirements.lock.txt
+    #   rq
 fastapi==0.162.0 \
     --hash=sha256:3785963de305dd09912426cb81f2d230fce98ab3521cdfe97265c8d14983128c \
     --hash=sha256:6a22c1e2e6e32e0633ee7e170f00009a29b8228b16feb219ee42f32fd8d88a8f
@@ -477,7 +479,9 @@ pydantic-core==2.50.2 \
 python-dateutil==4.0.0 \
     --hash=sha256:a5e246f79eb80475e691bf93862cead98decd8a498cf53ba0516fcdc0f50dc1c \
     --hash=sha256:d7295ff14fdc0f92f662100bfb6c551d160ca090f2939f1ec5b9794265c03f06
-    # via croniter
+    # via
+    #   -c requirements.lock.txt
+    #   croniter
 python-multipart==0.0.33 \
     --hash=sha256:8f16c07b36add9da6b2ee87d3efcaf0a45a6de9c3d0a5dd94e9ccf7675a7bc45 \
     --hash=sha256:b8112424a6abd162ec08d390565dd113ad699f2fe6fef3c987b8bbcbfe9e390d
@@ -609,6 +613,7 @@ tzdata==2026.6 \
     # via
     #   -c requirements.lock.txt
     #   -r requirements.txt
+    #   psycopg
     #   python-dateutil
 uvicorn==0.54.0 \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \

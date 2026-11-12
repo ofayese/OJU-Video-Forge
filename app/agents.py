@@ -4,7 +4,6 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-
 ALLOWED_TOOLS = ("create_render_job",)
 
 
@@ -31,13 +30,13 @@ class AgentAdapter(Protocol):
     def propose(self, task: str, tools: tuple[str, ...]) -> object: ...
 
 
-class AgentUnavailable(RuntimeError):
+class AgentUnavailableError(RuntimeError):
     pass
 
 
 class DisabledAgentAdapter:
     def propose(self, task: str, tools: tuple[str, ...]) -> object:
-        raise AgentUnavailable("Agent adapter is disabled")
+        raise AgentUnavailableError("Agent adapter is disabled")
 
 
 def validate_agent_output(value: object) -> AgentOutput:

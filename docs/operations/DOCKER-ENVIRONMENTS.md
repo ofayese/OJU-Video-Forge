@@ -6,7 +6,7 @@ Requires Docker Desktop Linux containers and Compose 2.24.4+ (`!override` ports)
 Python, Node, FFmpeg, PostgreSQL, Redis, and application tests run in containers.
 
 | Environment | Compose name | Files | Private secrets | Frontend |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Main local application | `oju-video-forge` | `compose.yaml` | `.env` | `127.0.0.1:5173` |
 | Acceptance | `oju-video-forge-acceptance` | base + `compose.acceptance.yaml` | `.env.acceptance.local` | `127.0.0.1:5174` |
 | Integration | `oju-video-forge-integration` | base + `compose.integration.yaml` | `.env.integration.local` | `127.0.0.1:5175` |

@@ -3,9 +3,9 @@
 Revision ID: 0007
 Revises: 0006
 """
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 from app.core import install_review_guards
 
 revision = "0007"

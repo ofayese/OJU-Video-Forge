@@ -1,7 +1,8 @@
 """Versioned source-video narration and script approval."""
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0011"
 down_revision = "0010"

@@ -1,8 +1,7 @@
 from pathlib import Path
 
-import yaml
 import pytest
-
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -96,6 +95,7 @@ def test_narration_ocr_is_private_and_resource_bounded():
 
 def test_synthetic_smoke_refuses_application_database(monkeypatch):
     from types import SimpleNamespace
+
     from scripts import docker_render_smoke
 
     monkeypatch.setattr(docker_render_smoke, "get_settings", lambda: SimpleNamespace(app_env="development"))

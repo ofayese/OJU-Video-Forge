@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from redis import Redis
 from rq import Queue, Worker
 from sqlalchemy import select, update
 
+from . import narration_jobs
 from .audio_workflows import (
     MAX_AUDIO_BYTES,
     WORKFLOW_VERSION,
@@ -32,22 +33,21 @@ from .comfyui import ComfyUIAdapter, WorkflowRegistry
 from .config import get_settings
 from .core import (
     ARTIFACT_ROOT,
+    REDIS_URL,
     AudioAsset,
     Job,
+    MediaAsset,
     Project,
     ProjectMembership,
-    MediaAsset,
-    User,
-    REDIS_URL,
     SessionLocal,
+    User,
     WorkflowArtifact,
     recover_jobs,
     transition,
 )
 from .private_storage import private_file, write_private_file
-from .review import generated_checksum
 from .rendering import RenderEngine
-from . import narration_jobs
+from .review import generated_checksum
 
 WORKFLOW = Path("/workflows/wan22-t2v-api.json")
 GPU_LOCK_NAME = "oju-video-forge:comfyui:generation"
@@ -64,11 +64,11 @@ logger = logging.getLogger(__name__)
 
 
 
-class ModelProviderUnavailable(RuntimeError):
+class ModelProviderUnavailableError(RuntimeError):
     pass
 
 
-class JobCancelled(Exception):
+class JobCancelledError(Exception):
     pass
 
 
@@ -94,7 +94,7 @@ def _run_ffmpeg(job_id, args, timeout):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
-                raise JobCancelled()
+                raise JobCancelledError()
             if time.monotonic() >= deadline:
                 process.kill()
                 process.wait()
@@ -366,11 +366,11 @@ def _execute_audio_workflow(db, job):
                 or type(language) is not str
                 or not re.fullmatch(r"[a-z]{2,3}(?:-[A-Z]{2})?", language)):
             raise AudioWorkflowError("Narration request is invalid")
-        raise ModelProviderUnavailable
+        raise ModelProviderUnavailableError
     if step == "transcription":
         if asset is None:
             raise AudioWorkflowError("Transcription requires a project audio asset")
-        raise ModelProviderUnavailable
+        raise ModelProviderUnavailableError
     if step != "captions":
         raise AudioWorkflowError("Unsupported audio workflow step")
 
@@ -526,7 +526,7 @@ def execute(job_id: str):
         inputs = None
         try:
             if _cancel_requested(job_id):
-                raise JobCancelled()
+                raise JobCancelledError()
             if job.operation == 'render_timeline_v1':
                 if str(uuid.UUID(job.id)) != job.id:
                     raise ValueError('Invalid job identity')
@@ -547,7 +547,7 @@ def execute(job_id: str):
                         with SessionLocal() as heartbeat_db:
                             heartbeat_db.execute(update(Job).where(
                                 Job.id == job_id, Job.status == "running",
-                            ).values(updated_at=datetime.now(timezone.utc)))
+                            ).values(updated_at=datetime.now(UTC)))
                             heartbeat_db.commit()
                         last_heartbeat = now
                     return _cancel_requested(job_id)
@@ -591,7 +591,7 @@ def execute(job_id: str):
 
                 def check_narration():
                     if _cancel_requested(job.id):
-                        raise JobCancelled()
+                        raise JobCancelledError()
 
                 redis_client = Redis.from_url(REDIS_URL)
                 lock = redis_client.lock("oju-video-forge:narration:cpu", timeout=3900, blocking_timeout=5)
@@ -644,7 +644,7 @@ def execute(job_id: str):
                 )
             elif job.operation == 'wan22_t2v':
                 if _cancel_requested(job_id):
-                    raise JobCancelled()
+                    raise JobCancelledError()
                 if not get_settings().comfyui_enabled:
                     raise RuntimeError("ComfyUI generation is disabled")
                 _validate_generation_project(db, job)
@@ -674,7 +674,7 @@ def execute(job_id: str):
                 )
             else:
                 raise RuntimeError("Unsupported operation")
-        except JobCancelled:
+        except JobCancelledError:
             if job.operation == "narrate_existing_video":
                 row = db.get(narration_jobs.Narration, job.spec["narration_id"])
                 if row:
@@ -706,7 +706,7 @@ def execute(job_id: str):
                 transition(db, job, 'cancelled', 'worker')
                 return
             if job.operation == "audio_workflow":
-                if isinstance(exc, ModelProviderUnavailable):
+                if isinstance(exc, ModelProviderUnavailableError):
                     error = "provider_unavailable; NOT_VERIFIED"
                 elif isinstance(exc, AudioWorkflowError):
                     error = f"invalid_audio_workflow: {str(exc)[:200]}"
