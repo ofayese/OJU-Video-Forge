@@ -90,7 +90,8 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
   function safeHref(url: string | undefined) {
     if (!url) return undefined;
     try {
-      const parsed = new URL(url, window.location.origin);
+      const base = typeof window !== "undefined" ? window.location.origin : undefined;
+      const parsed = new URL(url, base);
       return parsed.protocol === "blob:" || parsed.protocol === "https:" || parsed.protocol === "http:"
         ? url
         : undefined;
