@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Allow the public Debian GPG key fingerprint embedded in archived Trivy image reports."
+paths = [
+  '''(^|/)docs/reviews/evidence/2026-11-09-narration-security/trivy_(results|worker_results)\.json$''',
+  '''(^|/)docs/reviews/evidence/2026-11-10-narration-remediation/trivy_(candidate2_strict|candidate1_strict|baseline|candidate2_backport_strict)\.json$''',
+  '''(^|/)trivy_minimal_ffmpeg\.json$''',
+]
+regexTarget = "match"
+regexes = ['''(?i)GPG_KEY=[0-9a-f]{40}''']

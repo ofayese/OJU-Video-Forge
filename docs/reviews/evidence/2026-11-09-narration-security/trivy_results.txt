@@ -1,0 +1,9 @@
+2026-11-09T20:02:47-05:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-11-09T20:02:47-05:00	INFO	[secret] Secret scanning is enabled
+2026-11-09T20:02:47-05:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-11-09T20:02:47-05:00	INFO	[secret] Please see https://trivy.dev/docs/v0.76/guide/scanner/secret#recommendation for faster secret detection
+2026-11-09T20:02:47-05:00	INFO	Detected OS	family="debian" version="13.7"
+2026-11-09T20:02:47-05:00	INFO	[debian] Detecting vulnerabilities...	os_version="13" pkg_num=314
+2026-11-09T20:02:47-05:00	INFO	Number of language-specific files	num=1
+2026-11-09T20:02:47-05:00	INFO	[python-pkg] Detecting vulnerabilities...
+2026-11-09T20:02:47-05:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.76/guide/scanner/vulnerability#severity-selection for details.

@@ -1,0 +1,241 @@
+Package,InstalledVersion,FixedVersion,CVE,Severity,Title,PrimaryURL
+bsdutils,1:2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+bsdutils,1:2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+bsdutils,1:2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+bsdutils,1:2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+ffmpeg,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libacl1,2.3.2-2+b1,N/A,CVE-2026-54369,HIGH,acl: Symlink traversal privilege escalation via libacl functions,https://avd.aquasec.com/nvd/cve-2026-54369
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libavcodec61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libavdevice61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libavfilter10,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libavformat61,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libavutil59,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libblkid1,2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+libblkid1,2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+libblkid1,2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+libblkid1,2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+libcjson1,1.7.18-3.1+deb13u1,N/A,CVE-2026-16554,HIGH,cJSON: cJSON: Remote code execution due to integer overflow via crafted JSON,https://avd.aquasec.com/nvd/cve-2026-16554
+libcjson1,1.7.18-3.1+deb13u1,N/A,CVE-2026-29036,HIGH,cJSON: cJSON: Data corruption and unauthorized modification via JSON Pointer escape decoding,https://avd.aquasec.com/nvd/cve-2026-29036
+libcjson1,1.7.18-3.1+deb13u1,N/A,CVE-2026-67215,HIGH,cJSON: cJSON: Denial of Service via uncontrolled recursion in JSON Patch application,https://avd.aquasec.com/nvd/cve-2026-67215
+libcjson1,1.7.18-3.1+deb13u1,N/A,CVE-2026-67216,HIGH,cJSON: Denial of Service due to inefficient JSON object comparison,https://avd.aquasec.com/nvd/cve-2026-67216
+libcjson1,1.7.18-3.1+deb13u1,N/A,CVE-2026-87933,HIGH,cJSON: cJSON: Memory corruption via use after free in cJSONUtils_MergePatch,https://avd.aquasec.com/nvd/cve-2026-87933
+libcurl4t64,8.14.1-2+deb13u7,N/A,CVE-2026-12064,HIGH,curl: curl: SSH host verification bypass when using schemeless URLs with SFTP/SCP,https://avd.aquasec.com/nvd/cve-2026-12064
+libcurl4t64,8.14.1-2+deb13u7,N/A,CVE-2026-8458,HIGH,curl: libcurl: Unauthorized connection reuse due to a logical error,https://avd.aquasec.com/nvd/cve-2026-8458
+libexpat1,2.9.0-1~deb13u1,N/A,CVE-2026-113351,HIGH,expat: expat: Denial of Service via improper memory tracking in XML_ParserReset,https://avd.aquasec.com/nvd/cve-2026-113351
+libexpat1,2.9.0-1~deb13u1,N/A,CVE-2026-115506,HIGH,expat: expat: Denial of Service via delayed entity amplification detection,https://avd.aquasec.com/nvd/cve-2026-115506
+libexpat1,2.9.0-1~deb13u1,N/A,CVE-2026-117610,HIGH,expat: expat: Denial of Service via NULL pointer dereference in external entity parsing,https://avd.aquasec.com/nvd/cve-2026-117610
+libexpat1,2.9.0-1~deb13u1,N/A,CVE-2026-118370,HIGH,expat: expat: Denial of Service via integer overflow during XML attribute parsing,https://avd.aquasec.com/nvd/cve-2026-118370
+liblastlog2-2,2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+liblastlog2-2,2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+liblastlog2-2,2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+liblastlog2-2,2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+libmount1,2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+libmount1,2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+libmount1,2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+libmount1,2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+libncursesw6,6.5+20250216-2,N/A,CVE-2025-69720,HIGH,ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.,https://avd.aquasec.com/nvd/cve-2025-69720
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libpostproc58,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libsmartcols1,2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+libsmartcols1,2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+libsmartcols1,2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+libsmartcols1,2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+libsndfile1,1.2.2-2+deb13u1,N/A,CVE-2026-37555,HIGH,libsndfile: integer overflow in ima_reader_init(),https://avd.aquasec.com/nvd/cve-2026-37555
+libsqlite3-0,3.46.1-7+deb13u2,N/A,CVE-2026-119373,HIGH,sqlite: sqlite: Denial of service via heap-based buffer overflow in FTS5,https://avd.aquasec.com/nvd/cve-2026-119373
+libsqlite3-0,3.46.1-7+deb13u2,N/A,CVE-2026-119374,HIGH,sqlite: sqlite: Arbitrary code execution via corrupted FTS5 index,https://avd.aquasec.com/nvd/cve-2026-119374
+libsqlite3-0,3.46.1-7+deb13u2,N/A,CVE-2026-119379,HIGH,sqlite: sqlite: Arbitrary code execution via crafted session changesets,https://avd.aquasec.com/nvd/cve-2026-119379
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libswresample5,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-58049,HIGH,FFmpeg: FFmpeg: Memory corruption via crafted RASC video stream,https://avd.aquasec.com/nvd/cve-2026-58049
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-64830,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via heap buffer overflow in VobSub subtitle demuxer.,https://avd.aquasec.com/nvd/cve-2026-64830
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-64832,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video file in NVDEC hardware decoder,https://avd.aquasec.com/nvd/cve-2026-64832
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-64833,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in S/PDIF muxer,https://avd.aquasec.com/nvd/cve-2026-64833
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-64834,HIGH,FFmpeg: Denial of Service via crafted RTP/ASF stream,https://avd.aquasec.com/nvd/cve-2026-64834
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-64835,HIGH,"FFmpeg: FFmpeg: Arbitrary code execution, information disclosure, or denial of service via crafted ADX/AAX audio files",https://avd.aquasec.com/nvd/cve-2026-64835
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-66036,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted video in vf_hqdn3d filter,https://avd.aquasec.com/nvd/cve-2026-66036
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-66039,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted CAF file,https://avd.aquasec.com/nvd/cve-2026-66039
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-66040,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PNG image,https://avd.aquasec.com/nvd/cve-2026-66040
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-66041,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted PGS/SUP subtitle file,https://avd.aquasec.com/nvd/cve-2026-66041
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-70628,HIGH,ffmpeg: FFmpeg: Arbitrary code execution via crafted WTV file in DVB subtitle parser,https://avd.aquasec.com/nvd/cve-2026-70628
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-70632,HIGH,ffmpeg: FFmpeg: Arbitrary Code Execution in CFHD Decoder via Crafted AVI File,https://avd.aquasec.com/nvd/cve-2026-70632
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-75141,HIGH,ffmpeg: FFmpeg: Heap buffer overflow via crafted HEVC input file during muxing,https://avd.aquasec.com/nvd/cve-2026-75141
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-75142,HIGH,ffmpeg: FFmpeg: Stack Buffer Overflow in MPEG-PS Muxer,https://avd.aquasec.com/nvd/cve-2026-75142
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-75143,HIGH,ffmpeg: FFmpeg Heap Buffer Overflow via RIST Protocol Reader,https://avd.aquasec.com/nvd/cve-2026-75143
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-75144,HIGH,ffmpeg: FFmpeg: Memory corruption via crafted Dirac data unit,https://avd.aquasec.com/nvd/cve-2026-75144
+libswscale8,7:7.1.5-0+deb13u1,N/A,CVE-2026-75146,HIGH,ffmpeg: FFmpeg: Information disclosure and denial of service via out-of-bounds read in DASH demuxer,https://avd.aquasec.com/nvd/cve-2026-75146
+libsystemd0,257.13-1~deb13u1,N/A,CVE-2026-16742,HIGH,systemd: systemd-homed: Local privilege escalation via missing home-record signature verification,https://avd.aquasec.com/nvd/cve-2026-16742
+libtesseract5,5.5.0-1+b1,N/A,CVE-2026-73066,HIGH,tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata,https://avd.aquasec.com/nvd/cve-2026-73066
+libtesseract5,5.5.0-1+b1,N/A,CVE-2026-88047,HIGH,tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file,https://avd.aquasec.com/nvd/cve-2026-88047
+libtesseract5,5.5.0-1+b1,N/A,CVE-2026-88048,HIGH,tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data,https://avd.aquasec.com/nvd/cve-2026-88048
+libtesseract5,5.5.0-1+b1,N/A,CVE-2026-88051,HIGH,tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model,https://avd.aquasec.com/nvd/cve-2026-88051
+libtesseract5,5.5.0-1+b1,N/A,CVE-2026-88052,HIGH,tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution,https://avd.aquasec.com/nvd/cve-2026-88052
+libtesseract5,5.5.0-1+b1,N/A,CVE-2026-88053,HIGH,tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file,https://avd.aquasec.com/nvd/cve-2026-88053
+libtiff6,4.7.0-3+deb13u3,N/A,CVE-2026-36849,HIGH,[Denial of Service via large SamplesPerPixel tag],https://avd.aquasec.com/nvd/cve-2026-36849
+libtiff6,4.7.0-3+deb13u3,N/A,CVE-2026-52490,HIGH,libtiff: libtiff: Arbitrary code execution via process_command_opts() function,https://avd.aquasec.com/nvd/cve-2026-52490
+libtinfo6,6.5+20250216-2,N/A,CVE-2025-69720,HIGH,ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.,https://avd.aquasec.com/nvd/cve-2025-69720
+libudev1,257.13-1~deb13u1,N/A,CVE-2026-16742,HIGH,systemd: systemd-homed: Local privilege escalation via missing home-record signature verification,https://avd.aquasec.com/nvd/cve-2026-16742
+libuuid1,2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+libuuid1,2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+libuuid1,2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+libuuid1,2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+libx11-6,2:1.8.12-1,N/A,CVE-2026-88806,HIGH,libX11: libX11: Heap-based buffer overflow via malicious X server,https://avd.aquasec.com/nvd/cve-2026-88806
+libx11-data,2:1.8.12-1,N/A,CVE-2026-88806,HIGH,libX11: libX11: Heap-based buffer overflow via malicious X server,https://avd.aquasec.com/nvd/cve-2026-88806
+libx11-xcb1,2:1.8.12-1,N/A,CVE-2026-88806,HIGH,libX11: libX11: Heap-based buffer overflow via malicious X server,https://avd.aquasec.com/nvd/cve-2026-88806
+libxi6,2:1.8.2-1,N/A,CVE-2026-109089,HIGH,libXi: libXi: Arbitrary code execution via DEVICE_RESOLUTION heap-based buffer overflow,https://avd.aquasec.com/nvd/cve-2026-109089
+libxi6,2:1.8.2-1,N/A,CVE-2026-109090,HIGH,libXi: libXi: Arbitrary code execution via oversized DEVICE_ENABLE reply,https://avd.aquasec.com/nvd/cve-2026-109090
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-6653,CRITICAL,libxml2: mingw-libxml2: libxml2: Denial of Service via crafted XML input due to use-after-free,https://avd.aquasec.com/nvd/cve-2026-6653
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-74860,HIGH,libxml2: double-free/UAF in libxml2 Python bindings,https://avd.aquasec.com/nvd/cve-2026-74860
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-86138,HIGH,libxml2: libxml2: Arbitrary code execution via heap-based buffer overflow,https://avd.aquasec.com/nvd/cve-2026-86138
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-86139,HIGH,libxml2: libxml2: Integer overflow in xmlURIEscapeStr may lead to arbitrary code execution,https://avd.aquasec.com/nvd/cve-2026-86139
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-86140,HIGH,libxml2: libxml2: Arbitrary code execution via stack-based buffer overflow in xmlSnprintfElements,https://avd.aquasec.com/nvd/cve-2026-86140
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-86142,HIGH,libxml2: libxml2: Heap-based buffer overflow in xmlXPtrEval due to xpointer length saturation,https://avd.aquasec.com/nvd/cve-2026-86142
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-86143,HIGH,libxml2: libxml2: Data integrity issues due to integer overflow in write callbacks,https://avd.aquasec.com/nvd/cve-2026-86143
+libxml2,2.12.7+dfsg+really2.9.14-2.1+deb13u3,N/A,CVE-2026-86144,HIGH,"libxml2: libxml2: Information disclosure, SSRF, or denial of service due to improper parseFlags propagation.",https://avd.aquasec.com/nvd/cve-2026-86144
+libxrender1,1:0.9.12-1,N/A,CVE-2026-88807,HIGH,libXrender: libXrender: Code injection via heap overflow in RenderQueryPictFormats,https://avd.aquasec.com/nvd/cve-2026-88807
+login,1:4.16.0-2+really2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+login,1:4.16.0-2+really2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+login,1:4.16.0-2+really2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+login,1:4.16.0-2+really2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+mount,2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+mount,2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+mount,2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+mount,2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
+ncurses-base,6.5+20250216-2,N/A,CVE-2025-69720,HIGH,ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.,https://avd.aquasec.com/nvd/cve-2025-69720
+ncurses-bin,6.5+20250216-2,N/A,CVE-2025-69720,HIGH,ncurses: ncurses: Buffer overflow vulnerability may lead to arbitrary code execution.,https://avd.aquasec.com/nvd/cve-2025-69720
+perl-base,5.40.1-6+deb13u1,N/A,CVE-2026-9538,HIGH,perl-Archive-Tar: perl-Archive-Tar: Denial of Service via crafted tar header with large entry size,https://avd.aquasec.com/nvd/cve-2026-9538
+tesseract-ocr,5.5.0-1+b1,N/A,CVE-2026-73066,HIGH,tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata,https://avd.aquasec.com/nvd/cve-2026-73066
+tesseract-ocr,5.5.0-1+b1,N/A,CVE-2026-88047,HIGH,tesseract: Tesseract: Stack buffer overflow via crafted .traineddata file,https://avd.aquasec.com/nvd/cve-2026-88047
+tesseract-ocr,5.5.0-1+b1,N/A,CVE-2026-88048,HIGH,tesseract: Tesseract: Heap out-of-bounds write/read leading to information disclosure via crafted data,https://avd.aquasec.com/nvd/cve-2026-88048
+tesseract-ocr,5.5.0-1+b1,N/A,CVE-2026-88051,HIGH,tesseract: Tesseract: Heap out-of-bounds write via crafted .traineddata model,https://avd.aquasec.com/nvd/cve-2026-88051
+tesseract-ocr,5.5.0-1+b1,N/A,CVE-2026-88052,HIGH,tesseract: Tesseract: Heap out-of-bounds write can lead to arbitrary code execution,https://avd.aquasec.com/nvd/cve-2026-88052
+tesseract-ocr,5.5.0-1+b1,N/A,CVE-2026-88053,HIGH,tesseract: Tesseract: Heap out-of-bounds write leads to heap corruption via crafted data file,https://avd.aquasec.com/nvd/cve-2026-88053
+util-linux,2.41.5-0+deb13u1,N/A,CVE-2026-76642,HIGH,util-linux: util-linux: failed external mount helper still runs privileged X-mount post-hooks,https://avd.aquasec.com/nvd/cve-2026-76642
+util-linux,2.41.5-0+deb13u1,N/A,CVE-2026-78408,HIGH,util-linux: util-linux: nsenter --join-cgroup leaks root cgroup migration authority,https://avd.aquasec.com/nvd/cve-2026-78408
+util-linux,2.41.5-0+deb13u1,N/A,CVE-2026-78409,HIGH,util-linux: util-linux: X-mount.subdir detached-tree resolution can escape via intermediate symlinks,https://avd.aquasec.com/nvd/cve-2026-78409
+util-linux,2.41.5-0+deb13u1,N/A,CVE-2026-78410,HIGH,"util-linux: util-linux: restricted bind mounts do not pin the source, allowing X-mount.owner/group/mode redirection",https://avd.aquasec.com/nvd/cve-2026-78410
