@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 import unicodedata
+import concurrent.futures
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
@@ -382,43 +383,54 @@ def _ocr_response_bytes(image: bytes, check: Callable[[], None],
         "ocr_preset": "rapidocr",
         "ocr_lang": "en",
     }
-    # Use the computed request_timeout for read timeout; connect/write/pool are conservative.
-    with httpx.Client(
-        timeout=httpx.Timeout(connect=2, read=request_timeout, write=5, pool=2),
-        trust_env=False,
-        follow_redirects=False,
-    ) as client:
-        with client.stream(
-            "POST",
-            f"{DOCLING_SERVE_URL}/v1/convert/file",
-            data=form,
-            files={"files": ("frame.jpg", image, "image/jpeg")},
-            headers={"Accept": "application/json"},
-        ) as response:
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "").lower()
-            if "application/json" not in content_type:
-                raise NarrationError("ocr_service_invalid_response")
-            length = response.headers.get("content-length")
-            if length is not None:
-                try:
-                    response_length = int(length)
-                except ValueError as exc:
-                    raise NarrationError("ocr_service_invalid_response") from exc
-                if response_length < 0 or response_length > OCR_MAX_RESPONSE_BYTES:
-                    raise NarrationError("ocr_response_limit")
-            body = bytearray()
-            # Do not accumulate a fixed-size chunk before yielding control.
-            for chunk in response.iter_bytes():
-                check()
+    def _fetch() -> bytes:
+        with httpx.Client(
+            timeout=httpx.Timeout(connect=2, read=request_timeout, write=5, pool=2),
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
+            with client.stream(
+                "POST",
+                f"{DOCLING_SERVE_URL}/v1/convert/file",
+                data=form,
+                files={"files": ("frame.jpg", image, "image/jpeg")},
+                headers={"Accept": "application/json"},
+            ) as response:
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").lower()
+                if "application/json" not in content_type:
+                    raise NarrationError("ocr_service_invalid_response")
+                length = response.headers.get("content-length")
+                if length is not None:
+                    try:
+                        response_length = int(length)
+                    except ValueError as exc:
+                        raise NarrationError("ocr_service_invalid_response") from exc
+                    if response_length < 0 or response_length > OCR_MAX_RESPONSE_BYTES:
+                        raise NarrationError("ocr_response_limit")
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    check()
+                    if time.monotonic() >= deadline:
+                        raise NarrationError("ocr_service_timeout")
+                    if len(body) + len(chunk) > OCR_MAX_RESPONSE_BYTES:
+                        raise NarrationError("ocr_response_limit")
+                    body.extend(chunk)
                 if time.monotonic() >= deadline:
                     raise NarrationError("ocr_service_timeout")
-                if len(body) + len(chunk) > OCR_MAX_RESPONSE_BYTES:
-                    raise NarrationError("ocr_response_limit")
-                body.extend(chunk)
-            if time.monotonic() >= deadline:
-                raise NarrationError("ocr_service_timeout")
-            return bytes(body)
+                return bytes(body)
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise NarrationError("ocr_service_timeout")
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(_fetch)
+        return future.result(timeout=remaining)
+    except concurrent.futures.TimeoutError:
+        raise NarrationError("ocr_service_timeout")
+    finally:
+        pool.shutdown(wait=False)
 
 
 def extract_ocr(frame: Path, check: Callable[[], None],
