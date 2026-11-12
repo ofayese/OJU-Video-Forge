@@ -65,7 +65,7 @@ def test_narration_ocr_is_private_and_resource_bounded():
     assert overlay["networks"]["narration-ocr"] == {"internal": True}
     assert set(ocr["networks"]) == {"narration-ocr"}
     assert not set(ocr["networks"]) & {"control", "inference"}
-    assert ocr["image"] == "oju-video-forge/docling-ocr:1.37.0"
+    assert ocr["image"] == "oju-video-forge/docling-ocr:1.38.2"
     assert "ports" not in ocr
     assert "volumes" not in ocr
     assert "devices" not in ocr

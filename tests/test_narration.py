@@ -431,6 +431,7 @@ def test_extract_ocr_uses_bounded_docling_rapidocr_request(monkeypatch, tmp_path
     assert settings["trust_env"] is False
     assert settings["follow_redirects"] is False
     assert result["text"] == "Save changes"
+    assert result["provenance"]["provider_version"] == "1.38.2"
     assert result["provenance"]["engine"] == "rapidocr"
     assert result["provenance"]["engine_version"] == "3.10.0"
     assert result["provenance"]["model_sha256"] == narration.OCR_MODEL_SHA256

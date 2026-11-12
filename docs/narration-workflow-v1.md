@@ -38,7 +38,7 @@ does not manage Docling. The TCP health check shows only that port 9623 accepts
 connections, not that OCR works or that a 120-second end-to-end deadline is
 enforced. Use an authorized synthetic end-to-end smoke to verify actual OCR.
 
-The CPU image is `oju-video-forge/docling-ocr:1.37.0`. Verify its image ID
+The CPU image is `oju-video-forge/docling-ocr:1.38.2`. Verify its image ID
 against the approved local image before startup; the historical
 `oju-video-forge-docling-ocr:1.37.0` tag is retained for rollback. A local
 image ID is not a registry manifest digest: pin a verified registry digest
@@ -124,8 +124,8 @@ not discard a successful transcript or block manual script authoring/approval.
 Cancellation still stops the job; ASR failures are not converted into successful
 transcripts.
 
-OCR uses Docling Serve `1.37.0` and RapidOCR `3.10.0` with the pinned CPU image
-`quay.io/docling-project/docling-serve-cpu@sha256:8376600bcc1ba41d06b26f4af10fe1ba0071578e85d0857447f4c2fdda9308a8`.
+OCR uses Docling Serve `1.38.2` and RapidOCR `3.10.0` with the pinned CPU image
+`quay.io/docling-project/docling-serve-cpu@sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0`.
 The worker posts only bounded JPEG frames to the fixed
 `http://docling-ocr:9623/v1/convert/file` endpoint, with the `rapidocr` preset.
 The response, extracted text and request time are bounded; redirects, proxy
@@ -135,11 +135,11 @@ RapidOCR, ONNX Runtime and model-file checksum provenance.
 The OCR service has no published port, model or application-storage mounts, or
 database/Redis credentials. It is connected only to the worker through the
 internal `narration-ocr` network; its root filesystem is read-only and its
-CPU, memory, process count and temporary storage are bounded. Docling Serve
-1.37.0 does not provide a built-in OCR-preset allowlist: custom OCR configuration
-is disabled, and only the trusted worker client is allowed onto this network;
-the client explicitly sends `rapidocr`. This is a network/client boundary, not
-a server-side preset whitelist.
+CPU, memory, process count and temporary storage are bounded. Docling Serve 1.38.2 enforces the configured OCR-preset allowlist server-side.
+Only `rapidocr` and `auto` are allowed, custom OCR configuration is disabled,
+and only the trusted worker client is allowed onto this network. The synchronous
+OCR endpoint does not use Ray's distributed Java worker; that unused Java
+archive is omitted from the image.
 
 At most 12 timestamped frames are sampled over a maximum 600-second source.
 Sampled grayscale change detection identifies major visual changes, not exact
