@@ -13,10 +13,21 @@ from sqlalchemy.pool import StaticPool
 from app import api, narration, narration_jobs
 from app.auth import Actor, get_current_actor
 from app.core import (
-    Base, DispatchOutbox, Job, MediaAsset, Narration, NarrationRevision,
-    Project, ProjectMembership, User, WorkflowArtifact,
+    Base,
+    DispatchOutbox,
+    Job,
+    MediaAsset,
+    Narration,
+    NarrationRevision,
+    Project,
+    ProjectMembership,
+    User,
+    WorkflowArtifact,
 )
-from app.worker import JobCancelled
+
+
+class CancellationRequestedError(Exception):
+    pass
 
 
 @pytest.fixture
@@ -316,9 +327,9 @@ def test_draft_does_not_invent_source_events():
 @pytest.mark.parametrize("mode,speech,failure", [
     ("transcript", True, narration.NarrationError("vision_unavailable")),
     ("transcript", True, httpx.ReadTimeout("local vision timed out")),
-    ("manual", False, narration.NarrationError("media_command_failed:tesseract:exit_1")),
+    ("manual", False, narration.NarrationError("ocr_service_unavailable")),
     ("transcript", False, narration.NarrationError("vision_unavailable")),
-    ("transcript", True, JobCancelled()),
+    ("transcript", True, CancellationRequestedError()),
 ])
 def test_optional_visual_failure_preserves_narration_or_cancellation(
     context, monkeypatch, tmp_path, mode, speech, failure,
@@ -356,8 +367,8 @@ def test_optional_visual_failure_preserves_narration_or_cancellation(
         asset.storage_key = "source/video.mp4"
         db.commit()
         job = db.get(Job, row.job_id)
-        if isinstance(failure, JobCancelled):
-            with pytest.raises(JobCancelled):
+        if isinstance(failure, CancellationRequestedError):
+            with pytest.raises(CancellationRequestedError):
                 narration_jobs.execute(db, job, lambda: None)
             assert db.query(NarrationRevision).count() == 0
             return
@@ -374,71 +385,256 @@ def test_optional_visual_failure_preserves_narration_or_cancellation(
             assert revision.script[0]["evidence"] == ["speech-1"]
 
 
-def test_scenes_uses_only_pinned_traineddata_and_ignores_environment_override(
-    monkeypatch, tmp_path,
+def mock_ocr_client(monkeypatch, handler):
+    client_type = httpx.Client
+    captured = {}
+    transport = httpx.MockTransport(handler)
+
+    def create_client(**kwargs):
+        captured.update(kwargs)
+        return client_type(transport=transport, **kwargs)
+
+    monkeypatch.setattr(narration.httpx, "Client", create_client)
+    return captured
+
+
+def synthetic_jpeg(width=2, height=2):
+    return (
+        b"\xff\xd8\xff\xc0\x00\x0b\x08"
+        + height.to_bytes(2, "big")
+        + width.to_bytes(2, "big")
+        + b"\x01\x01\x11\x00\xff\xd9"
+    )
+
+
+def test_extract_ocr_uses_bounded_docling_rapidocr_request(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert str(request.url) == "http://docling-ocr:9623/v1/convert/file"
+        assert b'name="ocr_preset"\r\n\r\nrapidocr' in request.content
+        assert b'name="do_ocr"\r\n\r\ntrue' in request.content
+        assert b'name="files"; filename="frame.jpg"' in request.content
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={"status": "success", "document": {"text_content": "  Save changes  \n"}},
+        )
+
+    settings = mock_ocr_client(monkeypatch, handle)
+    result = narration.extract_ocr(frame, lambda: None)
+
+    assert len(requests) == 1
+    assert settings["trust_env"] is False
+    assert settings["follow_redirects"] is False
+    assert result["text"] == "Save changes"
+    assert result["provenance"]["provider_version"] == "1.38.2"
+    assert result["provenance"]["engine"] == "rapidocr"
+    assert result["provenance"]["engine_version"] == "3.10.0"
+    assert result["provenance"]["model_sha256"] == narration.OCR_MODEL_SHA256
+
+
+@pytest.mark.parametrize(("content", "error"), [
+    (b"not a jpeg", "ocr_frame_invalid"),
+    (b"\xff\xd8\xff" + b"x" * (narration.OCR_MAX_IMAGE_BYTES + 1) + b"\xff\xd9",
+     "ocr_frame_invalid"),
+    (synthetic_jpeg(width=961), "ocr_frame_dimensions_invalid"),
+    (synthetic_jpeg(height=541), "ocr_frame_dimensions_invalid"),
+])
+def test_extract_ocr_rejects_invalid_oversized_or_large_frames(
+    monkeypatch, tmp_path, content, error,
 ):
-    trusted = tmp_path / "trusted-tessdata"
-    trusted.mkdir()
-    model = trusted / "eng.traineddata"
-    model.write_bytes(b"trusted traineddata")
-    uploads = tmp_path / "uploads"
-    uploads.mkdir()
-    (uploads / "eng.traineddata").write_bytes(b"uploaded traineddata")
-    binary = tmp_path / "tesseract"
-    binary.touch()
-    monkeypatch.setattr(narration, "TESSERACT_BINARY", str(binary))
-    monkeypatch.setattr(narration, "TESSDATA_DIR", trusted)
-    monkeypatch.setattr(narration, "TESSDATA_ASSET_SHA256", {
-        "eng": hashlib.sha256(model.read_bytes()).hexdigest(),
-    })
-    monkeypatch.setenv("TESSDATA_PREFIX", str(uploads))
-    commands = []
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(content)
+    mock_ocr_client(
+        monkeypatch,
+        lambda _request: pytest.fail("Invalid frame must not be submitted"),
+    )
 
+    with pytest.raises(narration.NarrationError, match=error):
+        narration.extract_ocr(frame, lambda: None)
+
+
+def test_extract_ocr_bounds_service_response(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    mock_ocr_client(monkeypatch, lambda _request: httpx.Response(
+        200, headers={"content-type": "application/json"},
+        content=b"x" * (narration.OCR_MAX_RESPONSE_BYTES + 1),
+    ))
+
+    with pytest.raises(narration.NarrationError, match="ocr_response_limit"):
+        narration.extract_ocr(frame, lambda: None)
+
+
+@pytest.mark.parametrize(("document", "error"), [
+    ({}, "ocr_service_invalid_response"),
+    ({"text_content": None}, "ocr_service_invalid_response"),
+    ({"text_content": 123}, "ocr_service_invalid_response"),
+])
+def test_extract_ocr_rejects_missing_or_invalid_text(monkeypatch, tmp_path, document, error):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    mock_ocr_client(monkeypatch, lambda _request: httpx.Response(
+        200, json={"status": "success", "document": document},
+    ))
+    with pytest.raises(narration.NarrationError, match=error):
+        narration.extract_ocr(frame, lambda: None)
+
+
+def test_extract_ocr_reports_timeout_without_retry(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    attempts = []
+
+    def timeout(request):
+        attempts.append(request)
+        raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+    mock_ocr_client(monkeypatch, timeout)
+    with pytest.raises(narration.NarrationError, match="ocr_service_timeout"):
+        narration.extract_ocr(frame, lambda: None)
+    assert len(attempts) == 1
+
+
+@pytest.mark.parametrize(("ocr_enabled", "vision_enabled"), [
+    (True, False),
+    (False, True),
+    (True, True),
+    (False, False),
+])
+def test_scenes_runs_ocr_and_vision_independently(
+    monkeypatch, tmp_path, ocr_enabled, vision_enabled,
+):
     def fake_run(args, _check, _timeout=120, env=None):
-        commands.append((args, env))
-        if args[0] == "ffmpeg" and str(args[-1]).endswith(".jpg"):
-            Path(args[-1]).write_bytes(b"synthetic frame")
+        if str(args[-1]).endswith(".jpg"):
+            Path(args[-1]).write_bytes(synthetic_jpeg())
             return b""
-        if args[0] == "ffmpeg":
-            return bytes(64 * 36)
-        return b"trusted OCR"
+        return bytes(64 * 36)
 
+    ocr_calls = []
+    vision_calls = []
     monkeypatch.setattr(narration, "run", fake_run)
+    monkeypatch.setattr(narration, "extract_ocr", lambda *_args: (
+        ocr_calls.append(True) or {
+            "text": "Save changes", "provenance": {"engine": "rapidocr"},
+        }
+    ))
+    monkeypatch.setattr(narration, "vision", lambda *_args: (
+        vision_calls.append(True) or {"text": "A visible button", "uncertain": True}
+    ))
     frames_dir = tmp_path / "frames"
     frames_dir.mkdir()
+
     result = narration.scenes(
-        uploads / "source.mp4", frames_dir, {"format": {"duration": "1"}},
-        narration.NarrationOptions(analysis_mode="manual"), lambda: None,
+        tmp_path / "source.mp4", frames_dir, {"format": {"duration": "1"}},
+        narration.NarrationOptions(
+            analysis_mode="manual", ocr=ocr_enabled, vision=vision_enabled,
+        ), lambda: None,
     )
 
-    tesseract_args, tesseract_env = next(
-        (args, env) for args, env in commands if args[0] == str(binary)
+    assert len(ocr_calls) == int(ocr_enabled)
+    assert len(vision_calls) == int(vision_enabled)
+    assert result[0]["timestamp_ms"] == 0
+    assert result[0]["id"] == "frame-0"
+    assert result[0]["ocr"] == ("Save changes" if ocr_enabled else None)
+    assert result[0]["ocr_status"] == ("complete" if ocr_enabled else "not_requested")
+    assert result[0]["ocr_provenance"] == (
+        {"engine": "rapidocr"} if ocr_enabled else None
     )
-    assert result[0]["ocr"] == "trusted OCR"
-    assert tesseract_args[tesseract_args.index("-l") + 1] == "eng"
-    assert tesseract_args[tesseract_args.index("--tessdata-dir") + 1] == str(trusted)
-    assert tesseract_env is not None
-    assert "TESSDATA_PREFIX" not in tesseract_env
+    assert result[0]["vision"] == (
+        {"text": "A visible button", "uncertain": True} if vision_enabled else None
+    )
+    assert result[0]["vision_status"] == (
+        "complete" if vision_enabled else "not_requested"
+    )
 
 
-def test_scenes_rejects_modified_allowlisted_traineddata(monkeypatch, tmp_path):
-    trusted = tmp_path / "trusted-tessdata"
-    trusted.mkdir()
-    (trusted / "eng.traineddata").write_bytes(b"tampered traineddata")
-    binary = tmp_path / "tesseract"
-    binary.touch()
-    monkeypatch.setattr(narration, "TESSERACT_BINARY", str(binary))
-    monkeypatch.setattr(narration, "TESSDATA_DIR", trusted)
-    monkeypatch.setattr(narration, "TESSDATA_ASSET_SHA256", {
-        "eng": hashlib.sha256(b"expected traineddata").hexdigest(),
+def test_scenes_records_ocr_failure_and_still_runs_vision(monkeypatch, tmp_path):
+    def fake_run(args, _check, _timeout=120, env=None):
+        if str(args[-1]).endswith(".jpg"):
+            Path(args[-1]).write_bytes(synthetic_jpeg())
+            return b""
+        return bytes(64 * 36)
+
+    monkeypatch.setattr(narration, "run", fake_run)
+    monkeypatch.setattr(narration, "extract_ocr", lambda *_args: (
+        _ for _ in ()
+    ).throw(narration.NarrationError("ocr_service_timeout")))
+    monkeypatch.setattr(narration, "vision", lambda *_args: {
+        "text": "A visible button", "uncertain": True,
     })
-    monkeypatch.setattr(
-        narration, "run",
-        lambda *_args, **_kwargs: pytest.fail("Media process started with untrusted traineddata"),
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+
+    result = narration.scenes(
+        tmp_path / "source.mp4", frames_dir, {"format": {"duration": "1"}},
+        narration.NarrationOptions(analysis_mode="manual", vision=True), lambda: None,
     )
 
-    with pytest.raises(narration.NarrationError, match="ocr_traineddata_untrusted"):
+    assert result[0]["ocr"] is None
+    assert result[0]["ocr_status"] == "unavailable"
+    assert result[0]["ocr_error"] == "ocr_service_timeout"
+    assert result[0]["vision"]["text"] == "A visible button"
+    assert result[0]["vision_status"] == "complete"
+
+
+@pytest.mark.parametrize(("ocr_text", "ocr_status"), [
+    ("", "no_text"),
+    ("Synthetic title", "complete"),
+])
+def test_scenes_keeps_ocr_when_vision_fails(monkeypatch, tmp_path, ocr_text, ocr_status):
+    def fake_run(args, _check, _timeout=120, env=None):
+        if str(args[-1]).endswith(".jpg"):
+            Path(args[-1]).write_bytes(synthetic_jpeg())
+            return b""
+        return bytes(64 * 36)
+
+    monkeypatch.setattr(narration, "run", fake_run)
+    monkeypatch.setattr(narration, "extract_ocr", lambda *_args: {
+        "text": ocr_text, "provenance": {"engine": "rapidocr"},
+    })
+    monkeypatch.setattr(narration, "vision", lambda *_args: (
+        _ for _ in ()
+    ).throw(httpx.ReadTimeout("sensitive provider detail")))
+    result = narration.scenes(
+        tmp_path / "source.mp4", tmp_path, {"format": {"duration": "1"}},
+        narration.NarrationOptions(analysis_mode="manual", vision=True), lambda: None,
+    )
+    assert result[0]["ocr"] == ocr_text
+    assert result[0]["ocr_status"] == ocr_status
+    assert result[0]["vision"] is None
+    assert result[0]["vision_status"] == "unavailable"
+    assert result[0]["vision_error"] == "vision_provider_request_or_response_failed"
+
+
+def test_scenes_does_not_swallow_cancellation_after_provider_failure(monkeypatch, tmp_path):
+    def fake_run(args, _check, _timeout=120, env=None):
+        if str(args[-1]).endswith(".jpg"):
+            Path(args[-1]).write_bytes(synthetic_jpeg())
+            return b""
+        return bytes(64 * 36)
+
+    checks = 0
+
+    def check():
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise CancellationRequestedError()
+
+    monkeypatch.setattr(narration, "run", fake_run)
+    monkeypatch.setattr(narration, "extract_ocr", lambda *_args: (
+        _ for _ in ()
+    ).throw(narration.NarrationError("ocr_service_timeout")))
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+
+    with pytest.raises(CancellationRequestedError):
         narration.scenes(
-            tmp_path / "source.mp4", tmp_path, {"format": {"duration": "1"}},
-            narration.NarrationOptions(analysis_mode="manual"), lambda: None,
+            tmp_path / "source.mp4", frames_dir, {"format": {"duration": "1"}},
+            narration.NarrationOptions(analysis_mode="manual"), check,
         )

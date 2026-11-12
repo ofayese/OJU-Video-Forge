@@ -34,10 +34,10 @@ describe("source narration", () => {
       new Response(JSON.stringify(result("queued")), { status: 202 }),
     );
     await new ApiClient("", fetcher).startNarration("project", "source",
-      { analysis_mode: "manual" }, "request", "synthetic");
+      { analysis_mode: "manual", ocr: true, vision: false }, "request", "synthetic");
     expect(fetcher.mock.calls[0]?.[0]).toBe("/v1/projects/project/narrations");
     expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
-      media_id: "source", options: { analysis_mode: "manual" },
+      media_id: "source", options: { analysis_mode: "manual", ocr: true, vision: false },
     });
   });
   it("shows source, evidence and approval controls without a generated preview", () => {
@@ -46,6 +46,7 @@ describe("source narration", () => {
     expect(html).toContain("Start narration analysis");
     expect(html).toContain("Manual script");
     expect(html).toContain("Vision and OCR are optional enhancements");
+    expect(html).toContain("Extract on-screen text with private Docling RapidOCR");
     expect(html).not.toContain("Narrated source video");
     expect(html).not.toContain("Generate AI video");
   });

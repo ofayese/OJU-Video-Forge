@@ -145,6 +145,15 @@ export interface NarrationSettings {
   narration_gain: number;
 }
 
+export interface NarrationOcrProvenance {
+  provider: string;
+  provider_version: string;
+  engine: string;
+  engine_version: string;
+  runtime: string;
+  model_sha256: Record<string, string>;
+}
+
 export interface NarrationResult {
   id: string;
   project_id: string;
@@ -160,9 +169,13 @@ export interface NarrationResult {
     media?: { format: { duration: string } };
     transcript?: { status: string; language?: string | null };
     scene_analysis?: { status: string; error: string | null };
+    ocr?: string;
     vision?: string;
     scenes?: { id: string; timestamp_ms: number; major_change: boolean; ocr: string | null;
-      vision: { text: string; uncertain: boolean } | null }[];
+      ocr_provenance?: NarrationOcrProvenance | null;
+      ocr_status?: string; ocr_error?: string | null;
+      vision: { text: string; uncertain: boolean } | null;
+      vision_status?: string; vision_error?: string | null }[];
   };
   artifacts: { id: string; job_id: string; filename: string; media_type: string;
     sha256: string; size_bytes: number; script_revision: number }[];

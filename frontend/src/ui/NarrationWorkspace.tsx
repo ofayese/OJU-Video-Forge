@@ -17,6 +17,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
 }) {
   const [sourceId, setSourceId] = useState("");
   const [mode, setMode] = useState("transcript");
+  const [ocr, setOcr] = useState(true);
   const [vision, setVision] = useState(false);
   const [style, setStyle] = useState("instructional");
   const [instructions, setInstructions] = useState("");
@@ -143,6 +144,8 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         <option value="transcript">Speech transcription (local model required)</option>
         <option value="manual">Manual script + sampled scenes (no ASR)</option>
       </select></label>
+      <label><input type="checkbox" checked={ocr} onChange={(event) => setOcr(event.target.checked)} />
+        Extract on-screen text with private Docling RapidOCR</label>
       <label><input type="checkbox" checked={vision} onChange={(event) => setVision(event.target.checked)} />
         Analyze up to six frames using a configured local vision model</label>
       <label>Narration style<select value={style} onChange={(event) => setStyle(event.target.value)}>
@@ -155,7 +158,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         review the entire script against the source before approval.</p>
       <button disabled={!sourceId} onClick={() => {
         setRow(null); setScript([]); setDirty(false);
-        const options = { analysis_mode: mode, vision, style, instructions, language: "en" };
+        const options = { analysis_mode: mode, ocr, vision, style, instructions, language: "en" };
         const payload = JSON.stringify({ sourceId, options });
         if (pendingStart.current?.payload !== payload) {
           pendingStart.current = { payload, key: crypto.randomUUID() };
@@ -178,6 +181,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         · Language: {row.analysis.transcript.language ?? "not detected"}</p>}
       {row.analysis.scene_analysis && <p role="status">Optional scene analysis: {row.analysis.scene_analysis.status}
         {row.analysis.scene_analysis.error && ` · ${row.analysis.scene_analysis.error}. Continue with transcript or manual script.`}</p>}
+      <p>OCR: {row.analysis.ocr ?? "not run"}</p>
       <p>Vision: {row.analysis.vision ?? "not run"}</p>
       <button disabled={busy} onClick={() => void action(() =>
         api.getNarration(projectId, row.id, token))}>Refresh narration</button>
@@ -189,8 +193,13 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         void action(() => api.retryNarration(projectId, row.id, token))}>Retry failed eligible operation</button>}
       <details><summary>Timestamped scene evidence (not confirmed actions)</summary>
         {row.analysis.scenes?.map((scene) => <p key={scene.id}>{scene.id} · {scene.timestamp_ms} ms
-          {scene.major_change ? " · visual change detected" : ""} · OCR: {scene.ocr ?? "unavailable"}
-          · Vision: {scene.vision?.text ?? "not analyzed"}</p>)}
+          {scene.major_change ? " · visual change detected" : ""} · OCR ({scene.ocr_status ?? "unknown"}): {scene.ocr ?? "unavailable"}
+          {scene.ocr_error && ` · ${scene.ocr_error}`}
+          · OCR engine: {scene.ocr_provenance
+            ? `${scene.ocr_provenance.engine} ${scene.ocr_provenance.engine_version} (${scene.ocr_provenance.provider} ${scene.ocr_provenance.provider_version})`
+            : "unavailable"}
+          · Vision ({scene.vision_status ?? "unknown"}): {scene.vision?.text ?? "not analyzed"}
+          {scene.vision_error && ` · ${scene.vision_error}`}</p>)}
       </details>
       {script.map((segment, index) => <fieldset disabled={busy || !editable} key={segment.id}>
         <legend>Segment {segment.id}</legend>

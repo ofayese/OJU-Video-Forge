@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: services/narration/Dockerfile
     mem_limit: 4g
+    pids_limit: 128
     tmpfs:
       - "/tmp:rw,noexec,nosuid,size=1g"
     environment:
@@ -15,6 +16,69 @@ services:
       NARRATION_VISION_MODEL: ${NARRATION_VISION_MODEL:-}
     volumes:
       - narration-models:/models/asr:ro
+    networks: [control, inference, narration-ocr]
+    depends_on:
+      docling-ocr:
+        condition: service_healthy
+
+  docling-ocr:
+    build:
+      context: .
+      dockerfile: services/docling-ocr/Dockerfile.docling-ocr
+    image: oju-video-forge/docling-ocr:1.38.2
+    cpus: 0.5
+    mem_limit: 2g
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=512m"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    init: true
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "false"
+      DOCLING_SERVE_ENABLE_API_DOCS: "false"
+      DOCLING_SERVE_ENABLE_CAPABILITIES_ENDPOINT: "false"
+      DOCLING_SERVE_SHOW_VERSION_INFO: "false"
+      DOCLING_SERVE_DEFAULT_OCR_PRESET: rapidocr
+      DOCLING_SERVE_ALLOWED_OCR_PRESETS: '["rapidocr", "auto"]'
+      DOCLING_SERVE_ALLOW_CUSTOM_OCR_CONFIG: "false"
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "false"
+      DOCLING_DEVICE: cpu
+      DOCLING_SERVE_MAX_FILE_SIZE: "2097152"
+      DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT: "120"
+      DOCLING_SERVE_MAX_SYNC_WAIT: "120"
+      DOCLING_SERVE_SYNC_POLL_INTERVAL: "1"
+      DOCLING_SERVE_OCR_BATCH_SIZE: "1"
+      DOCLING_SERVE_QUEUE_MAX_SIZE: "1"
+      DOCLING_SERVE_ENG_LOC_NUM_WORKERS: "1"
+      DOCLING_SERVE_OPTIONS_CACHE_SIZE: "1"
+      DOCLING_PERF_PAGE_BATCH_SIZE: "1"
+      DOCLING_NUM_THREADS: "1"
+      DOCLING_SERVE_CORS_ORIGINS: '[]'
+      DOCLING_SERVE_CORS_METHODS: '[]'
+      DOCLING_SERVE_CORS_HEADERS: '[]'
+      DOCLING_SERVE_LOG_FORMAT: json
+      UVICORN_WORKERS: "1"
+      UVICORN_PROXY_HEADERS: "false"
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
+      HOME: /tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+      OMP_NUM_THREADS: "1"
+    networks: [narration-ocr]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9623), timeout=2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
 
 volumes:
   narration-models: {}
+
+networks:
+  narration-ocr:
+    internal: true

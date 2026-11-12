@@ -1,0 +1,4 @@
+docling-serve==1.38.2
+docling-slim==2.142.1
+rapidocr==3.10.0
+onnxruntime==1.31.0

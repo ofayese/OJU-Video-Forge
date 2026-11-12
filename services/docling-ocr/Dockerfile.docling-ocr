@@ -1,0 +1,44 @@
+FROM quay.io/docling-project/docling-serve-cpu@sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0
+
+WORKDIR /opt/ocr
+COPY --chown=1001:0 services/docling-ocr/requirements-docling-ocr.txt ./requirements-docling-ocr.txt
+COPY --chown=1001:0 services/docling-ocr/requirements-docling-ocr-security.lock.txt ./requirements-docling-ocr-security.lock.txt
+USER 0
+RUN python -m pip install --no-cache-dir --no-deps --require-hashes --only-binary=:all: -r requirements-docling-ocr-security.lock.txt \
+ && python -m pip check \
+ && python -c "import importlib.metadata as m, shutil; from importlib.util import find_spec; from pathlib import Path; expected={'docling-serve':'1.38.2','docling-slim':'2.142.1','rapidocr':'3.10.0','onnxruntime':'1.31.0','ray':'2.58.0','aiohttp':'3.14.5','oauthlib':'4.0.1','pyasn1':'0.6.5'}; actual={name:m.version(name) for name in expected}; mismatches={name:(actual[name],version) for name,version in expected.items() if actual[name] != version}; assert not mismatches, f'Docling runtime mismatch: {mismatches}'; ray=Path(find_spec('ray').origin).parent; vendor=ray/'_private/runtime_env/agent/thirdparty_files'; dist=m.distribution('aiohttp'); metadata=next(entry for entry in dist.files if entry.name=='METADATA' and '.dist-info/' in str(entry)); info=Path(dist.locate_file(metadata)).parent; [shutil.rmtree(path) if path.is_dir() else path.unlink() for path in vendor.glob('aiohttp*')]; shutil.copytree(Path(find_spec('aiohttp').origin).parent,vendor/'aiohttp'); shutil.copytree(info,vendor/info.name); jar=ray/'jars/ray_dist.jar'; assert jar.is_file(), f'Ray Java archive missing: {jar}'; jar.unlink()"
+
+COPY --chown=1001:0 services/docling-ocr/run_docling.py services/docling-ocr/start_docling_serve.py ./
+ENV DOCLING_SERVE_ENABLE_UI=false \
+    DOCLING_SERVE_ENABLE_API_DOCS=false \
+    DOCLING_SERVE_ENABLE_CAPABILITIES_ENDPOINT=false \
+    DOCLING_SERVE_SHOW_VERSION_INFO=false \
+    DOCLING_SERVE_DEFAULT_OCR_PRESET=rapidocr \
+    DOCLING_SERVE_ALLOWED_OCR_PRESETS='["rapidocr", "auto"]' \
+    DOCLING_SERVE_ALLOW_CUSTOM_OCR_CONFIG=false \
+    DOCLING_SERVE_ENABLE_REMOTE_SERVICES=false \
+    DOCLING_DEVICE=cpu \
+    DOCLING_SERVE_MAX_FILE_SIZE=2097152 \
+    DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT=120 \
+    DOCLING_SERVE_MAX_SYNC_WAIT=120 \
+    DOCLING_SERVE_SYNC_POLL_INTERVAL=1 \
+    DOCLING_SERVE_OCR_BATCH_SIZE=1 \
+    DOCLING_SERVE_QUEUE_MAX_SIZE=1 \
+    DOCLING_SERVE_ENG_LOC_NUM_WORKERS=1 \
+    DOCLING_SERVE_OPTIONS_CACHE_SIZE=1 \
+    DOCLING_PERF_PAGE_BATCH_SIZE=1 \
+    DOCLING_NUM_THREADS=1 \
+    DOCLING_SERVE_CORS_ORIGINS='[]' \
+    DOCLING_SERVE_CORS_METHODS='[]' \
+    DOCLING_SERVE_CORS_HEADERS='[]' \
+    DOCLING_SERVE_LOG_FORMAT=json \
+    UVICORN_WORKERS=1 \
+    UVICORN_PROXY_HEADERS=false \
+    HF_HUB_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    DO_NOT_TRACK=1 \
+    HOME=/tmp \
+    PYTHONDONTWRITEBYTECODE=1 \
+    OMP_NUM_THREADS=1
+USER 1001:0
+CMD ["python", "/opt/ocr/start_docling_serve.py", "--host", "0.0.0.0", "--port", "9623"]
