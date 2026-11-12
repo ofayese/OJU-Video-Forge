@@ -13,8 +13,9 @@ export function safeHref(url: string | undefined, trustedOrigin: string | undefi
       return undefined;
     }
     const parsed = new URL(url, originUrl.origin);
+    const credentialUrl = parsed.protocol === "blob:" ? new URL(parsed.pathname) : parsed;
     if (!["blob:", "http:", "https:"].includes(parsed.protocol) ||
-      parsed.origin !== originUrl.origin || parsed.username || parsed.password) {
+      parsed.origin !== originUrl.origin || credentialUrl.username || credentialUrl.password) {
       return undefined;
     }
     return parsed.href;
