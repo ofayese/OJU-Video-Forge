@@ -85,7 +85,7 @@ Path(sys.argv[1]).write_bytes(f"P6\n{width} {height}\n255\n".encode("ascii") + p
         --entrypoint ffmpeg $FixtureImage -nostdin -hide_banner -loglevel error `
         -loop 1 -framerate 12 -i /io/frame.ppm -i /io/voice.wav -t 6 `
         -c:v libx264 -pix_fmt yuv420p -c:a aac -ac 1 -b:a 64k -threads 1 `
-        -shortest -movflags +faststart /io/source.mp4
+        -movflags +faststart /io/source.mp4
     Assert-True ($LASTEXITCODE -eq 0) "H.264/AAC source fixture generation failed."
 
     $sourcePath = Join-Path $workPath "source.mp4"
