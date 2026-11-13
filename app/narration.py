@@ -8,12 +8,14 @@ import ipaddress
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import threading
 import time
 import unicodedata
 from collections.abc import Callable
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -85,14 +87,21 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def run(args: list[str], check: Callable[[], None], timeout: int = 120,
-        env: dict[str, str] | None = None) -> bytes:
+def run(
+    args: list[str],
+    check: Callable[[], None],
+    timeout: int = 120,
+    env: dict[str, str] | None = None,
+    *,
+    capture_stderr: bool = False,
+) -> bytes | tuple[bytes, bytes]:
     check()
     process = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, env=env,
     )
     deadline = time.monotonic() + timeout
     stdout = bytearray()
+    stderr = bytearray()
     overflow = threading.Event()
 
     def kill():
@@ -117,7 +126,7 @@ def run(args: list[str], check: Callable[[], None], timeout: int = 120,
 
     readers = [
         threading.Thread(target=drain, args=(process.stdout, stdout), daemon=True),
-        threading.Thread(target=drain, args=(process.stderr,), daemon=True),
+        threading.Thread(target=drain, args=(process.stderr, stderr if capture_stderr else None), daemon=True),
     ]
     try:
         for reader in readers:
@@ -136,6 +145,8 @@ def run(args: list[str], check: Callable[[], None], timeout: int = 120,
             raise NarrationError("media_diagnostics_limit")
         if process.returncode:
             raise NarrationError(f"media_command_failed:{Path(args[0]).name}:exit_{process.returncode}")
+        if capture_stderr:
+            return bytes(stdout), bytes(stderr)
         return bytes(stdout)
     finally:
         if process.poll() is None:
@@ -149,7 +160,8 @@ def run(args: list[str], check: Callable[[], None], timeout: int = 120,
 def probe(path: Path, check: Callable[[], None]) -> dict:
     result = json.loads(run([
         "ffprobe", "-v", "error", "-show_entries",
-        "format=duration:stream=codec_type,codec_name,width,height,sample_aspect_ratio,avg_frame_rate,duration",
+        "format=start_time,duration:stream=codec_type,codec_name,width,height,"
+        "sample_aspect_ratio,avg_frame_rate,duration,start_time,time_base",
         "-of", "json", str(path),
     ], check))
     duration = float(result.get("format", {}).get("duration", 0))
@@ -390,17 +402,59 @@ def extract_ocr(frame: Path, check: Callable[[], None]) -> dict:
 
 def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOptions,
            check: Callable[[], None]) -> list[dict]:
-    duration = float(metadata["format"]["duration"])
+    video = next(
+        (stream for stream in metadata.get("streams", [])
+         if stream.get("codec_type") == "video"),
+        {},
+    )
+    media_format = metadata.get("format", {})
+    duration = None
+    for candidate in (video.get("duration"), media_format.get("duration")):
+        try:
+            value = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value) and value > 0:
+            duration = value
+            break
+    raw_start_time = video.get("start_time")
+    if raw_start_time in (None, "N/A"):
+        raw_start_time = media_format.get("start_time", 0)
+    try:
+        start_time = Decimal(str(raw_start_time))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise NarrationError("invalid_video_timing_metadata") from exc
+    if duration is None or not start_time.is_finite():
+        raise NarrationError("invalid_video_timing_metadata")
     count = min(12, max(1, math.ceil(duration / 10)))
     output = []
     previous = None
     for index in range(count):
         check()
-        seconds = duration * index / count
+        seconds = Decimal(str(duration)) * index / count
+        seek_time = start_time + seconds
         frame = directory / f"frame-{index}.jpg"
-        run(["ffmpeg", "-nostdin", "-v", "error", "-ss", str(seconds), "-i", str(source),
-             "-frames:v", "1", "-vf", "scale=960:540:force_original_aspect_ratio=decrease",
-             "-threads", "1", str(frame)], check, 30)
+        extraction = run([
+            "ffmpeg", "-nostdin", "-v", "info", "-ss", str(seek_time), "-i", str(source),
+            "-frames:v", "1", "-vf",
+            "showinfo,scale=960:540:force_original_aspect_ratio=decrease",
+            "-threads", "1", str(frame),
+        ], check, 30, capture_stderr=True)
+        if not isinstance(extraction, tuple):
+            raise NarrationError("scene_frame_timestamp_unavailable")
+        _, diagnostics = extraction
+        pts_match = re.search(rb"\bpts_time:([+-]?(?:\d+(?:\.\d*)?|\.\d+))", diagnostics)
+        if not pts_match:
+            raise NarrationError("scene_frame_timestamp_unavailable")
+        try:
+            frame_pts = seek_time + Decimal(pts_match.group(1).decode("ascii"))
+            timestamp_ms = int(
+                ((frame_pts - start_time) * 1000).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
+        except (InvalidOperation, UnicodeDecodeError, ValueError) as exc:
+            raise NarrationError("scene_frame_timestamp_unavailable") from exc
+        if not 0 <= timestamp_ms <= math.ceil(duration * 1000):
+            raise NarrationError("scene_frame_timestamp_out_of_range")
         pixels = run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(frame),
                       "-vf", "scale=64:36", "-frames:v", "1", "-pix_fmt", "gray",
                       "-f", "rawvideo", "-"], check, 30)
@@ -444,7 +498,7 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
                 )
         elif options.vision:
             vision_status = "not_sampled"
-        item = {"id": f"frame-{index}", "timestamp_ms": round(seconds * 1000),
+        item = {"id": f"frame-{index}", "timestamp_ms": timestamp_ms,
                 "frame_sha256": digest(frame), "major_change": change,
                 "ocr": ocr_result["text"] if ocr_result else None,
                 "ocr_provenance": ocr_result["provenance"] if ocr_result else None,

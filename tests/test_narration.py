@@ -1,4 +1,7 @@
 import hashlib
+import json
+import shutil
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -818,9 +821,11 @@ def test_extract_ocr_reports_timeout_without_retry(monkeypatch, tmp_path):
 def test_scenes_runs_ocr_and_vision_independently(
     monkeypatch, tmp_path, ocr_enabled, vision_enabled,
 ):
-    def fake_run(args, _check, _timeout=120, env=None):
+    def fake_run(args, _check, _timeout=120, env=None, *, capture_stderr=False):
         if str(args[-1]).endswith(".jpg"):
             Path(args[-1]).write_bytes(synthetic_jpeg())
+            if capture_stderr:
+                return b"", b"[Parsed_showinfo_0] n:0 pts_time:0.000000"
             return b""
         return bytes(64 * 36)
 
@@ -865,9 +870,11 @@ def test_scenes_runs_ocr_and_vision_independently(
 def test_silent_training_deduplicates_similar_samples_before_ocr(monkeypatch, tmp_path):
     samples = iter([bytes(64 * 36), bytes([1]) * (64 * 36), bytes([30]) * (64 * 36)])
 
-    def fake_run(args, _check, _timeout=120, env=None):
+    def fake_run(args, _check, _timeout=120, env=None, *, capture_stderr=False):
         if str(args[-1]).endswith(".jpg"):
             Path(args[-1]).write_bytes(synthetic_jpeg())
+            if capture_stderr:
+                return b"", b"[Parsed_showinfo_0] n:0 pts_time:0.000000"
             return b""
         return next(samples)
 
@@ -885,10 +892,163 @@ def test_silent_training_deduplicates_similar_samples_before_ocr(monkeypatch, tm
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize("kind", ["cfr", "vfr", "offset"])
+def test_scenes_timestamp_matches_decoded_source_pts(tmp_path, kind):
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("FFmpeg/FFprobe are required for source-PTS acceptance")
+
+    source = tmp_path / f"{kind}.mp4"
+    command = [
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=10:duration=12",
+    ]
+    if kind == "vfr":
+        command.extend([
+            "-vf", "select='not(mod(n,3))+not(mod(n,7))',setpts=PTS-STARTPTS",
+            "-fps_mode", "vfr",
+        ])
+    elif kind == "offset":
+        command.extend(["-vf", "setpts=PTS+2/TB"])
+    command.extend([
+        "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+        "-g", "10", "-pix_fmt", "yuv420p", str(source),
+    ])
+    subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def check():
+        return None
+
+    metadata = narration.probe(source, check)
+    frames = json.loads(narration.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
+        "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", str(source),
+    ], check))["frames"]
+    source_pts = [float(frame["best_effort_timestamp_time"]) for frame in frames]
+    stream_start = float(next(
+        stream["start_time"] for stream in metadata["streams"]
+        if stream["codec_type"] == "video"
+    ))
+
+    frame_directory = tmp_path / "frames"
+    frame_directory.mkdir()
+    result = narration.scenes(
+        source, frame_directory, metadata,
+        narration.NarrationOptions(analysis_mode="manual", ocr=False),
+        check,
+    )
+
+    assert len(result) == 2
+    for frame in result:
+        source_time = stream_start + frame["timestamp_ms"] / 1000
+        assert min(abs(source_time - pts) for pts in source_pts) <= 0.001
+
+
+def test_scenes_detects_real_transition_and_removes_duplicate_frame(tmp_path):
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("FFmpeg/FFprobe are required for scene acceptance")
+
+    transition = tmp_path / "transition.mp4"
+    subprocess.run([
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=black:s=160x90:r=5:d=6",
+        "-f", "lavfi", "-i", "color=c=white:s=160x90:r=5:d=6",
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0,setpts=PTS-STARTPTS[v]",
+        "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+        "-g", "5", "-pix_fmt", "yuv420p", str(transition),
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    duplicate = tmp_path / "duplicate.mp4"
+    subprocess.run([
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=black:s=160x90:r=5:d=12",
+        "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+        "-g", "5", "-pix_fmt", "yuv420p", str(duplicate),
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def check():
+        return None
+
+    options = narration.NarrationOptions(
+        workflow="silent_training", analysis_mode="manual", ocr=False,
+    )
+    transition_directory = tmp_path / "transition-frames"
+    transition_directory.mkdir()
+    duplicate_directory = tmp_path / "duplicate-frames"
+    duplicate_directory.mkdir()
+    transition_frames = narration.scenes(
+        transition, transition_directory, narration.probe(transition, check),
+        options, check,
+    )
+    duplicate_frames = narration.scenes(
+        duplicate, duplicate_directory, narration.probe(duplicate, check),
+        options, check,
+    )
+
+    assert [frame["timestamp_ms"] for frame in transition_frames] == [0, 6000]
+    assert transition_frames[1]["major_change"] is True
+    assert [frame["timestamp_ms"] for frame in duplicate_frames] == [0]
+
+
+def test_probe_rejects_corrupt_video_bytes(tmp_path):
+    if not shutil.which("ffprobe"):
+        pytest.skip("FFprobe is required to reject corrupt media")
+    source = tmp_path / "corrupt.mp4"
+    source.write_bytes(b"not a video")
+
+    with pytest.raises(narration.NarrationError, match="media_command_failed"):
+        narration.probe(source, lambda: None)
+
+
+def test_scenes_seeks_from_stream_offset_and_rounds_decoded_pts(monkeypatch, tmp_path):
+    pts = iter(["0.000500", "0.200000"])
+    pixels = iter([bytes(64 * 36), bytes([30]) * (64 * 36)])
+    seeks = []
+
+    def fake_run(args, _check, _timeout=120, env=None, *, capture_stderr=False):
+        if str(args[-1]).endswith(".jpg"):
+            seeks.append(args[args.index("-ss") + 1])
+            Path(args[-1]).write_bytes(synthetic_jpeg())
+            if capture_stderr:
+                return b"", f"[Parsed_showinfo_0] n:0 pts_time:{next(pts)}".encode()
+            return b""
+        return next(pixels)
+
+    monkeypatch.setattr(narration, "run", fake_run)
+    result = narration.scenes(
+        tmp_path / "source.mp4", tmp_path,
+        {"format": {"duration": "11"}, "streams": [{
+            "codec_type": "video", "duration": "11", "start_time": "2",
+        }]},
+        narration.NarrationOptions(analysis_mode="manual", ocr=False),
+        lambda: None,
+    )
+
+    assert seeks == ["2.0", "7.5"]
+    assert [frame["timestamp_ms"] for frame in result] == [1, 5700]
+
+
+def test_scenes_rejects_missing_decoded_pts(monkeypatch, tmp_path):
+    def fake_run(args, _check, _timeout=120, env=None, *, capture_stderr=False):
+        if capture_stderr:
+            return b"", b""
+        return b""
+
+    monkeypatch.setattr(narration, "run", fake_run)
+    with pytest.raises(narration.NarrationError, match="scene_frame_timestamp_unavailable"):
+        narration.scenes(
+            tmp_path / "source.mp4", tmp_path,
+            {"format": {"duration": "1"}},
+            narration.NarrationOptions(analysis_mode="manual", ocr=False),
+            lambda: None,
+        )
+
+
 def test_scenes_records_ocr_failure_and_still_runs_vision(monkeypatch, tmp_path):
-    def fake_run(args, _check, _timeout=120, env=None):
+    def fake_run(args, _check, _timeout=120, env=None, *, capture_stderr=False):
         if str(args[-1]).endswith(".jpg"):
             Path(args[-1]).write_bytes(synthetic_jpeg())
+            if capture_stderr:
+                return b"", b"[Parsed_showinfo_0] n:0 pts_time:0.000000"
             return b""
         return bytes(64 * 36)
 
@@ -919,9 +1079,11 @@ def test_scenes_records_ocr_failure_and_still_runs_vision(monkeypatch, tmp_path)
     ("Synthetic title", "complete"),
 ])
 def test_scenes_keeps_ocr_when_vision_fails(monkeypatch, tmp_path, ocr_text, ocr_status):
-    def fake_run(args, _check, _timeout=120, env=None):
+    def fake_run(args, _check, _timeout=120, env=None, *, capture_stderr=False):
         if str(args[-1]).endswith(".jpg"):
             Path(args[-1]).write_bytes(synthetic_jpeg())
+            if capture_stderr:
+                return b"", b"[Parsed_showinfo_0] n:0 pts_time:0.000000"
             return b""
         return bytes(64 * 36)
 
@@ -944,9 +1106,11 @@ def test_scenes_keeps_ocr_when_vision_fails(monkeypatch, tmp_path, ocr_text, ocr
 
 
 def test_scenes_does_not_swallow_cancellation_after_provider_failure(monkeypatch, tmp_path):
-    def fake_run(args, _check, _timeout=120, env=None):
+    def fake_run(args, _check, _timeout=120, env=None, *, capture_stderr=False):
         if str(args[-1]).endswith(".jpg"):
             Path(args[-1]).write_bytes(synthetic_jpeg())
+            if capture_stderr:
+                return b"", b"[Parsed_showinfo_0] n:0 pts_time:0.000000"
             return b""
         return bytes(64 * 36)
 

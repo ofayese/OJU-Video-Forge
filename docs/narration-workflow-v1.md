@@ -17,8 +17,11 @@ The current implementation samples up to 12 frames, marks large sampled visual
 changes, and removes near-identical samples using mean grayscale difference.
 It can miss brief transitions and does not establish clicks, hidden input, or
 intent. Selected frame screenshots are private project artifacts with timestamps
-and checksums. Timestamps denote requested sample positions and may differ from
-the exact decoded frame presentation time. On render, `procedure.json`,
+and checksums. Frame timestamps are read from FFmpeg's decoded presentation
+timestamp, normalized to the video stream start, and rounded to the nearest
+millisecond; CFR, VFR, and nonzero-start fixtures verify those times against
+FFprobe. Sampling remains sparse, can miss brief transitions, and is not a
+complete scene-cut timeline. On render, `procedure.json`,
 `teaching-script.json`, `evidence-manifest.json`, `training-module.json`,
 `training-module.md`, `chapter-index.json`, `lab-guide.md`, `learner-handout.md`,
 `assessment.md`, and `answer-key.md` are created alongside existing narration
