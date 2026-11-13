@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import hashlib
 import ipaddress
 import json
@@ -13,7 +14,6 @@ import subprocess
 import threading
 import time
 import unicodedata
-import concurrent.futures
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
