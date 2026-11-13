@@ -13,8 +13,8 @@ from run_docling import main
 
 def verify_gpu_runtime() -> None:
     versions = {
-        "docling-serve": "1.37.0",
-        "docling-slim": "2.142.0",
+        "docling-serve": "1.38.2",
+        "docling-slim": "2.142.1",
         "rapidocr": "3.10.0",
         "onnxruntime-gpu": "1.31.0",
         "torch": "2.14.1+cu130",
