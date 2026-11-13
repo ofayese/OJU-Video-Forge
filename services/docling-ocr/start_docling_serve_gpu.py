@@ -13,6 +13,7 @@ from run_docling import main
 
 def verify_gpu_runtime() -> None:
     versions = {
+        # Keep aligned with DOCLING_SERVE_VERSION in app/narration.py.
         "docling-serve": "1.38.2",
         "docling-slim": "2.142.1",
         "rapidocr": "3.10.0",

@@ -15,11 +15,13 @@ COPY --chown=1001:0 services/docling-ocr/requirements-docling-ocr.txt ./requirem
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir -r requirements-docling-ocr.txt \
     && python -m pip check \
-    && python -c "import rapidocr, os; \
-    base=os.path.join(os.path.dirname(rapidocr.__file__), 'models'); \
-    required=['PP-OCRv6_det_small.onnx', 'PP-OCRv6_rec_small.onnx', 'ch_ppocr_mobile_v2.0_cls_mobile.onnx']; \
-    missing=[n for n in required if not os.path.exists(os.path.join(base, n))]; \
-    assert not missing, f'rapidocr OCR models not provisioned: {missing}'"
+    && python -c 'import os, pathlib, rapidocr, urllib.request; \
+base = pathlib.Path(rapidocr.__file__).parent / "models"; \
+required = ["PP-OCRv6_det_small.onnx", "PP-OCRv6_rec_small.onnx", "ch_ppocr_mobile_v2.0_cls_mobile.onnx"]; \
+base.mkdir(parents=True, exist_ok=True); \
+[(urllib.request.urlretrieve("https://huggingface.co/RapidAI/RapidOCR/resolve/main/" + name, str(base / (name + ".download"))), os.replace(base / (name + ".download"), base / name)) for name in required if not (base / name).is_file()]; \
+missing = [name for name in required if not (base / name).is_file() or (base / name).stat().st_size == 0]; \
+assert not missing, f"rapidocr OCR models missing or empty after provisioning: {missing}"'
 
 COPY --chown=1001:0 services/docling-ocr/run_docling.py services/docling-ocr/start_docling_serve.py ./
 
