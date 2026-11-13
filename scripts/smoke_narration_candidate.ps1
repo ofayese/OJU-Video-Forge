@@ -2,6 +2,8 @@
 param(
     [string]$Image = 'ovf-narration:minimal-ffmpeg-verified',
     [string]$ModelVolume = 'oju-video-forge_narration-models',
+    [string]$OCRNetwork = 'ovf-docling-cpu_ocr-network',
+    [string]$OCRService = 'ovf-docling-cpu-docling-ocr-1',
     [ValidateRange(60, 600)]
     [int]$TimeLimitSeconds = 300
 )
@@ -18,6 +20,41 @@ $generatorProcess = $null
 $inspect = $null
 
 try {
+    $networkText = & docker network inspect $OCRNetwork 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $networkText) {
+        throw 'unable_to_verify_private_ocr_network'
+    }
+    $networkInspect = @($networkText | ConvertFrom-Json)[0]
+    if (-not [bool]$networkInspect.Internal) {
+        throw 'ocr_network_must_be_internal'
+    }
+
+    $doclingText = & docker inspect $OCRService 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $doclingText) {
+        throw 'unable_to_verify_docling_service'
+    }
+    $doclingInspect = @($doclingText | ConvertFrom-Json)[0]
+    $doclingNetworkNames = @($doclingInspect.NetworkSettings.Networks.PSObject.Properties.Name)
+    $doclingPublishedPorts = @()
+    if ($doclingInspect.HostConfig.PortBindings) {
+        $doclingPublishedPorts = @(
+            $doclingInspect.HostConfig.PortBindings.PSObject.Properties |
+                Where-Object { $_.Value -and @($_.Value).Count -gt 0 }
+        )
+    }
+    $networkContainerNames = @(
+        $networkInspect.Containers.PSObject.Properties |
+            ForEach-Object { $_.Value.Name }
+    )
+    if (-not $doclingInspect.State.Running -or
+            $doclingNetworkNames.Count -ne 1 -or
+            $doclingNetworkNames[0] -ne $OCRNetwork -or
+            $doclingPublishedPorts.Count -ne 0 -or
+            $networkContainerNames.Count -ne 1 -or
+            $networkContainerNames[0] -ne $OCRService) {
+        throw 'docling_network_or_port_isolation_verification_failed'
+    }
+
     New-Item -ItemType Directory -Path $fixtureDirectory | Out-Null
     $generatorInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $generatorInfo.FileName = 'docker'
@@ -105,7 +142,7 @@ try {
     $startInfo.RedirectStandardError = $true
     $arguments = @(
         'run', '--name', $containerName,
-        '--network', 'none',
+        '--network', $OCRNetwork,
         '--read-only',
         '--cap-drop', 'ALL',
         '--security-opt', 'no-new-privileges:true',
@@ -179,9 +216,14 @@ try {
     $tmpfs = $hostConfig.Tmpfs.PSObject.Properties['/tmp'].Value
     $securityOpt = @($hostConfig.SecurityOpt)
     $capDrop = @($hostConfig.CapDrop)
+    $containerNetworkNames = @($inspect.NetworkSettings.Networks.PSObject.Properties.Name)
 
     $verified = [ordered]@{
-        network_none = $hostConfig.NetworkMode -eq 'none'
+        private_ocr_network = $hostConfig.NetworkMode -eq $OCRNetwork
+        only_ocr_network = $containerNetworkNames.Count -eq 1 -and $containerNetworkNames[0] -eq $OCRNetwork
+        ocr_network_is_internal = [bool]$networkInspect.Internal
+        docling_is_only_peer = $networkContainerNames.Count -eq 1 -and $networkContainerNames[0] -eq $OCRService
+        docling_has_no_published_ports = $doclingPublishedPorts.Count -eq 0
         root_read_only = [bool]$hostConfig.ReadonlyRootfs
         all_capabilities_dropped = $capDrop -contains 'ALL'
         no_new_privileges = $securityOpt -contains 'no-new-privileges:true'
@@ -210,6 +252,8 @@ try {
         image = $Image
         image_digest = $inspect.Image
         container_id = $inspect.Id
+        ocr_network = $OCRNetwork
+        docling_image_digest = $doclingInspect.Image
         synthetic_fixture_sha256 = $fixtureHash
         fixture_generator = @{
             image = 'oju-video-forge-tests:local'

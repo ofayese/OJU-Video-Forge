@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -146,10 +146,10 @@ def get_current_actor(
         if session is not None:
             expires_at = session.expires_at
             if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if session.revoked_at is not None or expires_at <= datetime.now(timezone.utc):
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if session.revoked_at is not None or expires_at <= datetime.now(UTC):
                 if session.revoked_at is None:
-                    session.revoked_at = datetime.now(timezone.utc)
+                    session.revoked_at = datetime.now(UTC)
                     db.add(SecurityEvent(user_id=session.user_id, action="session_expired"))
                     db.commit()
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or revoked")
@@ -173,7 +173,7 @@ def set_account_disabled(db: Session, user: User, disabled: bool) -> None:
             AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None),
         ))
         for session in sessions:
-            session.revoked_at = datetime.now(timezone.utc)
+            session.revoked_at = datetime.now(UTC)
     db.add(SecurityEvent(user_id=user.id, action="account_disabled" if disabled else "account_enabled"))
     db.commit()
 

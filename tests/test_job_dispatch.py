@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import pytest
@@ -14,12 +14,12 @@ from sqlalchemy.engine import make_url
 from app import api
 from app.auth import Actor, get_current_actor
 from app.core import (
+    REDIS_URL,
     Base,
     DispatchOutbox,
     Job,
     MediaAsset,
     Project,
-    REDIS_URL,
     SessionLocal,
     engine,
     transition,
@@ -27,8 +27,8 @@ from app.core import (
 from app.dispatcher import (
     STALE_WORKER_SECONDS,
     dispatch_outbox,
-    recover_undelivered_jobs,
     recover_stale_jobs,
+    recover_undelivered_jobs,
 )
 
 
@@ -128,7 +128,7 @@ def test_submission_commits_job_and_outbox_before_dispatch_and_retries(monkeypat
         assert job.dispatch_error == "ConnectionError"
         assert outbox.status == "pending"
         assert outbox.attempts == 1
-        outbox.available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        outbox.available_at = datetime.now(UTC) - timedelta(seconds=1)
         db.commit()
 
     monkeypatch.undo()
@@ -153,7 +153,7 @@ def test_expired_dispatch_attempt_cannot_settle_newer_claim(
             with SessionLocal() as db:
                 outbox = db.get(DispatchOutbox, job_id)
                 outbox.attempts += 1
-                outbox.lease_expires_at = datetime.now(timezone.utc) + timedelta(
+                outbox.lease_expires_at = datetime.now(UTC) + timedelta(
                     seconds=60
                 )
                 db.commit()
@@ -180,7 +180,7 @@ def test_queued_jobs_with_failed_or_stale_missing_deliveries_are_recovered(
     with SessionLocal() as db:
         for job_id in (failed_id, missing_id, recent_missing_id, waiting_id):
             db.get(DispatchOutbox, job_id).status = "dispatched"
-        db.get(Job, missing_id).updated_at = datetime.now(timezone.utc) - timedelta(
+        db.get(Job, missing_id).updated_at = datetime.now(UTC) - timedelta(
             seconds=STALE_WORKER_SECONDS + 1
         )
         db.commit()
@@ -217,7 +217,7 @@ def test_duplicate_delivery_after_dispatcher_restart_reuses_rq_job():
     with SessionLocal() as db:
         outbox = db.get(DispatchOutbox, job_id)
         outbox.status = "dispatching"
-        outbox.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        outbox.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
         outbox.dispatched_at = None
         db.commit()
 
@@ -243,7 +243,7 @@ def test_stale_worker_recovery_and_retry_create_a_new_job(api_client):
     failed_job_id = _new_job("running")
     with SessionLocal() as db:
         job = db.get(Job, failed_job_id)
-        job.updated_at = datetime.now(timezone.utc) - timedelta(
+        job.updated_at = datetime.now(UTC) - timedelta(
             seconds=STALE_WORKER_SECONDS + 1
         )
         db.commit()

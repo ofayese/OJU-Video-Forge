@@ -18,8 +18,15 @@ from pathlib import Path
 import httpx
 from sqlalchemy import select
 
-from app.core import Audit, Job, ProjectMembership, SecurityEvent, SessionLocal, WorkflowArtifact
 from app.config import get_settings
+from app.core import (
+    Audit,
+    Job,
+    ProjectMembership,
+    SecurityEvent,
+    SessionLocal,
+    WorkflowArtifact,
+)
 
 
 def checked(response, code):

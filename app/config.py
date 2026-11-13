@@ -49,7 +49,7 @@ class Settings(BaseModel):
         return host
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         values = {
             "app_env": os.getenv("APP_ENV", "development"),
             "app_base_url": os.getenv("APP_BASE_URL", "http://localhost:5173"),

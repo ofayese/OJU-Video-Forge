@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -24,21 +24,37 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, JSONResponse
-from starlette.requests import Request
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 from psycopg import AsyncConnection
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 from redis import Redis
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import Request
 
+from . import narration as narration_media
 from .agents import (
     ALLOWED_TOOLS,
-    AgentUnavailable,
+    AgentUnavailableError,
     get_agent_adapter,
     validate_agent_output,
+)
+from .audio_workflows import (
+    MAX_AUDIO_BYTES,
+    MAX_CAPTION_BYTES,
+    AudioWorkflowError,
+    canonical_hash,
+    validate_audio,
+    validate_captions,
 )
 from .auth import (
     SESSION_LIFETIME,
@@ -49,26 +65,18 @@ from .auth import (
     require_roles,
     verify_password,
 )
-from .audio_workflows import (
-    MAX_AUDIO_BYTES,
-    MAX_CAPTION_BYTES,
-    AudioWorkflowError,
-    canonical_hash,
-    validate_audio,
-    validate_captions,
-)
 from .config import get_settings
 from .core import (
     ARTIFACT_ROOT,
-    AudioAsset,
-    Audit,
-    AuthSession,
     DATABASE_URL,
-    Job,
     REDIS_URL,
     AgentAudit,
     AgentProposal,
+    AudioAsset,
+    Audit,
+    AuthSession,
     DispatchOutbox,
+    Job,
     MediaArtifact,
     MediaAsset,
     Narration,
@@ -76,17 +84,16 @@ from .core import (
     Project,
     ProjectMembership,
     Review,
-    User,
     SecurityEvent,
+    User,
     WorkflowArtifact,
     get_db,
     transition,
 )
-from .private_storage import private_file, write_private_file
 from .dispatcher import dispatch_outbox
-from .review import ArtifactIdentity, ReviewDecision, decide, eligible
+from .private_storage import private_file, write_private_file
 from .rendering import RenderEngine, RenderError, parse_timeline
-from . import narration as narration_media
+from .review import ArtifactIdentity, ReviewDecision, decide, eligible
 
 logger = logging.getLogger(__name__)
 
@@ -541,8 +548,9 @@ async def ready():
 
 @app.get("/health/stack", include_in_schema=False)
 def stack_health(actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session)):
-    from rq import Queue, Worker
     import shutil
+
+    from rq import Queue, Worker
 
     connection = Redis.from_url(REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
     try:
@@ -597,7 +605,7 @@ def create_session(payload: AccountInput, db: Session = Depends(db_session)):
         db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
     token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + SESSION_LIFETIME
+    expires_at = datetime.now(UTC) + SESSION_LIFETIME
     session = AuthSession(
         id=str(uuid.uuid4()),
         user_id=user.id,
@@ -630,7 +638,7 @@ def revoke_session(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "A local user session is required")
     session = db.get(AuthSession, actor.session_id)
     if session is not None and session.revoked_at is None:
-        session.revoked_at = datetime.now(timezone.utc)
+        session.revoked_at = datetime.now(UTC)
         db.add(SecurityEvent(user_id=actor.user_id, action="logout"))
         db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1250,7 +1258,7 @@ def retry_audio_workflow(
         if outbox is None:
             raise HTTPException(409, "Dispatch intent is unavailable")
         outbox.status = "pending"
-        outbox.available_at = datetime.now(timezone.utc)
+        outbox.available_at = datetime.now(UTC)
         outbox.lease_expires_at = None
         db.add(Audit(job_id=original.id, actor=actor.name, action="retry_requested"))
         db.commit()
@@ -1515,7 +1523,7 @@ def retry_job(
         if outbox is None:
             raise HTTPException(409, "Dispatch intent is unavailable")
         outbox.status = "pending"
-        outbox.available_at = datetime.now(timezone.utc)
+        outbox.available_at = datetime.now(UTC)
         outbox.lease_expires_at = None
         db.add(
             Audit(
@@ -1929,7 +1937,7 @@ def approve_narration(
         raise HTTPException(422, "Author at least one narration segment before approval")
     if payload.decision == "approved":
         revision.approved_by = actor.user_id
-        revision.approved_at = datetime.now(timezone.utc)
+        revision.approved_at = datetime.now(UTC)
         row.approved_revision = row.revision
         row.stage = "script_approved"
     else:
@@ -2013,7 +2021,7 @@ def create_agent_proposal(
         raise HTTPException(403, "Project permission denied")
     try:
         raw_output = get_agent_adapter().propose(payload.task, ALLOWED_TOOLS)
-    except AgentUnavailable:
+    except AgentUnavailableError:
         raise HTTPException(503, "Agent adapter is unavailable") from None
     except Exception:
         raise HTTPException(502, "Agent proposal failed") from None
@@ -2104,7 +2112,7 @@ def resolve_agent_proposal(
         .values(
             status=decision,
             approver=actor.name,
-            resolved_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(UTC),
             job_id=job_id,
         )
     )
@@ -2193,7 +2201,7 @@ def redispatch_agent_job(
     if outbox is None:
         raise HTTPException(409, "Dispatch intent is unavailable")
     outbox.status = "pending"
-    outbox.available_at = datetime.now(timezone.utc)
+    outbox.available_at = datetime.now(UTC)
     outbox.lease_expires_at = None
     db.add(Audit(job_id=job.id, actor=actor.name, action="dispatch_retry_requested"))
     db.add(

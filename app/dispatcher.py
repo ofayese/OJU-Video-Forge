@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select, update
 
@@ -17,11 +17,11 @@ GPU_STALE_WORKER_SECONDS = GPU_QUEUE_JOB_TIMEOUT + 300
 
 
 def _utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def dispatch_outbox(job_id: str) -> bool:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with SessionLocal() as db:
         outbox = db.scalar(
             select(DispatchOutbox)
@@ -71,7 +71,7 @@ def dispatch_outbox(job_id: str) -> bool:
     except Exception as exc:
         with SessionLocal() as db:
             error_code = type(exc).__name__[:64]
-            retry_at = datetime.now(timezone.utc)
+            retry_at = datetime.now(UTC)
             outbox_result = db.execute(
                 update(DispatchOutbox)
                 .where(
@@ -126,7 +126,7 @@ def dispatch_outbox(job_id: str) -> bool:
             return False
         outbox.status = "dispatched"
         outbox.lease_expires_at = None
-        outbox.dispatched_at = datetime.now(timezone.utc)
+        outbox.dispatched_at = datetime.now(UTC)
         outbox.last_error = None
         if job is not None:
             job.dispatch_attempts = outbox.attempts
@@ -143,7 +143,7 @@ def dispatch_outbox(job_id: str) -> bool:
 
 
 def dispatch_due(limit: int = 100) -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with SessionLocal() as db:
         statement = (
             select(DispatchOutbox.job_id)
@@ -163,7 +163,7 @@ def dispatch_due(limit: int = 100) -> int:
 
 
 def recover_stale_jobs() -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now - timedelta(seconds=STALE_WORKER_SECONDS)
     gpu_cutoff = now - timedelta(seconds=GPU_STALE_WORKER_SECONDS)
     recovered = 0
@@ -210,7 +210,7 @@ def recover_undelivered_jobs(limit: int = 100) -> int:
             if operation == "wan22_t2v"
             else STALE_WORKER_SECONDS
         )
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=timeout)
+        cutoff = datetime.now(UTC) - timedelta(seconds=timeout)
         delivery = work_queue.fetch_job(job_id)
         delivery_status = None
         if delivery is not None:

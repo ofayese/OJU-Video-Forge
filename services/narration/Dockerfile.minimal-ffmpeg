@@ -91,8 +91,6 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && apt-get update -o Acquire::Check-Valid-Until=false \
     && apt-get install -y --no-install-recommends \
         espeak-ng=1.52.0+dfsg-5 \
-        tesseract-ocr=5.5.0-1+b1 \
-        tesseract-ocr-eng=1:4.1.0-2 \
         libgomp1=14.2.0-19 \
         fonts-dejavu-core=2.37-8 \
         zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import hashlib
 import ipaddress
 import json
@@ -33,6 +34,9 @@ OCR_MAX_IMAGE_WIDTH = 960
 OCR_MAX_IMAGE_HEIGHT = 540
 OCR_MAX_RESPONSE_BYTES = 64 * 1024
 OCR_MAX_TEXT_CHARS = 4000
+OCR_REQUEST_TIMEOUT = 30.0
+OCR_SCENES_TIMEOUT = 30.0
+OCR_CANCEL_POLL_INTERVAL = 0.05
 OCR_MODEL_SHA256 = {
     "PP-OCRv6_det_small.onnx": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
     "PP-OCRv6_rec_small.onnx": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
@@ -292,7 +296,145 @@ def jpeg_dimensions(image: bytes) -> tuple[int, int]:
     raise NarrationError("ocr_frame_invalid")
 
 
-def extract_ocr(frame: Path, check: Callable[[], None]) -> dict:
+def _ocr_response_bytes(image: bytes, check: Callable[[], None],
+                        timeout: float | None = None) -> bytes:
+    """Bound the entire request, including headers and trickling response bodies.
+
+    A stream delivering bytes faster than the inactivity timeout must still stop
+    within the remaining scenes OCR budget:
+
+    >>> import httpx
+    >>> from unittest.mock import patch
+    >>> class SlowStream(httpx.ByteStream):
+    ...     closed = False
+    ...     def __iter__(self):
+    ...         while True:
+    ...             yield b" "
+    ...     def close(self):
+    ...         self.closed = True
+    >>> stream = SlowStream()
+    >>> transport = httpx.MockTransport(lambda request: httpx.Response(
+    ...     200, headers={"content-type": "application/json"}, stream=stream))
+    >>> client_type = httpx.Client
+    >>> def client_factory(**kwargs):
+    ...     return client_type(transport=transport, **kwargs)
+    >>> with patch.object(httpx, "Client", side_effect=client_factory):
+    ...     try:
+    ...         _ocr_response_bytes(b"image", lambda: None, timeout=0.05)
+    ...     except NarrationError as exc:
+    ...         print(exc)
+    ocr_service_timeout
+    >>> stream.closed
+    True
+
+    Cancellation checks also run while waiting for a response body chunk, not
+    only when the server yields data:
+
+    >>> class StalledStream(SlowStream):
+    ...     def __iter__(self):
+    ...         time.sleep(10)
+    ...         yield b" "
+    >>> import time
+    >>> stream = StalledStream()
+    >>> transport = httpx.MockTransport(lambda request: httpx.Response(
+    ...     200, headers={"content-type": "application/json"}, stream=stream))
+    >>> checks = []
+    >>> def cancel_check():
+    ...     checks.append(True)
+    ...     if len(checks) >= 3:
+    ...         raise NarrationError("cancelled")
+    >>> with patch.object(httpx, "Client", side_effect=client_factory):
+    ...     with patch(__name__ + ".OCR_CANCEL_POLL_INTERVAL", 0.001):
+    ...         try:
+    ...             _ocr_response_bytes(b"image", cancel_check, timeout=1)
+    ...         except NarrationError as exc:
+    ...             print(exc)
+    cancelled
+    >>> stream.closed
+    True
+
+    A request stalled before response headers is also cancelled:
+
+    >>> cancelled = []
+    >>> def stalled_headers(request):
+    ...     try:
+    ...         time.sleep(10)
+    ...     finally:
+    ...         cancelled.append(True)
+    >>> transport = httpx.MockTransport(stalled_headers)
+    >>> with patch.object(httpx, "Client", side_effect=client_factory):
+    ...     with patch(__name__ + ".OCR_REQUEST_TIMEOUT", 0.05):
+    ...         try:
+    ...             _ocr_response_bytes(b"image", lambda: None)
+    ...         except NarrationError as exc:
+    ...             print(exc)
+    ocr_service_timeout
+    >>> cancelled
+    [True]
+    """
+    request_timeout = timeout if timeout is not None else OCR_REQUEST_TIMEOUT
+    deadline = time.monotonic() + request_timeout
+
+    form = {
+        "from_formats": "image",
+        "to_formats": "text",
+        "do_ocr": "true",
+        "force_ocr": "true",
+        "ocr_preset": "rapidocr",
+        "ocr_lang": "en",
+    }
+    def _fetch() -> bytes:
+        with httpx.Client(
+            timeout=httpx.Timeout(connect=2, read=request_timeout, write=5, pool=2),
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
+            with client.stream(
+                "POST",
+                f"{DOCLING_SERVE_URL}/v1/convert/file",
+                data=form,
+                files={"files": ("frame.jpg", image, "image/jpeg")},
+                headers={"Accept": "application/json"},
+            ) as response:
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").lower()
+                if "application/json" not in content_type:
+                    raise NarrationError("ocr_service_invalid_response")
+                length = response.headers.get("content-length")
+                if length is not None:
+                    try:
+                        response_length = int(length)
+                    except ValueError as exc:
+                        raise NarrationError("ocr_service_invalid_response") from exc
+                    if response_length < 0 or response_length > OCR_MAX_RESPONSE_BYTES:
+                        raise NarrationError("ocr_response_limit")
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    check()
+                    if time.monotonic() >= deadline:
+                        raise NarrationError("ocr_service_timeout")
+                    if len(body) + len(chunk) > OCR_MAX_RESPONSE_BYTES:
+                        raise NarrationError("ocr_response_limit")
+                    body.extend(chunk)
+                if time.monotonic() >= deadline:
+                    raise NarrationError("ocr_service_timeout")
+                return bytes(body)
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise NarrationError("ocr_service_timeout")
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(_fetch)
+        return future.result(timeout=remaining)
+    except concurrent.futures.TimeoutError:
+        raise NarrationError("ocr_service_timeout")
+    finally:
+        pool.shutdown(wait=False)
+
+
+def extract_ocr(frame: Path, check: Callable[[], None],
+                timeout: float | None = None) -> dict:
     if frame.is_symlink() or not frame.is_file():
         raise NarrationError("ocr_frame_invalid")
     try:
@@ -308,45 +450,8 @@ def extract_ocr(frame: Path, check: Callable[[], None]) -> dict:
         raise NarrationError("ocr_frame_dimensions_invalid")
 
     check()
-    form = {
-        "from_formats": "image",
-        "to_formats": "text",
-        "do_ocr": "true",
-        "force_ocr": "true",
-        "ocr_preset": "rapidocr",
-        "ocr_lang": "en",
-    }
     try:
-        with httpx.Client(
-            timeout=httpx.Timeout(connect=2, read=120, write=5, pool=2),
-            trust_env=False,
-            follow_redirects=False,
-        ) as client, client.stream(
-            "POST",
-            f"{DOCLING_SERVE_URL}/v1/convert/file",
-            data=form,
-            files={"files": ("frame.jpg", image, "image/jpeg")},
-            headers={"Accept": "application/json"},
-        ) as response:
-            check()
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "").lower()
-            if "application/json" not in content_type:
-                raise NarrationError("ocr_service_invalid_response")
-            length = response.headers.get("content-length")
-            if length is not None:
-                try:
-                    response_length = int(length)
-                except ValueError as exc:
-                    raise NarrationError("ocr_service_invalid_response") from exc
-                if response_length < 0 or response_length > OCR_MAX_RESPONSE_BYTES:
-                    raise NarrationError("ocr_response_limit")
-            body = bytearray()
-            for chunk in response.iter_bytes(8192):
-                check()
-                if len(body) + len(chunk) > OCR_MAX_RESPONSE_BYTES:
-                    raise NarrationError("ocr_response_limit")
-                body.extend(chunk)
+        body = _ocr_response_bytes(image, check, timeout)
     except httpx.TimeoutException as exc:
         raise NarrationError("ocr_service_timeout") from exc
     except httpx.HTTPStatusError as exc:
@@ -390,6 +495,8 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
     count = min(12, max(1, math.ceil(duration / 10)))
     output = []
     previous = None
+    # Share an OCR-only budget so sequential frames cannot multiply the timeout.
+    ocr_remaining = OCR_SCENES_TIMEOUT
     for index in range(count):
         check()
         seconds = duration * index / count
@@ -405,8 +512,11 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
         ocr_error = None
         ocr_status = "not_requested"
         if options.ocr:
+            ocr_started = time.monotonic()
             try:
-                ocr_result = extract_ocr(frame, check)
+                if ocr_remaining <= 0:
+                    raise NarrationError("ocr_service_timeout")
+                ocr_result = extract_ocr(frame, check, ocr_remaining)
                 ocr_status = "complete" if ocr_result["text"] else "no_text"
             except (NarrationError, httpx.HTTPError, json.JSONDecodeError) as exc:
                 check()
@@ -414,6 +524,10 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
                 ocr_error = (
                     str(exc) if isinstance(exc, NarrationError)
                     else "ocr_provider_request_or_response_failed"
+                )
+            finally:
+                ocr_remaining = max(
+                    0.0, ocr_remaining - (time.monotonic() - ocr_started),
                 )
 
         vision_result = None
