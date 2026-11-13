@@ -52,6 +52,17 @@ describe("source narration", () => {
       media_id: "source", options: { analysis_mode: "manual", ocr: true, vision: false },
     });
   });
+  it("submits a versioned training draft to the project-scoped endpoint", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(result("awaiting_script_approval")), { status: 200 }),
+    );
+    const draft = { title: "Synthetic" };
+    await new ApiClient("", fetcher).editTrainingDraft("project", "narration", 3, draft, "synthetic");
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/v1/projects/project/narrations/narration/training-draft");
+    expect(fetcher.mock.calls[0]?.[1]?.method).toBe("PUT");
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)))
+      .toEqual({ expected_revision: 3, draft });
+  });
   it("shows source, evidence and approval controls without a generated preview", () => {
     const html = renderToStaticMarkup(<NarrationWorkspace projectId="project" token="synthetic"
       media={[]} onActivate={() => undefined} />);

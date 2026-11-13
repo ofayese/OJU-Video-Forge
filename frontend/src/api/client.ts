@@ -15,6 +15,8 @@ import type {
   NarrationResult,
   NarrationSegment,
   NarrationSettings,
+  TrainingProcedureStep,
+  TrainingAgentStatus,
 } from "./types";
 
 // Production reaches the private API only through nginx on the page's origin.
@@ -240,6 +242,37 @@ export class ApiClient {
     segments: NarrationSegment[], token: string): Promise<NarrationResult> {
     return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/script`,
       { method: "PUT", body: JSON.stringify({ expected_revision: revision, segments }) }, token);
+  }
+
+  async reviewTrainingProcedure(projectId: string, id: string, revision: number,
+    steps: TrainingProcedureStep[], comment: string, token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/procedure-review`,
+      { method: "POST", body: JSON.stringify({ expected_revision: revision, steps, comment }) }, token);
+  }
+
+  async generateTrainingDraft(projectId: string, id: string, revision: number, objectives: string,
+    learnerLevel: string, feedback: string, token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/training-draft`,
+      { method: "POST", body: JSON.stringify({
+        expected_revision: revision, objectives, learner_level: learnerLevel, feedback,
+      }) }, token);
+  }
+
+  async editTrainingDraft(projectId: string, id: string, revision: number,
+    draft: unknown, token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/training-draft`,
+      { method: "PUT", body: JSON.stringify({ expected_revision: revision, draft }) }, token);
+  }
+
+  async getTrainingAgentStatus(projectId: string, id: string, token: string): Promise<TrainingAgentStatus> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/training-agent`,
+      {}, token);
+  }
+
+  async reopenTrainingProcedure(projectId: string, id: string, revision: number,
+    token: string): Promise<NarrationResult> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/narrations/${encodeURIComponent(id)}/procedure-reopen`,
+      { method: "POST", body: JSON.stringify({ expected_revision: revision }) }, token);
   }
 
   async approveNarration(projectId: string, id: string, revision: number,

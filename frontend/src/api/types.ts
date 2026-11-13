@@ -137,12 +137,53 @@ export interface NarrationSegment {
   estimated_ms: number;
 }
 
+export interface TrainingProcedureStep {
+  id: string;
+  start_ms: number;
+  end_ms: number;
+  description: string;
+  evidence: string[];
+  uncertainty: ("click" | "keyboard" | "intent" | "visual")[];
+  evidence_category: "direct_observation" | "supported_inference" | "unverified" | "missing";
+  confidence: "unassessed" | "low" | "medium" | "high";
+  decision: "pending" | "accepted" | "rejected";
+}
+
+export interface TrainingClaim {
+  text: string;
+  kind: "evidence" | "supplemental";
+  evidence: string[];
+}
+
+export interface TrainingDraft {
+  title: string;
+  audience: string;
+  prerequisites: TrainingClaim[];
+  learning_objectives: TrainingClaim[];
+  chapters: (TrainingClaim & { id: string; start_ms: number; end_ms: number })[];
+  script: (TrainingClaim & { id: string; start_ms: number; end_ms: number })[];
+  annotations: (TrainingClaim & { id: string; start_ms: number; end_ms: number })[];
+  technical_explanations: TrainingClaim[];
+  lab_steps: TrainingClaim[];
+  validation_checkpoints: TrainingClaim[];
+  troubleshooting: TrainingClaim[];
+  assessment: TrainingClaim[];
+  answer_explanations: TrainingClaim[];
+}
+
+export interface TrainingAgentStatus {
+  status: "disabled" | "unconfigured" | "unavailable" | "degraded" | "ready";
+  reason: string;
+  provider: { provider: string; model: string; model_digest: string; endpoint_sha256: string } | null;
+}
+
 export interface NarrationSettings {
   voice: "en-us" | "en-gb";
   rate: number;
   audio_mode: "replace" | "mix" | "preserve";
   original_volume: number;
   narration_gain: number;
+  render_annotations: boolean;
 }
 
 export interface NarrationOcrProvenance {
@@ -166,12 +207,16 @@ export interface NarrationResult {
   script: NarrationSegment[];
   options: Record<string, unknown>;
   analysis: {
+    procedure?: { contract_version: number; status: string; steps: TrainingProcedureStep[] };
+    training_module?: { contract_version: number; draft: TrainingDraft;
+      provider: { provider: string; model: string; model_digest: string } };
     media?: { format: { duration: string } };
     transcript?: { status: string; language?: string | null };
     scene_analysis?: { status: string; error: string | null };
     ocr?: string;
     vision?: string;
     scenes?: { id: string; timestamp_ms: number; major_change: boolean; ocr: string | null;
+      artifact_id?: string; frame_sha256?: string;
       ocr_provenance?: NarrationOcrProvenance | null;
       ocr_status?: string; ocr_error?: string | null;
       vision: { text: string; uncertain: boolean } | null;

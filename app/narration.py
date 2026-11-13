@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from .training import TeachingSegment
+
 ASR_REVISION = "d90ca5fe260221311c53c58e660288d3deb8d356"
 ASR_SHA256 = "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1"
 
@@ -60,6 +62,7 @@ class Segment(BaseModel):
 
 class NarrationOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    workflow: Literal["narration", "silent_training"] = "narration"
     style: Literal["instructional", "documentary", "concise_technical"] = "instructional"
     instructions: str = Field(default="", max_length=1000)
     language: Literal["en"] = "en"
@@ -71,6 +74,7 @@ class NarrationOptions(BaseModel):
     audio_mode: Literal["replace", "mix", "preserve"] = "replace"
     original_volume: int = Field(default=20, strict=True, ge=0, le=100)
     narration_gain: int = Field(default=100, strict=True, ge=0, le=150)
+    render_annotations: bool = False
 
 
 def digest(path: Path) -> str:
@@ -400,7 +404,15 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
         pixels = run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(frame),
                       "-vf", "scale=64:36", "-frames:v", "1", "-pix_fmt", "gray",
                       "-f", "rawvideo", "-"], check, 30)
-        change = previous is not None and sum(abs(a - b) for a, b in zip(previous, pixels)) / len(pixels) > 20
+        if len(pixels) != 64 * 36:
+            raise NarrationError("invalid_scene_frame_pixels")
+        difference = (
+            sum(abs(a - b) for a, b in zip(previous, pixels)) / len(pixels)
+            if previous is not None else None
+        )
+        if options.workflow == "silent_training" and difference is not None and difference <= 2:
+            continue
+        change = difference is not None and difference > 20
         ocr_result = None
         ocr_error = None
         ocr_status = "not_requested"
@@ -419,7 +431,7 @@ def scenes(source: Path, directory: Path, metadata: dict, options: NarrationOpti
         vision_result = None
         vision_error = None
         vision_status = "not_requested"
-        if options.vision and index < 6:
+        if options.vision and len(output) < 6:
             try:
                 vision_result = vision(frame, check)
                 vision_status = "complete"
@@ -555,7 +567,8 @@ def audio_hash(path: Path, check: Callable[[], None]) -> str:
 
 
 def mux(source: Path, audio: Path | None, output: Path, metadata: dict,
-        options: NarrationOptions, check: Callable[[], None]) -> dict:
+        options: NarrationOptions, check: Callable[[], None],
+        annotations: list[dict] | None = None) -> dict:
     duration = float(metadata["format"]["duration"])
     video = next(item for item in metadata["streams"] if item["codec_type"] == "video")
     if video["codec_name"] not in {"h264", "hevc", "av1", "mpeg4"}:
@@ -564,7 +577,27 @@ def mux(source: Path, audio: Path | None, output: Path, metadata: dict,
     args = ["ffmpeg", "-nostdin", "-v", "error", "-i", str(source)]
     if audio:
         args += ["-i", str(audio)]
-    args += ["-map", "0:v:0", "-c:v", "copy"]
+    args += ["-map", "0:v:0"]
+    if options.render_annotations:
+        if not annotations or len(annotations) > 20:
+            raise NarrationError("annotations_require_1_to_20_reviewed_items")
+        filters = []
+        for index, raw in enumerate(annotations):
+            item = TeachingSegment.model_validate(raw)
+            if not item.start_ms < item.end_ms <= round(duration * 1000):
+                raise NarrationError("invalid_annotation_timing")
+            textfile = output.parent / f"annotation-{index}.txt"
+            textfile.write_text(item.text, encoding="utf-8")
+            filters.append(
+                f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
+                f"textfile={textfile}:expansion=none:fontcolor=white:fontsize=20:"
+                f"box=1:boxcolor=black@0.75:boxborderw=8:x=10:y=10:"
+                f"enable='between(t,{item.start_ms / 1000},{item.end_ms / 1000})'"
+            )
+        args += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
+                 "-crf", "20", "-pix_fmt", "yuv420p"]
+    else:
+        args += ["-c:v", "copy"]
     if options.audio_mode == "preserve":
         args += ["-map", "0:a:0?"]
     elif options.audio_mode == "mix" and has_audio:
@@ -586,7 +619,7 @@ def mux(source: Path, audio: Path | None, output: Path, metadata: dict,
             raise NarrationError("derived_video_geometry_or_timing_changed")
     if abs(float(result["format"]["duration"]) - duration) > 0.15:
         raise NarrationError("derived_video_duration_changed")
-    if video_hash(source, check) != video_hash(output, check):
+    if not options.render_annotations and video_hash(source, check) != video_hash(output, check):
         raise NarrationError("derived_visual_stream_changed")
     if options.audio_mode == "preserve" and has_audio and audio_hash(source, check) != audio_hash(output, check):
         raise NarrationError("preserved_audio_stream_changed")

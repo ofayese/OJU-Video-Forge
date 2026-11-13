@@ -10,8 +10,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import api, narration, narration_jobs
+from app import api, narration, narration_jobs, training
 from app.auth import Actor, get_current_actor
+from app.config import Settings
 from app.core import (
     Base,
     DispatchOutbox,
@@ -324,6 +325,314 @@ def test_draft_does_not_invent_source_events():
     assert "hypothesis" in script[0]["uncertainty"]
 
 
+def test_silent_training_requires_evidence_review_before_script_or_audio(context, monkeypatch, tmp_path):
+    client, sessions, _ = context
+    response = client.post(
+        "/v1/projects/project/narrations", headers={"Idempotency-Key": "training"},
+        json={"media_id": "source", "options": {"workflow": "silent_training"}},
+    )
+    assert response.status_code == 202
+    narration_id = response.json()["id"]
+    source = tmp_path / "source" / "video.mp4"
+    narration_jobs.write_private_file(tmp_path, "source/video.mp4", b"synthetic123")
+    source_hash = narration.digest(source)
+    monkeypatch.setattr(narration_jobs, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(narration, "probe", lambda *_args: {
+        "format": {"duration": "90"}, "streams": [{"codec_type": "video"}],
+    })
+    def synthetic_scenes(_source, directory, *_args):
+        frames = []
+        for index, text in enumerate(("Menu", "Other")):
+            path = directory / f"frame-{index}.jpg"
+            path.write_bytes(synthetic_jpeg())
+            frames.append({
+                "id": f"frame-{index}", "timestamp_ms": index * 45000,
+                "frame_sha256": narration.digest(path), "ocr_status": "complete",
+                "vision_status": "not_requested", "ocr": text,
+            })
+        return frames
+
+    monkeypatch.setattr(narration, "scenes", synthetic_scenes)
+
+    def unexpected_transcription(*_args):
+        raise AssertionError("Silent training must not run Whisper")
+
+    monkeypatch.setattr(narration, "transcribe", unexpected_transcription)
+    with sessions() as db:
+        row = db.get(Narration, narration_id)
+        row.source_sha256 = source_hash
+        asset = db.get(MediaAsset, row.media_id)
+        asset.sha256 = source_hash
+        asset.storage_key = "source/video.mp4"
+        db.commit()
+        narration_jobs.execute(db, db.get(Job, row.job_id), lambda: None)
+
+    base = f"/v1/projects/project/narrations/{narration_id}"
+    result = client.get(base).json()
+    monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=False))
+    assert client.get(f"{base}/training-agent").json()["status"] == "disabled"
+    monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=True))
+    monkeypatch.setattr(api, "get_agent_adapter", lambda: (
+        _ for _ in ()
+    ).throw(api.AgentUnavailable("agent_provider_unconfigured")))
+    assert client.get(f"{base}/training-agent").json()["status"] == "unconfigured"
+    assert result["stage"] == "awaiting_procedure_review"
+    assert result["script"] == []
+    screenshot_id = result["analysis"]["scenes"][0]["artifact_id"]
+    monkeypatch.setattr(api, "ARTIFACT_ROOT", tmp_path)
+    assert client.get(f"/v1/projects/project/artifacts/{screenshot_id}").content == synthetic_jpeg()
+    assert client.post(f"{base}/render", json={"expected_revision": 1}).status_code == 409
+    steps = result["analysis"]["procedure"]["steps"]
+    assert client.post(f"{base}/procedure-review", json={
+        "expected_revision": 1, "steps": steps,
+    }).status_code == 422
+    steps[0]["decision"] = "accepted"
+    steps[0]["description"] = "The menu is visible."
+    steps[0]["confidence"] = "medium"
+    steps[0]["evidence_category"] = "direct_observation"
+    steps[1]["decision"] = "rejected"
+    altered = [{**steps[0], "evidence": ["other-frame"]}]
+    assert client.post(f"{base}/procedure-review", json={
+        "expected_revision": 1, "steps": altered,
+    }).status_code == 422
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="viewer", user_id="viewer", roles=["viewer"])
+    assert client.post(f"{base}/procedure-review", json={
+        "expected_revision": 1, "steps": steps,
+    }).status_code == 403
+    with sessions() as db:
+        db.add(User(id="reviewer", username="reviewer", password_hash="unused"))
+        db.flush()
+        db.add(ProjectMembership(project_id="project", user_id="reviewer", role="reviewer"))
+        db.commit()
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="reviewer", user_id="reviewer", roles=["viewer"])
+    reviewed = client.post(f"{base}/procedure-review", json={
+        "expected_revision": 1, "steps": steps, "comment": "Reviewed source.",
+    })
+    assert reviewed.status_code == 200
+    assert reviewed.json()["analysis"]["procedure"]["status"] == "approved"
+    assert reviewed.json()["stage"] == "evidence_approved"
+    assert reviewed.json()["script"] == []
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="editor", user_id="editor", roles=["viewer"])
+    assert client.post(f"{base}/procedure-review", json={
+        "expected_revision": 1, "steps": steps,
+    }).status_code == 409
+    assert client.post(f"{base}/render", json={"expected_revision": 2}).status_code == 409
+    assert client.post(f"{base}/training-draft", json={"expected_revision": 2}).status_code == 503
+
+    claim = {"text": "The menu is visible.", "kind": "evidence", "evidence": ["frame-0"]}
+    timed = {**claim, "id": "segment-1", "start_ms": 0, "end_ms": 45000}
+
+    class SyntheticAdapter:
+        def generate_training(self, evidence, check):
+            check()
+            assert evidence["approved_steps"][0]["description"] == "The menu is visible."
+            return {
+                "title": "Synthetic module", "audience": "Beginner", "prerequisites": [],
+                "learning_objectives": [claim], "chapters": [timed], "script": [timed],
+                "annotations": [], "technical_explanations": [], "lab_steps": [],
+                "validation_checkpoints": [], "troubleshooting": [], "assessment": [],
+                "answer_explanations": [],
+            }
+
+        def provenance(self):
+            return {"provider": "synthetic", "model": "test", "model_digest": "a" * 64}
+
+    monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=True))
+    monkeypatch.setattr(api, "get_agent_adapter", lambda: SyntheticAdapter())
+    monkeypatch.setattr(narration_jobs, "get_agent_adapter", lambda: SyntheticAdapter())
+    queued = client.post(f"{base}/training-draft", json={"expected_revision": 2})
+    assert queued.status_code == 202
+    with sessions() as db:
+        narration_jobs.execute(db, db.get(Job, queued.json()["job_id"]), lambda: None)
+    drafted = client.get(base).json()
+    assert drafted["stage"] == "awaiting_script_approval"
+    assert drafted["script"][0]["text"] == "The menu is visible."
+    assert drafted["analysis"]["training_module"]["provider"]["provider"] == "synthetic"
+    altered_script = [{**drafted["script"][0], "start_ms": 45000, "end_ms": 90000}]
+    assert client.put(f"{base}/script", json={
+        "expected_revision": 3, "segments": altered_script,
+    }).status_code == 422
+    draft = drafted["analysis"]["training_module"]["draft"]
+    invalid_draft = {**draft, "learning_objectives": [
+        {"text": "Other screen", "kind": "evidence", "evidence": ["frame-1"]},
+    ]}
+    assert client.put(f"{base}/training-draft", json={
+        "expected_revision": 3, "draft": invalid_draft,
+    }).status_code == 422
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="viewer", user_id="viewer", roles=["viewer"])
+    assert client.put(f"{base}/training-draft", json={
+        "expected_revision": 3, "draft": draft,
+    }).status_code == 403
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="editor", user_id="editor", roles=["viewer"])
+    draft["title"] = "Reviewed synthetic module"
+    edited = client.put(f"{base}/training-draft", json={
+        "expected_revision": 3, "draft": draft,
+    })
+    assert edited.status_code == 200
+    assert edited.json()["revision"] == 4
+    assert edited.json()["analysis"]["training_module"]["draft"]["title"] == "Reviewed synthetic module"
+    assert client.post(f"{base}/approval", json={
+        "expected_revision": 3, "decision": "approved",
+    }).status_code == 409
+    assert client.post(f"{base}/render", json={"expected_revision": 3}).status_code == 409
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="reviewer", user_id="reviewer", roles=["viewer"])
+    assert client.post(f"{base}/approval", json={
+        "expected_revision": 4, "decision": "approved",
+    }).status_code == 200
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="editor", user_id="editor", roles=["viewer"])
+    assert client.post(f"{base}/render", json={
+        "expected_revision": 4, "render_annotations": True,
+    }).status_code == 422
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="reviewer", user_id="reviewer", roles=["viewer"])
+    reopened = client.post(f"{base}/procedure-reopen", json={"expected_revision": 4})
+    assert reopened.status_code == 200
+    assert reopened.json()["approved_revision"] is None
+    assert "training_module" not in reopened.json()["analysis"]
+    history = reopened.json()["analysis"]["procedure"]["review_history"]
+    assert len(history) == 1
+    assert history[0]["evidence_version"] == 1
+    assert history[0]["reviewed_by"] == "reviewer"
+    assert history[0]["comment"] == "Reviewed source."
+    api.app.dependency_overrides[get_current_actor] = lambda: Actor(
+        name="editor", user_id="editor", roles=["viewer"])
+    assert client.post(f"{base}/render", json={"expected_revision": 3}).status_code == 409
+
+
+def test_training_render_rechecks_procedure_approver_membership(context, monkeypatch, tmp_path):
+    client, sessions, _ = context
+    response = client.post(
+        "/v1/projects/project/narrations", headers={"Idempotency-Key": "revoked-review"},
+        json={"media_id": "source", "options": {"workflow": "silent_training"}},
+    )
+    narration_id = response.json()["id"]
+    narration_jobs.write_private_file(tmp_path, "source/video.mp4", b"synthetic123")
+    source_hash = narration.digest(tmp_path / "source" / "video.mp4")
+    monkeypatch.setattr(narration_jobs, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(narration, "probe", lambda *_args: {
+        "format": {"duration": "90"}, "streams": [{"codec_type": "video"}],
+    })
+    with sessions() as db:
+        db.add(User(id="former-reviewer", username="former-reviewer", password_hash="unused"))
+        row = db.get(Narration, narration_id)
+        row.source_sha256 = source_hash
+        row.revision = row.approved_revision = 1
+        row.analysis = {
+            "scenes": [{"id": "frame-0"}],
+            "procedure": {
+                "status": "approved", "approved_by": "former-reviewer",
+                "steps": [{"id": "step-1", "start_ms": 0, "end_ms": 90000,
+                           "description": "A menu is visible.", "evidence": ["frame-0"],
+                           "uncertainty": ["visual"], "decision": "accepted", "confidence": "medium"}],
+            },
+        }
+        asset = db.get(MediaAsset, row.media_id)
+        asset.sha256 = source_hash
+        asset.storage_key = "source/video.mp4"
+        job = db.get(Job, row.job_id)
+        job.spec = {**job.spec, "phase": "render", "revision": 1}
+        db.add(NarrationRevision(
+            id=str(uuid.uuid4()), narration_id=row.id, revision=1, editor_id="editor",
+            approved_by="editor", script=[{
+                "id": "segment", "start_ms": 0, "end_ms": 1000,
+                "text": "A menu is visible.", "evidence": ["frame-0"],
+            }],
+        ))
+        db.commit()
+        with pytest.raises(narration.NarrationError, match="approved_procedure_required"):
+            narration_jobs.execute(db, job, lambda: None)
+
+
+def test_training_render_rejects_tampering_and_exports_reviewed_package(context, monkeypatch, tmp_path):
+    client, sessions, _ = context
+    response = client.post(
+        "/v1/projects/project/narrations", headers={"Idempotency-Key": "package"},
+        json={"media_id": "source", "options": {"workflow": "silent_training", "audio_mode": "preserve"}},
+    )
+    narration_id = response.json()["id"]
+    narration_jobs.write_private_file(tmp_path, "source/video.mp4", b"synthetic123")
+    source_hash = narration.digest(tmp_path / "source" / "video.mp4")
+    monkeypatch.setattr(narration_jobs, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(api, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(narration, "probe", lambda *_args: {
+        "format": {"duration": "90"}, "streams": [{"codec_type": "video"}],
+    })
+    monkeypatch.setattr(narration, "mux", lambda _src, _audio, output, *_args: (
+        output.write_bytes(b"synthetic output") and {"format": {"duration": "90"}}
+    ))
+    monkeypatch.setattr(narration, "video_hash", lambda *_args: "visual-hash")
+    monkeypatch.setattr(narration, "run", lambda *_args: b"ffmpeg synthetic")
+    claim = {"text": "A menu is visible.", "kind": "evidence", "evidence": ["frame-0"]}
+    timed = {**claim, "id": "segment", "start_ms": 0, "end_ms": 1000}
+    draft = {
+        "title": "Synthetic module", "audience": "Beginner", "prerequisites": [],
+        "learning_objectives": [claim], "chapters": [timed], "script": [timed],
+        "annotations": [], "technical_explanations": [], "lab_steps": [],
+        "validation_checkpoints": [], "troubleshooting": [],
+        "assessment": [{"text": "What is visible?", "kind": "evidence", "evidence": ["frame-0"]}],
+        "answer_explanations": [{"text": "A blue <screen>.", "kind": "supplemental", "evidence": []}],
+    }
+    with sessions() as db:
+        row = db.get(Narration, narration_id)
+        row.source_sha256 = source_hash
+        row.revision = row.approved_revision = 1
+        procedure = {
+            "status": "approved", "approved_by": "editor",
+            "steps": [{"id": "step-1", "start_ms": 0, "end_ms": 90000,
+                       "description": "A menu is visible.", "evidence": ["frame-0"],
+                       "uncertainty": ["visual"], "decision": "accepted", "confidence": "medium"}],
+        }
+        module = {
+            "draft": draft, "approved_sha256": training.draft_digest(draft),
+            "provider": {"provider": "synthetic", "model": "test", "model_digest": "a" * 64},
+        }
+        row.analysis = {"scenes": [{"id": "frame-0", "timestamp_ms": 0, "frame_sha256": "b" * 64}],
+                        "procedure": procedure, "training_module": module, "transcript": {}}
+        asset = db.get(MediaAsset, row.media_id)
+        asset.sha256 = source_hash
+        asset.storage_key = "source/video.mp4"
+        job = db.get(Job, row.job_id)
+        job.spec = {**job.spec, "phase": "render", "revision": 1}
+        db.add(NarrationRevision(
+            id=str(uuid.uuid4()), narration_id=row.id, revision=1, editor_id="editor",
+            approved_by="editor", script=narration.validate_script(training.draft_script(
+                training.TrainingDraft.model_validate(draft)), 90000),
+        ))
+        db.commit()
+        row.analysis = {**row.analysis, "training_module": {
+            **module, "draft": {**draft, "title": "Tampered"},
+        }}
+        db.commit()
+        with pytest.raises(narration.NarrationError, match="training_approval_or_evidence_invalid"):
+            narration_jobs.execute(db, job, lambda: None)
+        row.analysis = {**row.analysis, "training_module": module}
+        db.commit()
+        narration_jobs.execute(db, job, lambda: None)
+        artifacts = {item.filename: item for item in db.query(WorkflowArtifact).filter_by(job_id=job.id)}
+        assert {"video.mp4", "procedure.json", "teaching-script.json", "evidence-manifest.json",
+                "training-module.json", "training-module.md", "chapter-index.json", "lab-guide.md",
+                "learner-handout.md", "assessment.md", "answer-key.md"} <= artifacts.keys()
+        manifest_id = artifacts["evidence-manifest.json"].id
+        handout_id = artifacts["learner-handout.md"].id
+        answer_id = artifacts["answer-key.md"].id
+    manifest = client.get(f"/v1/projects/project/artifacts/{manifest_id}")
+    assert manifest.status_code == 200
+    assert manifest.json()["source_sha256"] == source_hash
+    assert manifest.json()["frames"][0]["frame_sha256"] == "b" * 64
+    assert manifest.json()["training_draft_sha256"] == training.draft_digest(draft)
+    handout = client.get(f"/v1/projects/project/artifacts/{handout_id}").text
+    answer = client.get(f"/v1/projects/project/artifacts/{answer_id}").text
+    assert "What is visible?" in handout and "A blue" not in handout
+    assert "A blue &lt;screen&gt;" in answer and "<screen>" not in answer
+
+
 @pytest.mark.parametrize("mode,speech,failure", [
     ("transcript", True, narration.NarrationError("vision_unavailable")),
     ("transcript", True, httpx.ReadTimeout("local vision timed out")),
@@ -551,6 +860,29 @@ def test_scenes_runs_ocr_and_vision_independently(
     assert result[0]["vision_status"] == (
         "complete" if vision_enabled else "not_requested"
     )
+
+
+def test_silent_training_deduplicates_similar_samples_before_ocr(monkeypatch, tmp_path):
+    samples = iter([bytes(64 * 36), bytes([1]) * (64 * 36), bytes([30]) * (64 * 36)])
+
+    def fake_run(args, _check, _timeout=120, env=None):
+        if str(args[-1]).endswith(".jpg"):
+            Path(args[-1]).write_bytes(synthetic_jpeg())
+            return b""
+        return next(samples)
+
+    calls = []
+    monkeypatch.setattr(narration, "run", fake_run)
+    monkeypatch.setattr(narration, "extract_ocr", lambda *_args: (
+        calls.append(True) or {"text": "Visible", "provenance": {}}
+    ))
+    result = narration.scenes(
+        tmp_path / "source.mp4", tmp_path, {"format": {"duration": "30"}},
+        narration.NarrationOptions(workflow="silent_training", ocr=True), lambda: None,
+    )
+    assert [item["timestamp_ms"] for item in result] == [0, 20000]
+    assert [item["major_change"] for item in result] == [False, True]
+    assert len(calls) == 2
 
 
 def test_scenes_records_ocr_failure_and_still_runs_vision(monkeypatch, tmp_path):

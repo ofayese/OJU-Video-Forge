@@ -22,9 +22,30 @@ and [custom instruction documentation](https://code.visualstudio.com/docs/copilo
 
 ## Application agent boundary
 
-The application agent adapter is disabled unless `AGENTS_ENABLED=true` and an adapter
-is explicitly installed. Its only registered action is proposing a deterministic
-`render_test` job. Proposals are project-scoped, validated, stored without the task
-prompt, and require a distinct project owner or reviewer to approve before job
-dispatch. Agent service identities cannot approve; arbitrary tools, shell commands,
-media access, and direct job execution are not exposed.
+The application agent adapter is disabled by default. The experimental local Ollama
+adapter requires `AGENTS_ENABLED=true`, `AGENT_PROVIDER=ollama`, `AGENT_URL`,
+`AGENT_MODEL`, and the approved model's 64-character lowercase SHA-256
+`AGENT_MODEL_DIGEST`. These settings do not install a server, authorize a model,
+or make a host endpoint reachable from the worker's private networks. Configure
+only an explicitly approved OJU-owned endpoint and model; loopback refers to the
+container itself. Do not reuse another workload's model service without approval.
+
+The adapter checks model identity and completion capability before and after each
+request, but this is not an atomic digest binding and does not establish semantic
+correctness or production readiness. It supports structured training drafts and
+the existing deterministic `render_test` proposal. Proposals are project-scoped,
+validated, stored without the task prompt, and require a distinct project owner or
+reviewer to approve before job dispatch. Agent service identities cannot approve;
+arbitrary tools, shell commands, media access, and direct job execution are not
+exposed. Model content is untrusted and requires human review.
+Each HTTP operation has a 15-second inactivity timeout and a 90-second deadline
+checked between response chunks; an in-progress read can exceed that deadline by
+up to the read timeout. Cancellation is checked between chunks and requests.
+
+The project-scoped training-agent status check reports disabled, unconfigured,
+unavailable, degraded, or ready. Ready requires both a currently matching provider
+and a previously schema-validated generation for that narration with the same
+endpoint and model identity; it is not an inference test or a guarantee of
+correctness, capacity, or availability on the next request. The network probe
+runs from the API container and does not prove that the worker can reach the
+provider; its actual connectivity is checked during draft generation.

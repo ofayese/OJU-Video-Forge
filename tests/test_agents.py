@@ -1,3 +1,8 @@
+import gzip
+import json
+from types import SimpleNamespace
+
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from fastapi.security import HTTPAuthorizationCredentials
@@ -119,6 +124,175 @@ def test_agent_tool_output_allows_only_the_fixed_render_action():
 def test_default_adapter_is_disabled():
     with pytest.raises(RuntimeError, match="disabled"):
         agents.DisabledAgentAdapter().propose("synthetic task", agents.ALLOWED_TOOLS)
+
+
+def test_enabled_agent_requires_explicit_pinned_local_configuration(monkeypatch):
+    monkeypatch.setattr(agents, "get_settings", lambda: Settings(agents_enabled=True))
+    with pytest.raises(agents.AgentUnavailable, match="unconfigured"):
+        agents.get_agent_adapter()
+    with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
+        agents.LocalOllamaAdapter("https://public.example", "model", "a" * 64)
+    with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
+        agents.LocalOllamaAdapter("http://localhost:11434", "model", "latest")
+    with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
+        agents.LocalOllamaAdapter("http://localhost:not-a-port", "model", "a" * 64)
+
+
+def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatch):
+    requests = []
+    digest = "a" * 64
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "local-model", "digest": digest}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["completion"]})
+        assert request.url.path == "/api/generate"
+        payload = json.loads(request.content)
+        assert payload["stream"] is False
+        assert payload["format"]["type"] == "object"
+        assert payload["options"]["num_gpu"] == 0
+        return httpx.Response(200, json={"done": True, "response": json.dumps({
+            "tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test"}}]
+        })})
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "local-model", digest)
+    assert agents.validate_agent_output(adapter.propose("synthetic", agents.ALLOWED_TOOLS))
+    assert [request.url.path for request in requests] == [
+        "/api/tags", "/api/show", "/api/generate", "/api/tags", "/api/show",
+    ]
+
+
+def test_local_adapter_rejects_mismatched_model_without_generation(monkeypatch):
+    paths = []
+
+    def handler(request):
+        paths.append(request.url.path)
+        return httpx.Response(200, json={"models": [{"name": "model", "digest": "b" * 64}]})
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    with pytest.raises(agents.AgentUnavailable, match="identity"):
+        adapter.propose("synthetic", agents.ALLOWED_TOOLS)
+    assert paths == ["/api/tags"]
+
+
+def test_local_adapter_rejects_identity_change_after_generation(monkeypatch):
+    digest = "a" * 64
+    tag_calls = 0
+
+    def handler(request):
+        nonlocal tag_calls
+        if request.url.path == "/api/tags":
+            tag_calls += 1
+            return httpx.Response(200, json={"models": [{
+                "name": "model", "digest": digest if tag_calls == 1 else "b" * 64,
+            }]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["completion"]})
+        return httpx.Response(200, json={"done": True, "response": "{}"})
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    with pytest.raises(agents.AgentUnavailable, match="identity"):
+        adapter.propose("synthetic", agents.ALLOWED_TOOLS)
+
+
+@pytest.mark.parametrize("response", [
+    httpx.Response(200, content=b"x" * (1024 * 1024 + 1)),
+    httpx.Response(200, headers={"content-encoding": "gzip"}, content=gzip.compress(b"synthetic")),
+])
+def test_local_adapter_bounds_provider_responses(monkeypatch, response):
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(lambda _request: response), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    with pytest.raises(agents.AgentUnavailable, match="response"):
+        adapter.propose("synthetic", agents.ALLOWED_TOOLS)
+
+
+def test_local_adapter_checks_deadline_on_small_stream_chunks(monkeypatch):
+    class TinyChunks(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"{"
+            yield b"}"
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, stream=TinyChunks())), **kwargs
+    ))
+    clock = iter([0.0, 91.0])
+    monkeypatch.setattr(agents, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    with pytest.raises(agents.AgentUnavailable, match="timeout"):
+        adapter.propose("synthetic", agents.ALLOWED_TOOLS)
+
+
+def test_local_adapter_reports_provider_timeout_and_preserves_cancellation(monkeypatch):
+    def handler(request):
+        raise httpx.ReadTimeout("timeout", request=request)
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    with pytest.raises(agents.AgentUnavailable, match="unavailable"):
+        adapter.propose("synthetic", agents.ALLOWED_TOOLS)
+
+    def cancel():
+        raise RuntimeError("cancelled")
+
+    with pytest.raises(RuntimeError, match="cancelled"):
+        adapter.generate_training({}, cancel)
+
+
+def test_local_status_requires_validated_generation_not_only_model_metadata(monkeypatch):
+    digest = "a" * 64
+
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+        return httpx.Response(200, json={"capabilities": ["completion"]})
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    assert adapter.status(None)["status"] == "degraded"
+    assert adapter.status(adapter.provenance())["status"] == "ready"
+    assert adapter.status({**adapter.provenance(), "endpoint_sha256": "b" * 64})["status"] == "degraded"
+
+
+@pytest.mark.parametrize(("response", "expected"), [
+    (httpx.ConnectError("offline"), "unavailable"),
+    (httpx.Response(200, json={"models": []}), "degraded"),
+])
+def test_local_status_reports_unavailable_or_degraded(monkeypatch, response, expected):
+    def handler(request):
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    assert adapter.status(None)["status"] == expected
 
 
 def test_proposals_are_project_scoped_validated_and_approval_gated(agent_api):

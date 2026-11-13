@@ -37,6 +37,7 @@ from starlette.concurrency import run_in_threadpool
 from .agents import (
     ALLOWED_TOOLS,
     AgentUnavailable,
+    LocalOllamaAdapter,
     get_agent_adapter,
     validate_agent_output,
 )
@@ -87,6 +88,15 @@ from .dispatcher import dispatch_outbox
 from .review import ArtifactIdentity, ReviewDecision, decide, eligible
 from .rendering import RenderEngine, RenderError, parse_timeline
 from . import narration as narration_media
+from .training import (
+    TrainingDraft,
+    draft_digest,
+    draft_matches_script,
+    draft_script,
+    validate_procedure,
+    validate_script_evidence,
+    validate_training_draft,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +285,27 @@ class NarrationApproval(BaseModel):
     decision: Literal["approved", "rejected"]
 
 
+class ProcedureReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(strict=True, ge=1)
+    steps: list[dict] = Field(min_length=1, max_length=200)
+    comment: str = Field(default="", max_length=1000)
+
+
+class TrainingDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(strict=True, ge=1)
+    objectives: str = Field(default="", max_length=1000)
+    learner_level: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    feedback: str = Field(default="", max_length=1000)
+
+
+class TrainingDraftEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(strict=True, ge=1)
+    draft: TrainingDraft
+
+
 class NarrationOptionsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(strict=True, ge=1)
@@ -283,6 +314,7 @@ class NarrationOptionsInput(BaseModel):
     audio_mode: Literal["replace", "mix", "preserve"] = "replace"
     original_volume: int = Field(default=20, strict=True, ge=0, le=100)
     narration_gain: int = Field(default=100, strict=True, ge=0, le=150)
+    render_annotations: bool = False
 
 
 class ReviewResult(BaseModel):
@@ -1885,6 +1917,165 @@ def get_narration(
     return _narration_result(db, _narration_row(db, actor, project_id, narration_id))
 
 
+@app.post("/v1/projects/{project_id}/narrations/{narration_id}/procedure-review")
+def review_training_procedure(
+    project_id: str, narration_id: str, payload: ProcedureReview,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    require_project_role(db, actor, project_id, {"owner", "editor", "reviewer"})
+    row = _narration_row(db, actor, project_id, narration_id)
+    if (row.options.get("workflow") != "silent_training"
+            or row.stage != "awaiting_procedure_review"
+            or row.revision != payload.expected_revision):
+        raise HTTPException(409, "Procedure is no longer awaiting review")
+    procedure = row.analysis["procedure"]
+    history = procedure.get("review_history", [])
+    if len(history) >= 20:
+        raise HTTPException(409, "Procedure review history limit reached")
+    try:
+        steps = validate_procedure(
+            payload.steps, {frame["id"] for frame in row.analysis["scenes"]},
+            round(float(row.analysis["media"]["format"]["duration"]) * 1000),
+            approved=True,
+        )
+        original = procedure["steps"]
+        protected = ("id", "start_ms", "end_ms", "evidence", "uncertainty")
+        if len(steps) != len(original) or any(
+            any(step[key] != source[key] for key in protected)
+            for step, source in zip(steps, original)
+        ):
+            raise ValueError("procedure_evidence_changed")
+    except ValueError as exc:
+        raise HTTPException(422, "Review every step and preserve its evidence and timing") from exc
+    approved_at = datetime.now(timezone.utc).isoformat()
+    row.analysis = {
+        **row.analysis,
+        "procedure": {
+            **procedure, "status": "approved", "steps": steps,
+            "approved_by": actor.user_id, "approved_at": approved_at,
+            "comment": payload.comment,
+            "review_history": [*history, {
+                "revision": row.revision + 1, "evidence_version": procedure["evidence_version"],
+                "reviewed_by": actor.user_id, "reviewed_at": approved_at,
+                "comment": payload.comment, "steps": steps,
+            }],
+        },
+    }
+    row.revision += 1
+    row.approved_revision = None
+    row.stage = "evidence_approved"
+    db.add(Audit(job_id=row.job_id, actor=actor.name, action=f"procedure_approved:{row.revision}"))
+    db.commit()
+    return _narration_result(db, row)
+
+
+@app.post("/v1/projects/{project_id}/narrations/{narration_id}/training-draft", status_code=202)
+def generate_training_draft(
+    project_id: str, narration_id: str, payload: TrainingDraftRequest,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id, True)
+    if (row.options.get("workflow") != "silent_training"
+            or row.stage not in {"evidence_approved", "script_rejected"}
+            or row.revision != payload.expected_revision
+            or row.analysis.get("procedure", {}).get("status") != "approved"):
+        raise HTTPException(409, "Approve the current evidence before generating a training draft")
+    try:
+        get_agent_adapter()
+        if not get_settings().agents_enabled:
+            raise AgentUnavailable("agent_disabled")
+    except AgentUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    job = _new_narration_job(db, actor, row, "training_draft")
+    job.spec = {**job.spec, "training": payload.model_dump(exclude={"expected_revision"})}
+    db.commit()
+    dispatch_outbox(job.id)
+    return _narration_result(db, row)
+
+
+@app.get("/v1/projects/{project_id}/narrations/{narration_id}/training-agent")
+def training_agent_status(
+    project_id: str, narration_id: str,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id)
+    if not get_settings().agents_enabled:
+        return {"status": "disabled", "reason": "agent_disabled", "provider": None}
+    try:
+        adapter = get_agent_adapter()
+    except AgentUnavailable as exc:
+        return {"status": "unconfigured", "reason": str(exc), "provider": None}
+    if not isinstance(adapter, LocalOllamaAdapter):
+        return {"status": "unconfigured", "reason": "agent_provider_unconfigured", "provider": None}
+    module = row.analysis.get("training_module", {})
+    return adapter.status(module.get("provider"))
+
+
+@app.post("/v1/projects/{project_id}/narrations/{narration_id}/procedure-reopen")
+def reopen_training_procedure(
+    project_id: str, narration_id: str, payload: TrainingDraftRequest,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    require_project_role(db, actor, project_id, {"owner", "editor", "reviewer"})
+    row = _narration_row(db, actor, project_id, narration_id)
+    if (row.options.get("workflow") != "silent_training"
+            or row.stage not in {"evidence_approved", "awaiting_script_approval",
+                                 "script_approved", "script_rejected", "awaiting_review"}
+            or row.revision != payload.expected_revision):
+        raise HTTPException(409, "Procedure cannot be reopened at this revision")
+    procedure = row.analysis["procedure"]
+    row.analysis = {
+        **{key: value for key, value in row.analysis.items() if key != "training_module"},
+        "procedure": {
+            "contract_version": procedure["contract_version"], "status": "pending",
+            "evidence_version": procedure["evidence_version"],
+            "review_history": procedure.get("review_history", []),
+            "steps": [{**step, "decision": "pending"} for step in procedure["steps"]],
+        },
+    }
+    row.revision += 1
+    row.approved_revision = None
+    row.stage = "awaiting_procedure_review"
+    db.add(Audit(job_id=row.job_id, actor=actor.name, action=f"procedure_reopened:{row.revision}"))
+    db.commit()
+    return _narration_result(db, row)
+
+
+@app.put("/v1/projects/{project_id}/narrations/{narration_id}/training-draft")
+def edit_training_draft(
+    project_id: str, narration_id: str, payload: TrainingDraftEdit,
+    actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
+):
+    row = _narration_row(db, actor, project_id, narration_id, True)
+    if (row.options.get("workflow") != "silent_training"
+            or row.stage not in {"awaiting_script_approval", "script_approved", "script_rejected"}
+            or row.revision != payload.expected_revision
+            or row.analysis.get("procedure", {}).get("status") != "approved"
+            or "training_module" not in row.analysis):
+        raise HTTPException(409, "Training draft is not editable at this revision")
+    try:
+        steps = row.analysis["procedure"]["steps"]
+        allowed = {ref for step in steps if step["decision"] == "accepted" for ref in step["evidence"]}
+        duration = round(float(row.analysis["media"]["format"]["duration"]) * 1000)
+        draft = validate_training_draft(payload.draft.model_dump(), allowed, duration, steps)
+        script = narration_media.validate_script(draft_script(draft), duration)
+        validate_script_evidence(script, steps)
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid training draft, evidence, or timing") from exc
+    module = {**row.analysis["training_module"], "draft": draft.model_dump()}
+    module.pop("approved_sha256", None)
+    row.analysis = {**row.analysis, "training_module": module}
+    row.revision += 1
+    row.approved_revision = None
+    row.stage = "awaiting_script_approval"
+    row.error = None
+    db.add(NarrationRevision(id=str(uuid.uuid4()), narration_id=row.id, revision=row.revision,
+                             script=script, editor_id=actor.user_id))
+    db.add(Audit(job_id=row.job_id, actor=actor.name, action=f"training_revision:{row.revision}"))
+    db.commit()
+    return _narration_result(db, row)
+
+
 @app.put("/v1/projects/{project_id}/narrations/{narration_id}/script")
 def edit_narration(
     project_id: str, narration_id: str, payload: NarrationEdit,
@@ -1902,8 +2093,28 @@ def edit_narration(
             item["id"] for item in row.analysis["transcript"]["segments"]}
         if any(set(item["evidence"]) - evidence for item in script):
             raise ValueError("Invalid evidence reference")
+        if row.options.get("workflow") == "silent_training":
+            validate_script_evidence(script, row.analysis["procedure"]["steps"])
+            module = row.analysis.get("training_module")
+            if not module:
+                raise ValueError("training_draft_required")
+            updated_draft = {
+                **module["draft"], "script": [{
+                    "id": item["id"], "start_ms": item["start_ms"], "end_ms": item["end_ms"],
+                    "text": item["text"], "evidence": item["evidence"],
+                    "kind": "evidence" if item["evidence"] else "supplemental",
+                } for item in script],
+            }
+            steps = row.analysis["procedure"]["steps"]
+            allowed = {ref for step in steps if step["decision"] == "accepted" for ref in step["evidence"]}
+            draft = validate_training_draft(updated_draft, allowed, round(
+                float(row.analysis["media"]["format"]["duration"]) * 1000), steps)
     except ValueError as exc:
         raise HTTPException(422, "Invalid script timing, text, or evidence references") from exc
+    if row.options.get("workflow") == "silent_training":
+        updated_module = {**module, "draft": draft.model_dump()}
+        updated_module.pop("approved_sha256", None)
+        row.analysis = {**row.analysis, "training_module": updated_module}
     row.revision += 1
     row.approved_revision = None
     row.stage = "awaiting_script_approval"
@@ -1920,7 +2131,9 @@ def approve_narration(
     project_id: str, narration_id: str, payload: NarrationApproval,
     actor: Actor = Depends(require_roles("viewer")), db: Session = Depends(db_session),
 ):
-    row = _narration_row(db, actor, project_id, narration_id, True)
+    row = _narration_row(db, actor, project_id, narration_id)
+    allowed = {"owner", "editor", "reviewer"} if row.options.get("workflow") == "silent_training" else {"owner", "editor"}
+    require_project_role(db, actor, project_id, allowed)
     if row.stage != "awaiting_script_approval" or row.revision != payload.expected_revision:
         raise HTTPException(409, "Script revision is no longer awaiting approval")
     revision = db.scalar(select(NarrationRevision).where(
@@ -1928,6 +2141,24 @@ def approve_narration(
     if not revision or not any(item["text"].strip() for item in revision.script):
         raise HTTPException(422, "Author at least one narration segment before approval")
     if payload.decision == "approved":
+        if row.options.get("workflow") == "silent_training":
+            module = row.analysis.get("training_module")
+            procedure = row.analysis.get("procedure", {})
+            if not module or procedure.get("status") != "approved":
+                raise HTTPException(409, "Approved evidence and a complete training draft are required")
+            try:
+                steps = procedure["steps"]
+                allowed = {ref for step in steps if step["decision"] == "accepted" for ref in step["evidence"]}
+                draft = validate_training_draft(module["draft"], allowed, round(
+                    float(row.analysis["media"]["format"]["duration"]) * 1000), steps)
+                validate_script_evidence(revision.script, steps)
+                if not draft_matches_script(draft, revision.script):
+                    raise ValueError("draft_script_mismatch")
+            except ValueError as exc:
+                raise HTTPException(422, "Training draft and script must match approved evidence") from exc
+            row.analysis = {**row.analysis, "training_module": {
+                **module, "approved_sha256": draft_digest(draft.model_dump()),
+            }}
         revision.approved_by = actor.user_id
         revision.approved_at = datetime.now(timezone.utc)
         row.approved_revision = row.revision
@@ -1948,6 +2179,11 @@ def render_narration(
     row = _narration_row(db, actor, project_id, narration_id, True)
     if row.stage != "script_approved" or row.approved_revision != payload.expected_revision:
         raise HTTPException(409, "Approve the current script before synthesis")
+    if payload.render_annotations:
+        module = row.analysis.get("training_module", {})
+        annotations = module.get("draft", {}).get("annotations", [])
+        if row.options.get("workflow") != "silent_training" or not 1 <= len(annotations) <= 20:
+            raise HTTPException(422, "Annotated rendering requires 1 to 20 reviewed training annotations")
     try:
         row.options = narration_media.NarrationOptions.model_validate({
             **row.options, **payload.model_dump(exclude={"expected_revision"}),
@@ -1989,6 +2225,8 @@ def retry_narration(
     job = _new_narration_job(db, actor, row, previous.spec["phase"], previous.spec["attempt"] + 1)
     if previous.spec["phase"] == "voice_preview":
         job.spec = {**job.spec, "return_stage": previous.spec["return_stage"]}
+    elif previous.spec["phase"] == "training_draft":
+        job.spec = {**job.spec, "training": previous.spec["training"]}
     db.commit()
     dispatch_outbox(job.id)
     return _narration_result(db, row)

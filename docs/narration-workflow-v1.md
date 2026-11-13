@@ -1,5 +1,45 @@
 # Source-video narration v1
 
+## Experimental silent-recording training
+
+The `silent_training` option skips Whisper and uses the existing sampled scene
+analysis. A project owner, editor, or reviewer must accept or reject each
+evidence-backed interval before a configured local agent can propose a teaching
+draft. Editors can revise the complete structured draft and its script; a reviewer
+must approve the resulting revision before rendering. Approval binds the entire
+draft and script, and edits or reopening evidence invalidate approval.
+Reviewers classify observations and assign confidence; these are human judgments,
+not model-calculated probabilities. Missing evidence cannot be accepted. Each
+review snapshot retains its evidence version, reviewer, timestamp, comment and
+decisions, with a limit of 20 reviews per analysis.
+
+The current implementation samples up to 12 frames, marks large sampled visual
+changes, and removes near-identical samples using mean grayscale difference.
+It can miss brief transitions and does not establish clicks, hidden input, or
+intent. Selected frame screenshots are private project artifacts with timestamps
+and checksums. Timestamps denote requested sample positions and may differ from
+the exact decoded frame presentation time. On render, `procedure.json`,
+`teaching-script.json`, `evidence-manifest.json`, `training-module.json`,
+`training-module.md`, `chapter-index.json`, `lab-guide.md`, `learner-handout.md`,
+`assessment.md`, and `answer-key.md` are created alongside existing narration
+artifacts. Empty generated sections are explicitly labeled as not provided; the
+learner handout omits answers. These project-scoped artifacts are not interoperable
+H5P, Moodle, SCORM, or xAPI exports. Real-model and full end-to-end acceptance
+are not established by unit tests. See
+[agent execution policy](development/AGENT-EXECUTION-POLICY.md) for the local
+adapter configuration and its approval boundary.
+
+For an isolated synthetic smoke with a **mock agent**, real eSpeak/FFmpeg and no
+OCR or external services, run from the repository root in PowerShell:
+
+```powershell
+docker run --rm --network none --memory 768m --cpus 0.5 --pids-limit 64 --mount "type=bind,source=${PWD}\app,target=/opt/forge/app,readonly" --mount "type=bind,source=${PWD}\scripts,target=/opt/forge/scripts,readonly" -w /opt/forge --entrypoint python oju-video-forge-narration:cpu-candidate -m scripts.synthetic_training_smoke
+```
+
+The tag must identify the intended locally available test image; it is not an
+approval. This smoke does not establish image security or validate an Ollama
+model, OCR, vision, PostgreSQL, Redis, or a live deployment.
+
 ## Boundary and deployment
 
 This is a local CPU pipeline, not Wan text-to-video. It reuses PostgreSQL,
@@ -223,7 +263,8 @@ only in temporary local storage, not committed.
    final script voiceover. Final synthesis still requires script approval.
 6. `POST .../{id}/render` with `expected_revision`, `voice` (`en-us`/`en-gb`),
    `rate` (100-220 words/minute), `audio_mode` (`replace`/`mix`/`preserve`),
-   `original_volume` (0-100) and `narration_gain` (0-150).
+   `original_volume` (0-100), `narration_gain` (0-150), and optional
+   `render_annotations` (default false).
 7. Cancel through the existing `/v1/jobs/{job}/cancel` endpoint. Only failed
    eligible stages may use `POST .../{id}/retry`, at most twice. Interrupted
    workers fail through existing recovery; retry creates a new audited job.
@@ -249,9 +290,13 @@ synthetic voices are expected; no real-person cloning is performed. Speech that
 exceeds its window fails with `timing_revision_required`, without truncation or
 speed-up. Edit and reapprove before rendering again.
 
-Source video is stream-copied to a new MP4, preserving geometry, aspect ratio,
-frame rate, intended duration and visual packet hash. Unsupported MP4 codecs
-fail rather than silently transcode/crop. Replace uses narration; mix applies
+By default, source video is stream-copied to a new MP4, preserving geometry,
+aspect ratio, frame rate, intended duration and visual packet hash. An explicit
+`render_annotations=true` on a silent-training render burns 1-20 reviewed
+annotations into a re-encoded derivative; the original remains unchanged and
+the visual packet hash is expected to differ. The option fails if the runtime
+cannot encode the derivative or if no approved annotations exist. Unsupported
+MP4 codecs fail rather than silently transcode/crop. Replace uses narration; mix applies
 explicit original/narration gain and limiting; preserve stream-copies original
 audio unchanged and does not synthesize speech. Final FFprobe and visual hash
 checks precede artifact registration. Original source checksums are rechecked.

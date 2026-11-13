@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { MediaAsset, NarrationResult, NarrationSegment, NarrationSettings } from "../api/types";
+import type { MediaAsset, NarrationResult, NarrationSegment, NarrationSettings, TrainingAgentStatus, TrainingProcedureStep } from "../api/types";
 
 const PROCESSING = new Set(["queued", "transcribing", "analyzing_scenes", "drafting_script",
   "synthesizing_audio", "mixing_audio", "verifying_artifact"]);
@@ -36,13 +36,22 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
 }) {
   const [sourceId, setSourceId] = useState("");
   const [mode, setMode] = useState("transcript");
+  const [workflow, setWorkflow] = useState("narration");
   const [ocr, setOcr] = useState(true);
   const [vision, setVision] = useState(false);
   const [style, setStyle] = useState("instructional");
   const [instructions, setInstructions] = useState("");
+  const [objectives, setObjectives] = useState("");
+  const [learnerLevel, setLearnerLevel] = useState("beginner");
+  const [feedback, setFeedback] = useState("");
   const [row, setRow] = useState<NarrationResult | null>(null);
   const [script, setScript] = useState<NarrationSegment[]>([]);
+  const [procedure, setProcedure] = useState<TrainingProcedureStep[]>([]);
+  const [procedureComment, setProcedureComment] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [moduleText, setModuleText] = useState("");
+  const [moduleDirty, setModuleDirty] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<TrainingAgentStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -51,6 +60,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
   const [downloads, setDownloads] = useState<Record<string, string>>({});
   const [settings, setSettings] = useState<NarrationSettings>({
     voice: "en-us", rate: 160, audio_mode: "replace", original_volume: 20, narration_gain: 100,
+    render_annotations: false,
   });
   const epoch = useRef(0);
   const locked = useRef(false);
@@ -75,7 +85,11 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
     if (result.project_id !== projectId || result.media_id !== sourceId) {
       throw new Error("Narration response does not belong to the selected source/project.");
     }
-    setRow(result); setScript(result.script); setDirty(false);
+    setRow(result); setScript(result.script); setProcedure(result.analysis.procedure?.steps ?? []); setDirty(false);
+    setModuleText(result.analysis.training_module ? JSON.stringify(result.analysis.training_module.draft, null, 2) : "");
+    setModuleDirty(false);
+    setAgentStatus(null);
+    setProcedureComment("");
   }
   async function action(work: () => Promise<NarrationResult>) {
     if (locked.current) return;
@@ -96,7 +110,9 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       const ticket = epoch.current;
       void api.getNarration(projectId, row.id, token).then((result) => {
         if (active && ticket === epoch.current) {
-          setRow(result); setScript(result.script); setDirty(false);
+          setRow(result); setScript(result.script); setProcedure(result.analysis.procedure?.steps ?? []); setDirty(false);
+          setModuleText(result.analysis.training_module ? JSON.stringify(result.analysis.training_module.draft, null, 2) : "");
+          setModuleDirty(false);
         }
       }).catch((reason: unknown) => {
         if (active && ticket === epoch.current) {
@@ -145,13 +161,22 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
     <fieldset disabled={busy || !!processing}>
       <label>Source video<select value={sourceId} onChange={(event) => {
         epoch.current++; clearUrls(); setSourceId(event.target.value); setRow(null);
-        pendingStart.current = null; setScript([]); setDirty(false); setError(""); onActivate();
+        pendingStart.current = null; setScript([]); setProcedure([]); setProcedureComment("");
+        setDirty(false); setAgentStatus(null); setError(""); onActivate();
       }}>
         <option value="">Select an uploaded video</option>
         {media.filter((item) => item.content_type.startsWith("video/")).map((item) =>
           <option value={item.id} key={item.id}>{item.filename}</option>)}
       </select></label>
-      <label>Analysis mode<select value={mode} onChange={(event) => setMode(event.target.value)}>
+      <label>Workflow<select value={workflow} onChange={(event) => {
+        setWorkflow(event.target.value);
+        if (event.target.value !== "silent_training") setSettings((old) => ({ ...old, render_annotations: false }));
+      }}>
+        <option value="narration">Narrate existing video</option>
+        <option value="silent_training">Silent recording to training module</option>
+      </select></label>
+      <label>Analysis mode<select value={workflow === "silent_training" ? "manual" : mode}
+        disabled={workflow === "silent_training"} onChange={(event) => setMode(event.target.value)}>
         <option value="transcript">Speech transcription (local model required)</option>
         <option value="manual">Manual script + sampled scenes (no ASR)</option>
       </select></label>
@@ -169,7 +194,8 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         review the entire script against the source before approval.</p>
       <button disabled={!sourceId} onClick={() => {
         setRow(null); setScript([]); setDirty(false);
-        const options = { analysis_mode: mode, ocr, vision, style, instructions, language: "en" };
+        const options = { workflow, analysis_mode: workflow === "silent_training" ? "manual" : mode,
+          ocr, vision, style, instructions, language: "en" };
         const payload = JSON.stringify({ sourceId, options });
         if (pendingStart.current?.payload !== payload) {
           pendingStart.current = { payload, key: crypto.randomUUID() };
@@ -194,6 +220,20 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         {row.analysis.scene_analysis.error && ` · ${row.analysis.scene_analysis.error}. Continue with transcript or manual script.`}</p>}
       <p>OCR: {row.analysis.ocr ?? "not run"}</p>
       <p>Vision: {row.analysis.vision ?? "not run"}</p>
+      {row.options.workflow === "silent_training" && <>
+        <button disabled={busy} onClick={() => {
+          const ticket = epoch.current;
+          setError("");
+          void api.getTrainingAgentStatus(projectId, row.id, token).then((result) => {
+            if (ticket === epoch.current) setAgentStatus(result);
+          }).catch((reason: unknown) => {
+            if (ticket === epoch.current) setError(reason instanceof Error ? reason.message : "Agent status failed.");
+          });
+        }}>Check configured local agent from API</button>
+        {agentStatus && <p role="status">API-side agent check: {agentStatus.status} · {agentStatus.reason}
+          {" · Worker network reachability is checked during generation."}
+          {agentStatus.provider && ` · ${agentStatus.provider.model}`}</p>}
+      </>}
       <button disabled={busy} onClick={() => void action(() =>
         api.getNarration(projectId, row.id, token))}>Refresh narration</button>
       {processing && <button disabled={busy} onClick={() => void action(async () => {
@@ -203,16 +243,120 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       {row.stage === "failed" && <button disabled={busy} onClick={() =>
         void action(() => api.retryNarration(projectId, row.id, token))}>Retry failed eligible operation</button>}
       <details><summary>Timestamped scene evidence (not confirmed actions)</summary>
-        {row.analysis.scenes?.map((scene) => <p key={scene.id}>{scene.id} · {scene.timestamp_ms} ms
+        {row.analysis.scenes?.map((scene) => {
+          const artifactId = scene.artifact_id;
+          const frameUrl = artifactId ? safeHref(downloads[artifactId], trustedOrigin) : undefined;
+          return <div key={scene.id}><p>{scene.id} · {scene.timestamp_ms} ms
           {scene.major_change ? " · visual change detected" : ""} · OCR ({scene.ocr_status ?? "unknown"}): {scene.ocr ?? "unavailable"}
           {scene.ocr_error && ` · ${scene.ocr_error}`}
           · OCR engine: {scene.ocr_provenance
             ? `${scene.ocr_provenance.engine} ${scene.ocr_provenance.engine_version} (${scene.ocr_provenance.provider} ${scene.ocr_provenance.provider_version})`
             : "unavailable"}
           · Vision ({scene.vision_status ?? "unknown"}): {scene.vision?.text ?? "not analyzed"}
-          {scene.vision_error && ` · ${scene.vision_error}`}</p>)}
+          {scene.vision_error && ` · ${scene.vision_error}`}</p>
+          {artifactId && <button onClick={() => void download(artifactId, "download")}>
+            Load source frame</button>}
+          {frameUrl &&
+            <img src={frameUrl}
+              alt={`Source frame at ${scene.timestamp_ms} milliseconds`} style={{ maxWidth: "100%" }} />}
+        </div>;})}
       </details>
-      {script.map((segment, index) => <fieldset disabled={busy || !editable} key={segment.id}>
+      {row.stage === "awaiting_procedure_review" && <fieldset disabled={busy}>
+        <legend>Review procedure evidence</legend>
+        <p>Sampled frames do not prove clicks, hidden keyboard input, or intent.
+          Review each interval against the source; accept only supported steps, or reject it.
+          Classifications and confidence are your judgments, not automated measurements.
+          No teaching draft is generated until the procedure is approved.</p>
+        {procedure.map((step, index) => <fieldset key={step.id}>
+          <legend>{step.id} · {step.start_ms}–{step.end_ms} ms</legend>
+          <p>Evidence: {step.evidence.join(", ")} · Review: {step.uncertainty.join(", ")}</p>
+          <label>Evidence-backed step<textarea maxLength={1000} value={step.description}
+            onChange={(event) => setProcedure((items) => items.map((item, i) =>
+              i === index ? { ...item, description: event.target.value } : item))} /></label>
+          <label>Evidence classification<select value={step.evidence_category} onChange={(event) =>
+            setProcedure((items) => items.map((item, i) => i === index
+              ? { ...item, evidence_category: event.target.value as TrainingProcedureStep["evidence_category"] } : item))}>
+            <option value="unverified">Unverified interpretation</option>
+            <option value="direct_observation">Directly observed visual state</option>
+            <option value="supported_inference">Supported inference</option>
+            <option value="missing">Missing evidence</option>
+          </select></label>
+          <label>Reviewer confidence<select value={step.confidence} onChange={(event) =>
+            setProcedure((items) => items.map((item, i) => i === index
+              ? { ...item, confidence: event.target.value as TrainingProcedureStep["confidence"] } : item))}>
+            <option value="unassessed">Not assessed</option><option value="low">Low</option>
+            <option value="medium">Medium</option><option value="high">High</option>
+          </select></label>
+          <label>Decision<select value={step.decision} onChange={(event) =>
+            setProcedure((items) => items.map((item, i) => i === index
+              ? { ...item, decision: event.target.value as TrainingProcedureStep["decision"] } : item))}>
+            <option value="pending">Needs review</option><option value="accepted">Accept</option>
+            <option value="rejected">Reject</option>
+          </select></label>
+        </fieldset>)}
+        <label>Review comment<textarea maxLength={1000} value={procedureComment}
+          onChange={(event) => setProcedureComment(event.target.value)} /></label>
+        <button disabled={!procedure.length || procedure.some((step) => step.decision === "pending") ||
+          !procedure.some((step) => step.decision === "accepted" && step.description.trim()) ||
+          procedure.some((step) => step.decision === "accepted" &&
+            (step.confidence === "unassessed" || step.evidence_category === "missing"))}
+          onClick={() => void action(() =>
+            api.reviewTrainingProcedure(projectId, row.id, row.revision, procedure, procedureComment, token))}>
+          Approve reviewed procedure</button>
+      </fieldset>}
+      {row.analysis.procedure?.status === "approved" && <details>
+        <summary>Approved evidence-backed procedure</summary>
+        {row.analysis.procedure.steps.filter((step) => step.decision === "accepted").map((step) =>
+          <p key={step.id}>{step.start_ms}–{step.end_ms} ms: {step.description}
+            {" · Evidence: "}{step.evidence.join(", ")}</p>)}
+      </details>}
+      {row.analysis.procedure?.status === "approved" &&
+        ["evidence_approved", "script_rejected"].includes(row.stage) && <fieldset disabled={busy}>
+          <legend>Generate training draft</legend>
+          <p>Uses the configured local model; generated material requires review.</p>
+          <label>Learning objectives<textarea maxLength={1000} value={objectives}
+            onChange={(event) => setObjectives(event.target.value)} /></label>
+          <label>Learner level<select value={learnerLevel} onChange={(event) => setLearnerLevel(event.target.value)}>
+            <option value="beginner">Beginner</option><option value="intermediate">Intermediate</option>
+            <option value="advanced">Advanced</option>
+          </select></label>
+          <label>Reviewer feedback<textarea maxLength={1000} value={feedback}
+            onChange={(event) => setFeedback(event.target.value)} /></label>
+          <button onClick={() => void action(() => api.generateTrainingDraft(
+            projectId, row.id, row.revision, objectives, learnerLevel, feedback, token,
+          ))}>Generate local training draft</button>
+        </fieldset>}
+      {row.analysis.procedure?.status === "approved" &&
+        ["evidence_approved", "awaiting_script_approval", "script_approved", "script_rejected", "awaiting_review"]
+          .includes(row.stage) && <button disabled={busy} onClick={() => void action(() =>
+            api.reopenTrainingProcedure(projectId, row.id, row.revision, token))}>
+            Reopen evidence review and invalidate script approval</button>}
+      {row.analysis.training_module && <details>
+        <summary>Training draft and model provenance</summary>
+        <p>Review every section against the source before approval. Saving changes creates a new
+          revision and replaces the editable narration segments with the draft script.</p>
+        <p>{row.analysis.training_module.draft.title} · {row.analysis.training_module.draft.audience}</p>
+        <p>Model: {row.analysis.training_module.provider.model}
+          {" · Digest: "}{row.analysis.training_module.provider.model_digest}</p>
+        {(["learning_objectives", "prerequisites", "chapters", "annotations", "technical_explanations",
+          "lab_steps", "validation_checkpoints", "troubleshooting", "assessment", "answer_explanations"] as const)
+          .map((section) => <div key={section}><h3>{section.replaceAll("_", " ")}</h3>
+            {row.analysis.training_module?.draft[section].map((claim, index) =>
+              <p key={index}>{claim.text} · {claim.kind} · {claim.evidence.join(", ")}</p>)}</div>)}
+        <fieldset disabled={busy || !editable || dirty}>
+          <label>Complete training draft (JSON)
+            <textarea rows={20} maxLength={500000} value={moduleText}
+              onChange={(event) => { setModuleText(event.target.value); setModuleDirty(true); }} />
+          </label>
+          <button disabled={!moduleDirty} onClick={() => {
+            let draft: unknown;
+            try { draft = JSON.parse(moduleText); }
+            catch { setError("Training draft is not valid JSON."); return; }
+            void action(() => api.editTrainingDraft(projectId, row.id, row.revision, draft, token));
+          }}>Save complete training draft revision</button>
+        </fieldset>
+      </details>}
+      {script.map((segment, index) => <fieldset disabled={busy || !editable || moduleDirty} key={segment.id}>
         <legend>Segment {segment.id}</legend>
         <label>Start (ms)<input type="number" min={0} value={segment.start_ms}
           onChange={(event) => edit(index, { start_ms: Number(event.target.value) })} /></label>
@@ -225,20 +369,24 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         <button onClick={() => { clearUrls(); setDirty(true); setScript((items) => items.filter((_, i) => i !== index)); }}>
           Remove segment</button>
       </fieldset>)}
-      {editable && <fieldset disabled={busy}>
+      {editable && <fieldset disabled={busy || moduleDirty}>
         <button disabled={script.length >= 200 || (script.at(-1)?.end_ms ?? 0) >=
           Math.round(Number(row.analysis.media?.format.duration ?? 0) * 1000)}
           onClick={() => {
             const start = script.at(-1)?.end_ms ?? 0;
             const end = Math.min(start + 5000, Math.round(Number(row.analysis.media?.format.duration ?? 0) * 1000));
             setScript((items) => [...items, { id: crypto.randomUUID(), start_ms: start, end_ms: end,
-              text: "", evidence: ["manual"], uncertainty: "Manually authored; verify against source", estimated_ms: 0 }]);
+              text: "", evidence: row.options.workflow === "silent_training" ? [] : ["manual"],
+              uncertainty: row.options.workflow === "silent_training"
+                ? "Supplemental guidance; not established by recording"
+                : "Manually authored; verify against source", estimated_ms: 0 }]);
             clearUrls(); setDirty(true);
           }}>Add timestamped segment</button>
         <button disabled={!dirty || !script.length} onClick={() =>
           void action(() => api.editNarration(projectId, row.id, row.revision, script, token))}>Save new script revision</button>
         <button disabled={dirty || row.stage !== "awaiting_script_approval"} onClick={() =>
-          void action(() => api.approveNarration(projectId, row.id, row.revision, "approved", token))}>Approve complete script</button>
+          void action(() => api.approveNarration(projectId, row.id, row.revision, "approved", token))}>
+          {row.options.workflow === "silent_training" ? "Approve training draft and script" : "Approve complete script"}</button>
         <button disabled={dirty || row.stage !== "awaiting_script_approval"} onClick={() =>
           void action(() => api.approveNarration(projectId, row.id, row.revision, "rejected", token))}>Reject script</button>
         <label>Local voice<select value={settings.voice} onChange={(event) =>
@@ -259,6 +407,11 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
           onChange={(event) => setSettings({ ...settings, original_volume: Number(event.target.value) })} /></label>
         <label>Narration gain (%)<input type="number" min={0} max={150} value={settings.narration_gain}
           onChange={(event) => setSettings({ ...settings, narration_gain: Number(event.target.value) })} /></label>
+        {row.options.workflow === "silent_training" && <label>
+          <input type="checkbox" checked={settings.render_annotations}
+            onChange={(event) => setSettings({ ...settings, render_annotations: event.target.checked })} />
+          Burn reviewed annotations into the derived video (re-encodes visuals; original is preserved)
+        </label>}
         <button disabled={dirty || row.stage !== "script_approved" || row.approved_revision !== row.revision}
           onClick={() => void action(() => api.renderNarration(projectId, row.id, row.revision, settings, token))}>
           Generate approved narrated MP4</button>
