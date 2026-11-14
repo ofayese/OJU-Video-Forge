@@ -504,6 +504,79 @@ E2E, fresh Trivy/SBOM, and CI remain incomplete. The exact authorized recording
 URL is still required. Keep agent/vision settings disabled and do not claim
 overall silent-recording acceptance.
 
+## Follow-up — active worker and narration image security
+
+**Strict comparable scans.** Trivy 0.76.2 used vulnerability DB v2 updated
+2026-11-13 12:56:33 UTC, with `--skip-db-update --scanners vuln
+--severity HIGH,CRITICAL`, strict exit code 1, and no `--ignore-unfixed`.
+Each scan was memory-monitored; the lowest observed host-available RAM was
+6.88 GiB. No containers were changed or stopped.
+
+| Image role | Immutable image ID | HIGH | CRITICAL | Unique H/C CVEs | H/C records with a reported fixed version |
+|---|---|---:|---:|---:|---:|
+| Running `oju-video-forge-render-worker:latest` | `sha256:51ce99d59fbc0fa55e24eac8bde3ce3c385b3d8a0c2042da49f2dfc67d7e2199` | 295 | 1 | 74 | 0 |
+| `oju-video-forge-narration:cpu-candidate` | `sha256:445a991c743bdfc3737b09ad7b8a5f559bc1cc222ac571edcd6e7ac44211f794` | 281 | 1 | 66 | 0 |
+| `ovf-narration:minimal-ffmpeg-verified` | `sha256:22d176c320c73c7b4c31c1b4cca8072b042f6ef763117986f411bb4beb1f9062` | 135 | 1 | 50 | 0 |
+| Canonical `oju-video-forge/docling-ocr:1.38.2` | `sha256:bdcf8993ac29dbfb74d7c02f677a6f8dd1e08492469852c9262438028277c19c` | 0 | 0 | 0 | 0 |
+
+The CPU candidate has 14 fewer H/C records and 8 fewer unique H/C CVEs than
+the active worker image, but it still contains the same `libxml2` version and
+Debian FFmpeg 7.1.5. A CVE/package/version comparison found 14 active-image
+finding tuples absent from the candidate and no new candidate tuples; this is
+not evidence that the packages were safely patched or that the remaining
+attack surface is acceptable. The minimal-FFmpeg image lowers the finding
+counts further, but still has 135 HIGH and one CRITICAL. Its reduced component
+set is attack-surface reduction, not a software patch.
+
+The active-worker report is
+`active-render-worker-2026-11-13-trivy.json` (SHA-256
+`09f8240c18cfa8b26715ce8c862e2a51f4d3701c01257d9ae551b49d91eb176c`); the
+same-database CPU-candidate report is
+`cpu-candidate-2026-11-13-comparable-trivy.json` (SHA-256
+`c6c7f97b75072ce9732097ba52dcca7c3805f0eb88bdea404c8f35124f9616f`); the
+minimal-FFmpeg report is
+`minimal-ffmpeg-verified-2026-11-13-trivy.json` (SHA-256
+`105ca9684e7ac98f270f07d2a6c988a744fe6be11d80e4892716116d35ac2673`).
+The Docling scan and SBOM hashes are recorded above. The scanned image set
+contains 74 unique H/C CVEs across the active worker and Docling candidate;
+this is not a full-architecture scan because API, dispatcher, frontend,
+database, Redis, Ollama, and other service images were not scanned here.
+
+**Critical and runtime reachability.** All three Debian narration images
+report `CVE-2026-6653` on `libxml2
+2.12.7+dfsg+really2.9.14-2.1+deb13u3`, with no `FixedVersion` from this
+database and Debian Security Tracker as the source. The advisory describes
+denial of service from crafted XML input. Package installation is confirmed;
+the exact linked binary and attacker-reachable XML parsing path in the worker
+were not established. Keep the finding open; do not infer non-reachability or
+accept residual risk from this evidence.
+
+All three narration scans identify FFmpeg 7.1.5 (Debian-packaged in the active
+and standard candidate images, source-built in the minimal candidate). The
+render and narration paths invoke FFmpeg/FFprobe on media, so relevant
+media-parser findings have a concrete input path. Scanner output supplies no
+fixed version for the H/C entries in these three images; this does not prove
+that no maintainer fix exists. The source-built minimal-FFmpeg target restricts
+enabled components but retains the same upstream FFmpeg version. The prior
+2026-11-10 evaluation recorded a potentially reachable HEVC/MP4 issue in its
+enabled configuration and an unresolved libxml2 finding; that historical
+scan is not a substitute for the comparable scan above.
+
+**Provenance blocker.** The active worker image is Debian 13.7, while the
+checked-in `services/worker/Dockerfile` uses Alpine. Its exact source revision
+and build provenance have not been reconciled. The current scan is valid for
+the running immutable image, but a change to the checked-in worker Dockerfile
+cannot be claimed to remediate it until the build target and provenance are
+verified. No source fix or residual risk is accepted here.
+
+**Security status — PARTIAL/BLOCKED.** The canonical Docling candidate has
+zero H/C findings in this database snapshot. The active worker, standard
+narration candidate, and minimal-FFmpeg candidate all retain the CRITICAL
+libxml2 finding and substantial HIGH findings. Production/security acceptance
+remains blocked on image provenance, supported package remediation where
+available, a fresh strict scan of each replacement digest, and explicit owner
+adjudication of any finding that remains.
+
 ## Follow-up — canonical Docling image and synthetic OCR
 
 **Offline model path — fixed.** The pinned base image contains the RapidOCR
