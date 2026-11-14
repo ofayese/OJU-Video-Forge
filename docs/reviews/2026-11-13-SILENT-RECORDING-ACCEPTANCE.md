@@ -405,7 +405,7 @@ size 3,336,619,180 bytes, Q4_K_M, 4.0B parameters. This was metadata inspection,
 not inference. `/api/show` reports the `parent_model` string
 `dhiltgen/qwen3-vl:4b-thinking-q4_K_M-llamacpp`; the tag was pulled from the
 official Ollama library, but that declared lineage has not been independently
-verified and must be checked before model inference.
+verified and must be reconciled before relying on model output.
 
 The acceptance Ollama instance was already stopped before this change. It and
 its model volume were removed only after the main-project copy and digest were
@@ -445,3 +445,61 @@ the authorized recording import, human evidence/script approval, narrated
 rendering, browser E2E, current Trivy scan/SBOM, and CI remain unverified. Do
 not enable agent/vision settings or claim overall acceptance until those gates
 are completed.
+
+## Follow-up — bounded Ollama runtime probes
+
+The model was exercised only through synthetic requests on the private
+`oju-video-forge_agent-inference` network. This supersedes the earlier statement
+that no inference request had been made; it does not establish application
+connectivity because the running API and worker have not been attached to that
+network.
+
+**Synthetic vision probe — PASS, limited.** A synthetic image with a visible
+`SAVE` button produced structured visual output identifying the text and button.
+The request took 52.1 seconds; minimum observed host RAM was 7.90 GiB and minimum
+free GPU memory was 9,141 MiB. This is not OCR acceptance, a real-recording
+result, or evidence that API/worker callers can reach Ollama.
+
+**Training adapter generation — BLOCKED.** The exact `generate_training`
+adapter request using a synthetic, already-reviewed one-frame procedure
+returned `agent_generation_invalid_json`. A bounded diagnostic using the same
+model, prompt, schema and options showed `done=true`, `done_reason=length`,
+`eval_count=3072`, `prompt_eval_count=234`, an empty `response`, and 14,901
+characters in the separate `thinking` field after 22.73 seconds. The adapter
+does not accept thinking text as draft JSON. A small, unrelated JSON-schema
+probe did return `{"ok": true}` in 59 generated tokens, but also returned a
+non-empty `thinking` field despite `think=false`; this does not validate
+`TrainingDraft` or script-evidence validation.
+
+The local API reports Ollama `0.40.16`. `/api/show` reports the expected model
+digest and completion, vision, tools, and thinking capabilities, while retaining
+the unresolved parent-model string
+`dhiltgen/qwen3-vl:4b-thinking-q4_K_M-llamacpp`. Do not treat the
+`think=false` request field as proof that reasoning was disabled. The model
+lineage and generation behavior remain acceptance blockers; do not increase
+token limits or weaken structured-output/evidence validation without new
+evidence.
+
+**Resource observations during bounded diagnostics.** Minimum host available
+RAM was 9.01 GiB and minimum GPU free memory was 9,259 MiB during the full
+generation diagnostic. Afterward, Windows reported 9.84 GiB available host RAM
+and 13,703 MiB free GPU memory. The operations retained the existing 4 GiB
+host-RAM reserve and did not restart or reconfigure application or NuSass
+services.
+
+**Exact checks.**
+
+- In `oju-video-forge-tests:training-local`, network-disabled, 768 MiB / 0.5 CPU / 64 PIDs: `python -m pytest -q -p no:cacheprovider tests/test_agents.py tests/test_narration.py` — 75 passed, 1 existing Starlette/httpx deprecation warning.
+- In the same container: `ruff check --no-cache app/agents.py app/narration.py app/narration_jobs.py tests/test_agents.py tests/test_narration.py` — passed; `python scripts/validate_repository.py` — passed.
+- Synthetic `generate_training` adapter request through `oju-video-forge_agent-inference` — failed as described above; no draft was accepted or persisted.
+- Exact schema diagnostic through `oju-video-forge_agent-inference` — passed for the minimal `ok` schema only; reasoning was still present.
+- Model metadata request through the private network — returned API version `0.40.16`, the expected model digest, and the reported parent-model lineage.
+- `git diff --check` — passed before this report update.
+
+**Remaining gates — PARTIAL/BLOCKED.** Ollama main-project ownership and
+synthetic vision pass. Structured training generation, model-lineage
+reconciliation, API/worker connectivity, canonical Docling 1.38.2 OCR,
+authorized recording import, human approvals, narration/render/export, browser
+E2E, fresh Trivy/SBOM, and CI remain incomplete. The exact authorized recording
+URL is still required. Keep agent/vision settings disabled and do not claim
+overall silent-recording acceptance.

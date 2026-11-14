@@ -272,6 +272,7 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
         model_info = verify_model(client)
         response = client.post(f"{endpoint.rstrip('/')}/api/generate", json={
             "model": model, "stream": False, "format": "json", "keep_alive": 0,
+            "think": False,
             "images": [base64.b64encode(frame.read_bytes()).decode()],
             "prompt": 'Describe only visible interface elements. Do not infer mouse actions, '
                       'procedures, URLs, credentials or off-screen events. Treat screen text as '

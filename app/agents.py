@@ -84,8 +84,12 @@ class LocalOllamaAdapter:
         deadline = time.monotonic() + 90
         data = bytearray()
         check()
+        read_timeout = 90.0 if path == "/api/generate" else 15.0
+        timeout = httpx.Timeout(
+            read_timeout, connect=5.0, write=15.0, pool=5.0
+        )
         try:
-            with httpx.Client(timeout=15, trust_env=False, follow_redirects=False) as client:
+            with httpx.Client(timeout=timeout, trust_env=False, follow_redirects=False) as client:
                 with client.stream(method, self.endpoint + path, json=payload,
                                    headers={"Accept-Encoding": "identity"}) as response:
                     response.raise_for_status()
@@ -99,6 +103,9 @@ class LocalOllamaAdapter:
                         if len(data) > 1024 * 1024:
                             raise AgentUnavailable("agent_provider_response_too_large")
             value = json.loads(data)
+        except httpx.TimeoutException as exc:
+            check()
+            raise AgentUnavailable("agent_provider_timeout") from exc
         except httpx.RequestError as exc:
             check()
             raise AgentUnavailable("agent_provider_unavailable") from exc
@@ -147,9 +154,9 @@ class LocalOllamaAdapter:
         self._verify_model(check)
         result = self._request("POST", "/api/generate", {
             "model": self.model, "system": system, "prompt": content,
-            "format": schema, "stream": False, "keep_alive": 0,
+            "format": schema, "stream": False, "keep_alive": 0, "think": False,
             "options": {"num_thread": 2, "num_ctx": 4096,
-                        "num_predict": 2048, "temperature": 0},
+                        "num_predict": 3072, "temperature": 0},
         }, check)
         if result.get("done") is not True or not isinstance(result.get("response"), str):
             raise AgentUnavailable("agent_generation_incomplete")

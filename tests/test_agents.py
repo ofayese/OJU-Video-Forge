@@ -140,6 +140,7 @@ def test_enabled_agent_requires_explicit_pinned_local_configuration(monkeypatch)
 
 def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatch):
     requests = []
+    timeouts = []
     digest = "a" * 64
 
     def handler(request):
@@ -151,21 +152,30 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
         assert request.url.path == "/api/generate"
         payload = json.loads(request.content)
         assert payload["stream"] is False
+        assert payload["think"] is False
         assert payload["format"]["type"] == "object"
+        assert payload["options"]["num_predict"] == 3072
         assert "num_gpu" not in payload["options"]
         return httpx.Response(200, json={"done": True, "response": json.dumps({
             "tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test"}}]
         })})
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
+    def create_client(**kwargs):
+        timeouts.append(kwargs["timeout"])
+        return client(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(agents.httpx, "Client", create_client)
     adapter = agents.LocalOllamaAdapter("http://localhost:11434", "local-model", digest)
     assert agents.validate_agent_output(adapter.propose("synthetic", agents.ALLOWED_TOOLS))
     assert [request.url.path for request in requests] == [
         "/api/tags", "/api/show", "/api/generate", "/api/tags", "/api/show",
     ]
+    assert [timeout.read for timeout in timeouts] == [15, 15, 90, 15, 15]
+    assert all(
+        (timeout.connect, timeout.write, timeout.pool) == (5, 15, 5)
+        for timeout in timeouts
+    )
 
 
 def test_local_adapter_rejects_mismatched_model_without_generation(monkeypatch):
@@ -249,7 +259,7 @@ def test_local_adapter_reports_provider_timeout_and_preserves_cancellation(monke
         transport=httpx.MockTransport(handler), **kwargs
     ))
     adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
-    with pytest.raises(agents.AgentUnavailable, match="unavailable"):
+    with pytest.raises(agents.AgentUnavailable, match="agent_provider_timeout"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
     def cancel():

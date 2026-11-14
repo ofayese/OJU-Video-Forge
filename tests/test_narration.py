@@ -735,6 +735,7 @@ def test_vision_pins_model_digest_and_allows_gpu_inference(monkeypatch, tmp_path
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities": ["completion", "vision"]})
         payload = json.loads(request.content)
+        assert payload["think"] is False
         assert payload["options"]["num_ctx"] == 4096
         assert "num_gpu" not in payload["options"]
         return httpx.Response(200, json={"response": json.dumps({
