@@ -737,10 +737,18 @@ def test_vision_pins_model_digest_and_allows_gpu_inference(monkeypatch, tmp_path
         payload = json.loads(request.content)
         assert payload["think"] is False
         assert payload["options"]["num_ctx"] == 4096
+        assert payload["options"]["num_predict"] == 512
         assert "num_gpu" not in payload["options"]
-        return httpx.Response(200, json={"response": json.dumps({
-            "observation": "Save button visible", "uncertain": True,
-        })})
+        assert request.url.path == "/api/chat"
+        assert payload["messages"][0]["images"] == [
+            narration.base64.b64encode(frame.read_bytes()).decode()
+        ]
+        return httpx.Response(200, json={
+            "done": True, "done_reason": "stop",
+            "message": {"content": json.dumps({
+                "observation": "Save button visible", "uncertain": True,
+            })},
+        })
 
     mock_ocr_client(monkeypatch, handle)
     monkeypatch.setenv("NARRATION_VISION_URL", "http://ollama:11434")
@@ -750,13 +758,41 @@ def test_vision_pins_model_digest_and_allows_gpu_inference(monkeypatch, tmp_path
     result = narration.vision(frame, lambda: None)
 
     assert paths == [
-        "/api/tags", "/api/show", "/api/generate", "/api/tags", "/api/show",
+        "/api/tags", "/api/show", "/api/chat", "/api/tags", "/api/show",
     ]
     assert result["text"] == "Save button visible"
     assert result["model_digest"] == expected_digest
     assert result["model_info_sha256"] == hashlib.sha256(
         httpx.Response(200, json={"capabilities": ["completion", "vision"]}).content
     ).hexdigest()
+
+
+def test_vision_rejects_token_truncated_chat_response(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    expected_digest = "a" * 64
+
+    def handle(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{
+                "name": "qwen3-vl:4b", "digest": expected_digest,
+            }]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["vision"]})
+        return httpx.Response(200, json={
+            "done": True, "done_reason": "length",
+            "message": {"content": json.dumps({
+                "observation": "Save button visible", "uncertain": True,
+            })},
+        })
+
+    mock_ocr_client(monkeypatch, handle)
+    monkeypatch.setenv("NARRATION_VISION_URL", "http://ollama:11434")
+    monkeypatch.setenv("NARRATION_VISION_MODEL", "qwen3-vl:4b")
+    monkeypatch.setenv("NARRATION_VISION_MODEL_DIGEST", expected_digest)
+
+    with pytest.raises(narration.NarrationError, match="invalid_visual_observation"):
+        narration.vision(frame, lambda: None)
 
 
 def test_vision_rejects_mismatched_model_digest_before_generation(monkeypatch, tmp_path):
@@ -799,9 +835,12 @@ def test_vision_rejects_identity_change_after_generation(monkeypatch, tmp_path):
             }]})
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities": ["vision"]})
-        return httpx.Response(200, json={"response": json.dumps({
-            "observation": "Save button visible", "uncertain": True,
-        })})
+        return httpx.Response(200, json={
+            "done": True, "done_reason": "stop",
+            "message": {"content": json.dumps({
+                "observation": "Save button visible", "uncertain": True,
+            })},
+        })
 
     mock_ocr_client(monkeypatch, handle)
     monkeypatch.setenv("NARRATION_VISION_URL", "http://ollama:11434")

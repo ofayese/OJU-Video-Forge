@@ -149,16 +149,19 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
             return httpx.Response(200, json={"models": [{"name": "local-model", "digest": digest}]})
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities": ["completion"]})
-        assert request.url.path == "/api/generate"
+        assert request.url.path == "/api/chat"
         payload = json.loads(request.content)
+        assert [message["role"] for message in payload["messages"]] == ["system", "user"]
+        assert payload["messages"][1]["content"] == "synthetic"
         assert payload["stream"] is False
         assert payload["think"] is False
         assert payload["format"]["type"] == "object"
         assert payload["options"]["num_predict"] == 3072
         assert "num_gpu" not in payload["options"]
-        return httpx.Response(200, json={"done": True, "response": json.dumps({
+        return httpx.Response(200, json={"done": True, "done_reason": "stop",
+                                         "message": {"content": json.dumps({
             "tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test"}}]
-        })})
+        })}})
 
     client = httpx.Client
     def create_client(**kwargs):
@@ -169,13 +172,104 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
     adapter = agents.LocalOllamaAdapter("http://localhost:11434", "local-model", digest)
     assert agents.validate_agent_output(adapter.propose("synthetic", agents.ALLOWED_TOOLS))
     assert [request.url.path for request in requests] == [
-        "/api/tags", "/api/show", "/api/generate", "/api/tags", "/api/show",
+        "/api/tags", "/api/show", "/api/chat", "/api/tags", "/api/show",
     ]
     assert [timeout.read for timeout in timeouts] == [15, 15, 90, 15, 15]
     assert all(
         (timeout.connect, timeout.write, timeout.pool) == (5, 15, 5)
         for timeout in timeouts
     )
+
+
+def test_local_adapter_training_generation_uses_bounded_expanded_context(monkeypatch):
+    digest = "a" * 64
+    draft = {
+        "title": "Reading a visible label",
+        "audience": "Training reviewers",
+        "prerequisites": [],
+        "learning_objectives": [{
+            "text": "Identify the visible library settings label.",
+            "kind": "evidence",
+            "evidence": ["frame-0"],
+        }],
+        "chapters": [{
+            "id": "chapter-1",
+            "start_ms": 0,
+            "end_ms": 1000,
+            "text": "Read the visible label.",
+            "kind": "evidence",
+            "evidence": ["frame-0"],
+        }],
+        "script": [{
+            "id": "script-1",
+            "start_ms": 0,
+            "end_ms": 1000,
+            "text": "The screen displays the library settings label.",
+            "kind": "evidence",
+            "evidence": ["frame-0"],
+        }],
+        "annotations": [],
+        "technical_explanations": [],
+        "lab_steps": [],
+        "validation_checkpoints": [],
+        "troubleshooting": [],
+        "assessment": [],
+        "answer_explanations": [],
+    }
+
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["completion"]})
+        payload = json.loads(request.content)
+        assert payload["options"]["num_ctx"] == 8192
+        assert payload["options"]["num_predict"] == 4096
+        prompt = payload["messages"][0]["content"]
+        assert "kind='evidence' and copy exact frame IDs" in prompt
+        assert "kind='supplemental' only for clearly general" in prompt
+        assert "set evidence=[] for it" in prompt
+        return httpx.Response(200, json={
+            "done": True, "done_reason": "stop",
+            "message": {"content": json.dumps(draft)},
+        })
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+
+    result = adapter.generate_training({"evidence": ["frame-0"]}, lambda: None)
+
+    assert result == draft
+
+
+def test_local_adapter_rejects_token_truncated_chat_response(monkeypatch):
+    digest = "a" * 64
+
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["completion"]})
+        return httpx.Response(200, json={
+            "done": True, "done_reason": "length",
+            "message": {"content": json.dumps({
+                "tool_calls": [{
+                    "name": "create_render_job",
+                    "arguments": {"operation": "render_test"},
+                }],
+            })},
+        })
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    with pytest.raises(agents.AgentUnavailable, match="generation_incomplete"):
+        adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
 
 def test_local_adapter_rejects_mismatched_model_without_generation(monkeypatch):
@@ -208,7 +302,9 @@ def test_local_adapter_rejects_identity_change_after_generation(monkeypatch):
             }]})
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities": ["completion"]})
-        return httpx.Response(200, json={"done": True, "response": "{}"})
+        return httpx.Response(200, json={
+            "done": True, "done_reason": "stop", "message": {"content": "{}"},
+        })
 
     client = httpx.Client
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(

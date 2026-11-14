@@ -1,6 +1,6 @@
 import pytest
 
-from app.training import validate_procedure
+from app.training import TrainingDraft, validate_procedure, validate_training_draft
 
 
 def step(**updates):
@@ -38,3 +38,27 @@ def test_unresolved_inferences_cannot_be_approved():
 def test_approval_rejects_unbacked_or_unusable_procedure(candidate):
     with pytest.raises(ValueError):
         validate_procedure([candidate], {"frame-1"}, 5000, approved=True)
+
+
+def test_training_draft_defaults_omitted_optional_sections():
+    claim = {"text": "Identify the visible label.", "kind": "evidence", "evidence": ["frame-0"]}
+    timed = {"id": "segment-1", "start_ms": 0, "end_ms": 1000, **claim}
+    draft = validate_training_draft(
+        {
+            "title": "Reading a visible label",
+            "audience": "Training reviewers",
+            "learning_objectives": [claim],
+            "chapters": [timed],
+            "script": [timed],
+        },
+        {"frame-0"},
+        1000,
+        [{"start_ms": 0, "end_ms": 1000, "evidence": ["frame-0"]}],
+    )
+
+    optional_sections = (
+        "prerequisites", "annotations", "technical_explanations", "lab_steps",
+        "validation_checkpoints", "troubleshooting", "assessment", "answer_explanations",
+    )
+    assert all(getattr(draft, section) == [] for section in optional_sections)
+    assert not set(optional_sections) & set(TrainingDraft.model_json_schema()["required"])

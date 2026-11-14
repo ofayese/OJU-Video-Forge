@@ -56,17 +56,17 @@ class TrainingDraft(BaseModel):
 
     title: str = Field(min_length=1, max_length=200)
     audience: str = Field(min_length=1, max_length=500)
-    prerequisites: list[TrainingClaim] = Field(max_length=20)
+    prerequisites: list[TrainingClaim] = Field(default_factory=list, max_length=20)
     learning_objectives: list[TrainingClaim] = Field(min_length=1, max_length=20)
     chapters: list[TeachingSegment] = Field(min_length=1, max_length=100)
     script: list[TeachingSegment] = Field(min_length=1, max_length=200)
-    annotations: list[TeachingSegment] = Field(max_length=200)
-    technical_explanations: list[TrainingClaim] = Field(max_length=100)
-    lab_steps: list[TrainingClaim] = Field(max_length=100)
-    validation_checkpoints: list[TrainingClaim] = Field(max_length=100)
-    troubleshooting: list[TrainingClaim] = Field(max_length=100)
-    assessment: list[TrainingClaim] = Field(max_length=100)
-    answer_explanations: list[TrainingClaim] = Field(max_length=100)
+    annotations: list[TeachingSegment] = Field(default_factory=list, max_length=200)
+    technical_explanations: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    lab_steps: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    validation_checkpoints: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    troubleshooting: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    assessment: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    answer_explanations: list[TrainingClaim] = Field(default_factory=list, max_length=100)
 
 
 def validate_script_evidence(script: list[dict], approved_steps: list[dict]) -> None:
