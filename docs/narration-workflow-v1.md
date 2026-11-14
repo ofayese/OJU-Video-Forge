@@ -97,8 +97,12 @@ runs as UID 1001 with a read-only root, dropped capabilities, no-new-privileges,
 The server's document and synchronous wait limits are 120 seconds; the worker's
 HTTP read timeout is 120 seconds per read, not a proven total wall-clock limit.
 
-RapidOCR models are bundled in the Docling image, not a Docker volume, and
-offline mode prevents model downloads. The independent project-scoped
+RapidOCR models are bundled in the pinned Docling base image under
+`/opt/app-root/src/.cache/docling/models/RapidOcr`. Set
+`DOCLING_ARTIFACTS_PATH=/opt/app-root/src/.cache/docling/models` explicitly:
+the container sets `HOME=/tmp` for writable scratch space, so Docling's default
+`$HOME/.cache/docling` path would not find the baked models. Offline mode then
+prevents model downloads. The independent project-scoped
 `oju-video-forge_narration-models` volume is mounted read-only by the worker
 for approved Whisper assets. Do not create a replacement OCR model volume or
 copy model assets from another project.

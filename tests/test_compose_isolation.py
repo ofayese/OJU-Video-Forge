@@ -86,7 +86,9 @@ def test_narration_ocr_is_private_and_resource_bounded():
     assert environment["DOCLING_SERVE_ALLOW_CUSTOM_OCR_CONFIG"] == "false"
     assert environment["DOCLING_SERVE_ENABLE_REMOTE_SERVICES"] == "false"
     assert environment["DOCLING_SERVE_MAX_FILE_SIZE"] == "2097152"
+    assert environment["DOCLING_ARTIFACTS_PATH"] == "/opt/app-root/src/.cache/docling/models"
     assert environment["HF_HUB_OFFLINE"] == "1"
+    assert environment["HOME"] == "/tmp"
     assert not any(
         marker in key.upper()
         for key in environment

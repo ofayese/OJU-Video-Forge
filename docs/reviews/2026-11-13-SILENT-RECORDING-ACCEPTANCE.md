@@ -503,3 +503,96 @@ authorized recording import, human approvals, narration/render/export, browser
 E2E, fresh Trivy/SBOM, and CI remain incomplete. The exact authorized recording
 URL is still required. Keep agent/vision settings disabled and do not claim
 overall silent-recording acceptance.
+
+## Follow-up — canonical Docling image and synthetic OCR
+
+**Offline model path — fixed.** The pinned base image contains the RapidOCR
+ONNX assets under `/opt/app-root/src/.cache/docling/models/RapidOcr`. The
+base is `quay.io/docling-project/docling-serve-cpu@sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0`.
+The service sets `HOME=/tmp`, which made Docling's default cache
+`/tmp/.cache/docling`; without an explicit artifacts directory, offline startup
+could not find the baked weights. The Dockerfile and both Compose definitions
+now set `DOCLING_ARTIFACTS_PATH=/opt/app-root/src/.cache/docling/models`.
+Docling in the pinned base resolved that exact artifacts path with `HOME=/tmp`.
+The three model-file sizes and SHA-256 values were checked against the app's
+expected provenance before OCR.
+
+**Fixable HIGH finding — patched.** The first application-owned 1.38.2 image
+was `sha256:7ee8dfae97a09adeebe76c6b03a83c2d34080d3b57793ad1db2b1377729c5d3e`.
+Trivy 0.76.2 found one HIGH, no CRITICAL, and one unique HIGH/CRITICAL CVE:
+`CVE-2026-126190`, transitive dependency `soupsieve` 3.0.4, fixed in 4.0.0.
+The installed `beautifulsoup4` 4.15.0 requirement (`soupsieve>=1.6.1`) accepts
+the fix. The hashed lock now pins the official PyPI `soupsieve-4.0` wheel
+(`sha256:5e7494bfce90e06676cfb4c5c2cf22243e98e5cf24646bb1ecdda46d318550a0`),
+and the Docker build verifies that version and passes `pip check`. This is a
+package patch, not package removal.
+
+The replacement image is `oju-video-forge/docling-ocr:1.38.2`, local manifest
+digest
+`sha256:bdcf8993ac29dbfb74d7c02f677a6f8dd1e08492469852c9262438028277c19c`.
+The previous candidate remains available locally as
+`oju-video-forge/docling-ocr:1.38.2-pre-soupsieve4` at its original digest.
+Using Trivy 0.76.2 and the same database snapshot (version 2, updated
+2026-11-13 12:56:33 UTC), the replacement strict scan reported 0 HIGH, 0
+CRITICAL, and 0 unique HIGH/CRITICAL CVEs. The previous candidate's single HIGH
+was removed by the verified package upgrade. Trivy still warns that the
+CentOS Stream 9 base is unsupported; the clean HIGH/CRITICAL result is not a
+supportability determination or a claim that the image is secure.
+
+CycloneDX 1.7 SBOM generation passed with 283 components. The final scan JSON
+and SBOM are retained in the session files as
+`docling-ocr-1.38.2-bdcf8993-trivy.json` and
+`docling-ocr-1.38.2-bdcf8993.cdx.json`; their SHA-256 values are
+`a1a4e0b7917647af39b9945ea11049b75203066a0258b30067a0f30fa6d3352c` and
+`518a1a651517a412fbcda1a04d0b79d94ce088572fbbd05170b0503661c67b9b`,
+respectively.
+
+**Canonical service and synthetic OCR — PASS, limited.** The service was
+started alone under project `oju-video-forge`; Compose warned that the
+existing Ollama container was an orphan because its optional overlay was not
+selected, and it was left untouched. Container
+`oju-video-forge-docling-ocr-1` is healthy on only the internal
+`oju-video-forge_narration-ocr` network, with no port bindings or mounts,
+read-only root, UID 1001, dropped capabilities, no-new-privileges, 0.5 CPU,
+2 GiB and 64 PID limits. It has no database, Redis, Docker socket, or NuSass
+network or storage access.
+
+One FFmpeg-generated synthetic JPEG, SHA-256
+`745eb6bedaae4acac6e6f55d83a4d0e5aab87c8788fb51a25c84b2fb0606c5b7`, was
+submitted using the current `extract_ocr` helper from a bounded client on the
+private OCR network. OCR returned `OVF OCR TEST 7429` in 12.15 seconds with
+Docling Serve 1.38.2, RapidOCR 3.10.0, ONNX Runtime 1.31.0, and the expected
+three model hashes. This verifies the actual isolated service and worker HTTP
+helper with synthetic input, not a real recording.
+
+Host available RAM was observed at a minimum of 7.01 GiB during Docling startup
+and was 7.12 GiB after OCR; the container used 1.432 GiB of its 2 GiB limit.
+No existing application or NuSass workload was stopped. The Docker build's
+monitoring did not capture a continuous minimum; its observed checkpoints were
+above 7 GiB, so no exact build-time minimum is claimed.
+
+The already-running render worker is not attached to
+`oju-video-forge_narration-ocr` (its networks are `control` and `inference`).
+The live worker-to-Docling DNS check was therefore not run, and neither the
+worker nor API was restarted or network-attached. Enabling actual application
+connectivity requires owner approval for a scoped render-worker Compose
+reconciliation; do not perform it automatically.
+
+**Exact checks.**
+
+- `docker compose --project-name oju-video-forge --env-file .env -f compose.yaml -f compose.narration.yaml config --format json` — passed; canonical project, namespaced image, private network, offline artifact path, resource limits, and no published port.
+- `docker buildx build --load --progress plain --platform linux/amd64 --tag oju-video-forge/docling-ocr:1.38.2 --file services/docling-ocr/Dockerfile.docling-ocr .` — passed; pinned base and hashed security overrides, `pip check` passed.
+- `trivy image --skip-db-update --scanners vuln --format json --output C:\Users\akoso\.copilot\session-state\30efeaef-b9ef-45a4-a28f-e58b7eb712df\files\docling-ocr-1.38.2-bdcf8993-trivy.json --exit-code 1 --severity HIGH,CRITICAL oju-video-forge/docling-ocr:1.38.2` — passed, exit 0, 0 HIGH/CRITICAL; unsupported CentOS Stream 9 warning remained.
+- `trivy image --skip-db-update --scanners vuln --format cyclonedx --output C:\Users\akoso\.copilot\session-state\30efeaef-b9ef-45a4-a28f-e58b7eb712df\files\docling-ocr-1.38.2-bdcf8993.cdx.json oju-video-forge/docling-ocr:1.38.2` — passed; CycloneDX 1.7, 283 components.
+- In `oju-video-forge-tests:training-local`, network-disabled, 768 MiB / 0.5 CPU / 64 PIDs: `python -m pytest -q -p no:cacheprovider tests/test_agents.py tests/test_narration.py tests/test_compose_isolation.py` — 78 passed, 1 existing Starlette/httpx deprecation warning.
+- In the same container: `ruff check --no-cache app/agents.py app/narration.py app/narration_jobs.py tests/test_agents.py tests/test_narration.py tests/test_compose_isolation.py` — passed; `python scripts/validate_repository.py` — passed.
+- Synthetic `extract_ocr` request through the private network — passed; recognized text and provenance recorded above.
+- `git diff --check` — passed after the final report update.
+
+**Overall — PARTIAL.** The canonical Docling image now passes actual synthetic
+OCR and has no HIGH/CRITICAL findings in this Trivy snapshot, but its base OS
+support warning remains. Active worker connectivity awaits owner approval.
+Structured training generation is still blocked by exhausted model reasoning
+tokens; the lineage metadata remains unresolved. The authorized recording URL,
+real pilot, human approvals, narration/render/export, browser E2E, other-image
+security scans and CI remain incomplete.
