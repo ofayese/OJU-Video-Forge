@@ -2,6 +2,8 @@ param(
     [ValidateSet('application', 'acceptance', 'integration')]
     [string]$Environment = 'application',
     [switch]$Narration,
+    [switch]$Ollama,
+    [switch]$OllamaBootstrap,
     [switch]$Plan,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ComposeArgs
@@ -22,10 +24,22 @@ if ($Environment -ne 'application') {
     $envFile = Join-Path $root ".env.$Environment.local"
 }
 if ($Narration) {
-    if ($Environment -ne 'application') {
-        throw 'The narration overlay is supported only for the application environment.'
+    if ($Environment -notin @('application', 'acceptance')) {
+        throw 'The narration overlay is supported only for application and acceptance.'
     }
     $files += Join-Path $root 'compose.narration.yaml'
+}
+if ($Ollama) {
+    if ($Environment -ne 'application' -or -not $Narration) {
+        throw 'The Ollama overlay requires the main application environment and -Narration.'
+    }
+    $files += Join-Path $root 'compose.ollama.yaml'
+}
+if ($OllamaBootstrap) {
+    if ($Environment -ne 'application' -or -not $Ollama) {
+        throw 'Ollama bootstrap networking requires the application environment and -Ollama.'
+    }
+    $files += Join-Path $root 'compose.ollama-bootstrap.yaml'
 }
 
 foreach ($key in @('COMPOSE_PROJECT_NAME', 'COMPOSE_FILE', 'COMPOSE_PROFILES')) {

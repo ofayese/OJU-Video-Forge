@@ -14,6 +14,7 @@ services:
       DO_NOT_TRACK: "1"
       NARRATION_VISION_URL: ${NARRATION_VISION_URL:-}
       NARRATION_VISION_MODEL: ${NARRATION_VISION_MODEL:-}
+      NARRATION_VISION_MODEL_DIGEST: ${NARRATION_VISION_MODEL_DIGEST:-}
     volumes:
       - narration-models:/models/asr:ro
     networks: [control, inference, narration-ocr]

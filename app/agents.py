@@ -148,7 +148,7 @@ class LocalOllamaAdapter:
         result = self._request("POST", "/api/generate", {
             "model": self.model, "system": system, "prompt": content,
             "format": schema, "stream": False, "keep_alive": 0,
-            "options": {"num_gpu": 0, "num_thread": 2, "num_ctx": 4096,
+            "options": {"num_thread": 2, "num_ctx": 4096,
                         "num_predict": 2048, "temperature": 0},
         }, check)
         if result.get("done") is not True or not isinstance(result.get("response"), str):

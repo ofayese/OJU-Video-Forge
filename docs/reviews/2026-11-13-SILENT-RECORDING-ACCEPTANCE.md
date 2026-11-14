@@ -189,3 +189,259 @@ trivy image --skip-db-update --skip-java-db-update --offline-scan --scanners vul
 Frontend sources were unchanged by this follow-up. The previously passing
 in-container command was `npm run typecheck && npm test && npm run build`
 (**65 tests passed**); no browser E2E command was run.
+
+## Latest acceptance check at HEAD `d47256e0a68388c9b2806c85ac4be99e92b77835`
+
+The branch is `feat/silent-recording-training`, two commits ahead of
+`origin/main`. The timestamp correction and synthetic tests remain present.
+The only pre-existing worktree change is the unstaged table-header formatting
+edit in this document's companion workflow guide; it was preserved. No other
+files were created in the repository by this check.
+
+**Inference gate — BLOCKED.** The active OJU API has no agent-provider settings.
+The OJU render worker has `NARRATION_VISION_URL` and `NARRATION_VISION_MODEL`
+variables defined but empty; no OJU Ollama service or model is configured. No
+endpoint was contacted. The official Ollama library describes `qwen3-vl:4b` as
+a vision-language model requiring Ollama 0.12.7 or later. Its listed package is
+3.3 GB: 2.5 GB Q4_K_M model weights and an 839 MB BF16 vision projector
+(415M parameters). Ollama documents schema-constrained structured output for
+vision models. These are candidate specifications, not a local inference result
+or a memory guarantee. At measurement, Windows reported 5.37 GiB free physical
+RAM and the RTX 5070 Ti reported 14,006 MiB free VRAM. Runtime memory and context
+overhead are unmeasured. No weights were downloaded and no exact local model
+digest exists.
+
+**Owner action for inference:** authorize the official `qwen3-vl:4b` model
+download and provision it in an OJU-owned Ollama service on a private internal
+network reachable only by the OJU render worker, with no published port and no
+NuSass connection. Reserve at least the listed 3.3 GB for model files plus
+runtime/cache overhead; acceptance must measure peak RAM/VRAM at 4,096-token
+context and concurrency one. After installation, record Ollama's full local
+model digest and configure `AGENTS_ENABLED=true`, `AGENT_PROVIDER=ollama`,
+`AGENT_URL`, `AGENT_MODEL=qwen3-vl:4b`, and `AGENT_MODEL_DIGEST` to that verified
+64-character lowercase SHA-256. Also configure `NARRATION_VISION_URL` and
+`NARRATION_VISION_MODEL=qwen3-vl:4b`. The current vision adapter does not
+independently bind its model to an immutable digest; approve and verify that
+provenance change or use a server-side immutable model binding before claiming
+pinned vision acceptance.
+The owner's test host must also have enough measured headroom to build the OCR
+image and run its 2 GiB-capped container without consuming the existing free-
+RAM reserve.
+
+**Docling gate — BLOCKED at runtime.** The canonical merged Compose config
+resolves `oju-video-forge/docling-ocr:1.38.2` on internal `narration-ocr` only,
+with no ports or volumes, read-only root, 0.5 CPU, 2 GiB memory, and 64 PIDs.
+It has no DB, Redis, or Docker-socket mount. The pinned upstream base image
+`quay.io/docling-project/docling-serve-cpu@sha256:7a480a1604fa3b42efeddc7db9527690d9f9bc903226136013e2bfe6b1a4dfb0`
+is cached, but the canonical application image and service are absent. The
+Dockerfile does not copy an OCR model asset; offline RapidOCR asset availability
+cannot be inferred from `HF_HUB_OFFLINE=1`. No image was built, service started,
+or OCR request sent. The separate `services/docling-ocr/docker-compose.yml`
+still names the noncanonical `oju-video-forge-docling-ocr:1.38.2` image and
+`ocr-network`; it was not used. No NuSass service API was contacted, and no
+NuSass assets were modified or reused.
+
+**Recording and UI gates — BLOCKED.** `test-library-creation.mp4` was not found
+in the repository, Downloads, Desktop, or Documents. SharePoint was not
+accessed; there is no source hash, OCR text, timestamped observed step, or
+generated pilot artifact. Read-only browser inspection reached the OJU sign-in
+page with no console errors. No test credentials or project were available, so
+no account was created and no upload, analysis, approval, render, or download
+action was submitted. No human evidence or script approval occurred.
+
+**Current vulnerability check — FAIL.** Trivy 0.76.2 rescanned the exact local
+Docker image IDs below with the cached database updated
+`2026-11-13 12:56:33 UTC`, without suppressions. Both are narration images; the
+second tag is not the canonical Docling OCR service image.
+
+| Scan input | Docker image ID | HIGH | CRITICAL | Unique H/C CVEs | Entries with fixed versions |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `oju-video-forge-narration:cpu-candidate` | `sha256:445a991c743bdfc3737b09ad7b8a5f559bc1cc222ac571edcd6e7ac44211f794` | 281 | 1 | 66 | 0 |
+| `oju-video-forge-narration:docling-ocr` | `sha256:a6a709b69b2e381eee281a7a241150423ce53e3ed95527e6809d0b5ac880c7af` | 281 | 1 | 66 | 0 |
+
+CRITICAL `CVE-2026-6653` remains on Debian `libxml2`
+`2.12.7+dfsg+really2.9.14-2.1+deb13u3`, with no Trivy `FixedVersion`.
+Bounded, offline `dpkg-query` and `ldd` verification confirmed Debian APT
+FFmpeg `7:7.1.5-0+deb13u1` links to `libxml2.so.2`; this proves presence, not
+CVE-specific reachability. The principal HIGH groups are FFmpeg/libav (17 CVEs
+each across package records) and Kerberos libraries (14 each); none has a
+scanner-listed fixed version. The scanner commands exited 1 as required.
+
+Exact additional checks:
+
+```powershell
+docker compose --env-file .env.development.example -f compose.yaml -f compose.narration.yaml config --format json
+
+docker run --rm --network none --read-only --memory 256m --cpus 0.25 --pids-limit 16 --entrypoint /bin/sh oju-video-forge-narration:cpu-candidate -c 'dpkg-query -W ffmpeg libxml2'
+
+docker run --rm --network none --read-only --memory 256m --cpus 0.25 --pids-limit 16 --entrypoint /bin/sh oju-video-forge-narration:cpu-candidate -c 'ldd /usr/bin/ffmpeg | grep -E "libxml2|libav"'
+
+trivy image --skip-db-update --skip-java-db-update --offline-scan --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format json --output 'C:\Users\akoso\.copilot\session-state\30efeaef-b9ef-45a4-a28f-e58b7eb712df\files\trivy-current-cpu-candidate.json' sha256:445a991c743bdfc3737b09ad7b8a5f559bc1cc222ac571edcd6e7ac44211f794
+
+trivy image --skip-db-update --skip-java-db-update --offline-scan --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --format json --output 'C:\Users\akoso\.copilot\session-state\30efeaef-b9ef-45a4-a28f-e58b7eb712df\files\trivy-current-narration-docling-labeled-candidate.json' sha256:a6a709b69b2e381eee281a7a241150423ce53e3ed95527e6809d0b5ac880c7af
+```
+
+**Disposition remains PARTIAL.** To proceed, the owner must approve and
+provision the isolated local model; provide an authorized recording copy and
+disposable OJU test account/project; and perform the evidence and script human
+approvals. On a host with sufficient measured headroom, build the OJU OCR image
+from its pinned base and locked dependencies, verify OCR assets are already
+present with remote model downloads disabled, run bounded OCR, and complete the
+project-scoped browser workflow. Security findings still need upstream
+remediation or explicit owner adjudication; no risk acceptance is implied.
+
+## Follow-up — acceptance model wiring and resource gate (2026-11-13)
+
+The owner has since authorized downloading the official `qwen3-vl:4b` model and
+configuring a dedicated OJU acceptance Ollama runtime. This authorization did not
+authorize use of NuSass assets or the import of a recording from an alternative
+source. The exact SharePoint link for `test-library-creation.mp4` is still
+pending.
+
+**Code/configuration — PASS, runtime — BLOCKED.** The current branch remains
+`feat/silent-recording-training` at `d47256e0a68388c9b2806c85ac4be99e92b77835`;
+no commit, push, merge, or deployment was made. Vision now requires a configured
+64-character lowercase model digest, verifies `/api/tags` and vision capability
+before and after generation, and records the model digest plus model-info hash.
+Agent and vision requests no longer force CPU inference. The `vision_configured`
+capability is false unless endpoint, model, and digest are all present.
+
+The acceptance-only `compose.ollama.yaml` pins official Ollama
+`0.40.16` Linux/amd64 to
+`sha256:a372a1c0d1e15b68e9521189785c3ca17795c26c2356f8b1b10122cfb59ed0d7`.
+That image was not pulled, so this is a configured immutable reference, not a
+verified local image identity. The logical `ollama-models` named volume is
+acceptance-project-scoped. Ollama is capped at 4 CPUs, 2 GiB and 128 PIDs, is
+configured to request the GPU, and is attached only to internal
+`agent-inference` after bootstrap. The temporary, acceptance-only bootstrap
+overlay adds a non-internal network solely for the approved model pull and must
+be removed by Compose reconciliation immediately afterward. Neither model
+weights nor a model digest were obtained; no OJU model generation or vision
+inference ran.
+
+The canonical acceptance Docling definition remains
+`oju-video-forge/docling-ocr:1.38.2` on internal `narration-ocr`, with no
+published port or volume, read-only root, CPU/memory/PID bounds, and no DB,
+Redis, or Docker-socket attachment. No local `1.38.2` image was built or found
+in the local image-list inspection; the older `1.37.0` tags were not used. Due
+to the host-memory gate, offline RapidOCR asset presence was not inspected,
+the image was not built or started, and no OCR request was sent. The legacy
+`services/docling-ocr/docker-compose.yml` drift remains out of the acceptance
+path. No NuSass API was contacted, and no NuSass model, volume, media, or
+credential was read, mounted, stopped, or modified. Static configuration is not
+runtime isolation evidence.
+
+**Focused regression — PASS.** In a network-isolated Docker test container with
+512 MiB RAM, 1 CPU, 128 PIDs and read-only mounts of the current application and
+two test modules, `tests/test_agents.py` and `tests/test_narration.py` completed
+with **75 passed, 1 Starlette/httpx deprecation warning** in 5.36 seconds. The
+lowest measured free host RAM during this check was 4.85 GiB. The tests include
+vision model identity match/mismatch and identity-change cases, GPU-default
+request options, and the existing synthetic frame-timestamp regressions; they
+do not establish real model, OCR, or media acceptance.
+
+**Compose/helper checks — PASS, no services started.** Both merged acceptance
+configurations passed `docker compose ... config --quiet`: base + acceptance +
+narration + Ollama, with and without `compose.ollama-bootstrap.yaml`. The
+configuration has no host-published Ollama or Docling port; the OCR service is
+on `narration-ocr`, while API and worker join `agent-inference`. Bash helper
+syntax and both regular/bootstrap Compose configurations passed. The
+PowerShell helper plan selected the five expected files for acceptance and
+rejected Ollama selection for the application environment. Python AST parsing
+for the five changed source/test files and `git diff --check` passed.
+
+**Resource/runtime gate — BLOCKED.** Host free physical memory was 4.09 GiB at
+the last measurement, only 0.09 GiB above the required 4 GiB floor. No Ollama
+image/model pull, Docling build, acceptance stack startup, inference, browser
+workflow, Trivy refresh, or SBOM generation was attempted. The repository
+validator container was deferred when its preflight measured less than its
+4.5 GiB launch margin. The previous Trivy results above are historical for this
+follow-up; there is no fresh scan of the configured Ollama reference or a
+Docling `1.38.2` image.
+
+**Recording, review and browser gates — BLOCKED.** The recording link has not
+been supplied, so no download, media hash, source-frame extraction, OCR,
+procedure, lesson, narration, render, or training-package artifact was created.
+No evidence or script was approved on a human's behalf. No acceptance service
+was started and no browser E2E was run.
+
+**Current disposition: PARTIAL.** The deterministic code/configuration increment
+and focused regressions pass. Real-model, real-OCR, recording, human-review,
+narrated-render, browser, and current-security acceptance remain unverified.
+Resume runtime work only when measured host RAM exceeds the applicable service
+peak by at least 4 GiB (at least 6 GiB free before a 2 GiB-capped service, with
+additional headroom for an uncapped image build), and after the owner provides
+the exact authorized SharePoint recording link. Preserve the active NuSass
+workloads and keep PR/deployment state unchanged.
+
+## Follow-up — Ollama moved into the canonical main project (2026-11-13)
+
+**Model volume transfer — PASS.** The owner-authorized model files were copied
+from the stopped acceptance volume into a Compose-created
+`oju-video-forge_ollama-models` volume. Before source cleanup, all 10 files
+(3,336,630,473 bytes) matched by relative path, byte length, and SHA-256; the
+canonical inventory hash was
+`f408aed10edd8d25518cc58da55e4aac7c5b5c348ed36389af3745159ef998fe`.
+The destination volume carries Compose labels for project `oju-video-forge`
+and logical volume `ollama-models`. After verification, the stopped
+`oju-video-forge-acceptance-ollama-1` container and its
+`oju-video-forge-acceptance_ollama-models` volume were removed. The only
+remaining model volume from this Ollama overlay is main-project-owned.
+
+**Canonical service ownership and isolation — PASS.** The exact merged
+configuration is `oju-video-forge` + `compose.yaml` +
+`compose.narration.yaml` + `compose.ollama.yaml`. The service is
+`oju-video-forge-ollama-1`, with project/service labels `oju-video-forge` /
+`ollama`, image
+`ollama/ollama:0.40.16@sha256:a372a1c0d1e15b68e9521189785c3ca17795c26c2356f8b1b10122cfb59ed0d7`,
+and model volume `oju-video-forge_ollama-models`. It is healthy on only the
+internal `oju-video-forge_agent-inference` network, has no published host port,
+no extra mounts, no Docker socket, and no DB/Redis connection. Its runtime has
+a read-only root, all capabilities dropped, GPU access, 4 CPU / 2 GiB / 128 PID
+limits, and `OLLAMA_NO_CLOUD=1`. The private-network `/api/tags` request
+returned `qwen3-vl:4b` with full model digest
+`a1b29c246319cdcb1f3842f36d29f198f737c0cf516ba1bcba34b1b974e87980`,
+size 3,336,619,180 bytes, Q4_K_M, 4.0B parameters. This was metadata inspection,
+not inference. `/api/show` reports the `parent_model` string
+`dhiltgen/qwen3-vl:4b-thinking-q4_K_M-llamacpp`; the tag was pulled from the
+official Ollama library, but that declared lineage has not been independently
+verified and must be checked before model inference.
+
+The acceptance Ollama instance was already stopped before this change. It and
+its model volume were removed only after the main-project copy and digest were
+verified. The separately named NuSass Ollama container was already exited and
+was not changed. The existing main API and render worker remained healthy and
+running; neither was restarted. Their current network lists do not yet include
+`oju-video-forge_agent-inference` (API: `backend`, `control`; render worker:
+`control`, `inference`), so application-to-Ollama connectivity is not yet
+available. Applying the new network membership requires an owner-approved,
+scoped reconciliation of those two existing containers. No inference request
+was made and `ollama ps` showed no loaded model.
+
+**Resource observations.** Immediately before main-service startup, Windows
+reported 8.21 GiB available host RAM and the RTX 5070 Ti reported 13,782 MiB
+free VRAM (16,303 MiB total). Available host RAM stayed at or above 7.67 GiB
+during volume copying and Ollama startup, and was 7.92 GiB after startup. These
+are point-in-time host measurements; Docker container memory limits are not
+proof that a later inference run has adequate headroom.
+
+**Exact checks.**
+
+- `.\scripts\forge.ps1 -Environment application -Narration -Ollama config --format json` — passed; resolved project, internal network, no `ports` property, and the main-project model volume.
+- `.\scripts\forge.ps1 -Environment application -Narration -Ollama up --detach --no-deps --wait ollama` — passed; only Ollama was selected, health became `healthy`, minimum observed host RAM during startup was 7.67 GiB.
+- `docker inspect oju-video-forge-ollama-1` and `docker port oju-video-forge-ollama-1` — passed; main-project labels and limits verified, no host-published port.
+- `docker exec oju-video-forge-ollama-1 ollama ps` — passed; no model loaded.
+- A 128 MiB / 0.25 CPU / 16-PID, network-attached temporary container requested `/api/tags` over the internal network — passed; exact model digest matched the copied model identity. No generation endpoint was called.
+- Source/destination volume comparison in a network-disabled, 512 MiB / 0.5 CPU / 32-PID container — passed; all 10 file hashes matched.
+- In `oju-video-forge-tests:training-local` with `--network none`, 768 MiB, 0.5 CPU and 64 PIDs: `python -m pytest -q -p no:cacheprovider tests/test_agents.py tests/test_narration.py` — 75 passed, 1 Starlette/httpx deprecation warning; `ruff check --no-cache app/agents.py app/narration.py app/narration_jobs.py tests/test_agents.py tests/test_narration.py` — passed. The combined command stopped with exit 127 at `bash -n scripts/forge.sh` because the image has no Bash; Bash validation was run separately under WSL.
+- `docker run --rm --network none --memory 256m --cpus 0.25 --pids-limit 32 --mount "type=bind,source=${PWD},target=/workspace,readonly" -w /workspace oju-video-forge-tests:training-local python scripts/validate_repository.py` — passed.
+- `bash -n scripts/forge.sh` and `bash scripts/forge.sh acceptance --narration --ollama config` — syntax passed; the helper rejected the acceptance Ollama selection as intended. PowerShell helper plan/rejection checks and `git diff --check` also passed.
+
+**Remaining gates — PARTIAL/BLOCKED.** The Ollama acquisition, main-project
+ownership, and service startup gates pass. The independent model-runtime gate
+remains blocked pending model-lineage verification, approved API/worker network
+reconciliation, and structured generation/visual inference. Docling build/OCR,
+the authorized recording import, human evidence/script approval, narrated
+rendering, browser E2E, current Trivy scan/SBOM, and CI remain unverified. Do
+not enable agent/vision settings or claim overall acceptance until those gates
+are completed.

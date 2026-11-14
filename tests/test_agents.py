@@ -152,7 +152,7 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
         payload = json.loads(request.content)
         assert payload["stream"] is False
         assert payload["format"]["type"] == "object"
-        assert payload["options"]["num_gpu"] == 0
+        assert "num_gpu" not in payload["options"]
         return httpx.Response(200, json={"done": True, "response": json.dumps({
             "tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test"}}]
         })})

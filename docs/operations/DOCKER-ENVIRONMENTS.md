@@ -8,7 +8,7 @@ Python, Node, FFmpeg, PostgreSQL, Redis, and application tests run in containers
 | Environment | Compose name | Files | Private secrets | Frontend |
 |---|---|---|---|---|
 | Main local application | `oju-video-forge` | `compose.yaml` | `.env` | `127.0.0.1:5173` |
-| Acceptance | `oju-video-forge-acceptance` | base + `compose.acceptance.yaml` | `.env.acceptance.local` | `127.0.0.1:5174` |
+| Acceptance | `oju-video-forge-acceptance` | base + acceptance | `.env.acceptance.local` | `127.0.0.1:5174` |
 | Integration | `oju-video-forge-integration` | base + `compose.integration.yaml` | `.env.integration.local` | `127.0.0.1:5175` |
 
 These overlays extend the existing stack; they are not independent deployments.
@@ -16,9 +16,12 @@ Do not combine test overlays with `compose.dev.yaml`, which publishes a developm
 API port. The optional GPU overlay is unrelated to CPU acceptance.
 The canonical application can additionally select `compose.narration.yaml`
 with `-Narration` in the PowerShell helper or `--narration` in the Bash helper.
-This keeps the isolated CPU `docling-ocr` service within the same project and
+This keeps the isolated CPU `docling-ocr` service within the main project and
 lifecycle; see the [narration runbook](../narration-workflow-v1.md) for private
-networking, model ownership, health, cutover and rollback.
+networking, model ownership, health, cutover and rollback. The Ollama overlays
+are available only in the main application project and require narration.
+Temporary bootstrap networking is available only with `-OllamaBootstrap` /
+`--ollama-bootstrap`.
 
 Each project gets its own `<project>_{pgdata,redisdata,uploads,artifacts}` named
 volumes and `<project>_{backend,control,inference}` networks. GPU models/input/output
@@ -59,6 +62,54 @@ docker compose --project-name oju-video-forge --env-file .env -f compose.yaml up
 ```
 
 Never use `down -v` to disable GPU generation.
+
+## Main application local Ollama model
+
+The Ollama overlay is restricted to the main `oju-video-forge` Compose project
+and requires the narration overlay. It pins the official Linux/amd64 runtime
+image, assigns the GPU, caps the service at 4 CPUs, 2 GiB RAM and 128 PIDs, and
+exposes the API only on an internal network. The `oju-video-forge_ollama-models`
+volume belongs to the main project and is separate from acceptance and NuSass
+model storage. The runtime does not pull models on startup and explicitly
+disables cloud features.
+The optional bootstrap overlay adds a temporary non-internal network only to
+Ollama so an explicitly approved model can be pulled; reconcile back to
+`-Ollama` without bootstrap immediately afterward. Compose 2.30+ is required for
+the overlay's `gpus: all` setting.
+
+Only use `qwen3-vl:4b` after checking the host's free-memory floor. Keep at least
+4 GiB host RAM free throughout startup, model pull and inference; if that floor is
+at risk, stop only the main-project Ollama service and defer the runtime check. After
+pulling, verify and record the full `/api/tags` digest. Keep agent/vision settings
+disabled until the independent inference runtime gate passes. Only then set the
+matching values in `.env`:
+
+```text
+AGENTS_ENABLED=true
+AGENT_PROVIDER=ollama
+AGENT_URL=http://ollama:11434
+AGENT_MODEL=qwen3-vl:4b
+AGENT_MODEL_DIGEST=<verified 64-character digest>
+NARRATION_VISION_URL=http://ollama:11434
+NARRATION_VISION_MODEL=qwen3-vl:4b
+NARRATION_VISION_MODEL_DIGEST=<same verified digest>
+```
+
+PowerShell, after verifying the RAM floor and the main application's private
+Compose configuration:
+
+```powershell
+.\scripts\forge.ps1 -Environment application -Narration -Ollama -OllamaBootstrap up --detach --no-deps ollama
+.\scripts\forge.ps1 -Environment application -Narration -Ollama -OllamaBootstrap exec ollama ollama pull qwen3-vl:4b
+.\scripts\forge.ps1 -Environment application -Narration -Ollama up --detach --no-deps ollama
+```
+
+Do not expose an Ollama host port or connect it to NuSass or production
+networks. The application API and worker reach it only through the private
+`agent-inference` network. Ollama is not connected to PostgreSQL, Redis, OCR,
+or Docker socket resources. Adding the overlay does not attach already-running
+API/worker containers to the network; apply that change only with owner approval
+and a scoped `up --detach --no-deps api render-worker` reconciliation.
 
 ## Overrides and safeguards
 

@@ -1,0 +1,6 @@
+services:
+  ollama:
+    networks: [ollama-bootstrap]
+
+networks:
+  ollama-bootstrap: {}

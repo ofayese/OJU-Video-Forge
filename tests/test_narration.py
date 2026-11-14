@@ -719,6 +719,100 @@ def synthetic_jpeg(width=2, height=2):
     )
 
 
+def test_vision_pins_model_digest_and_allows_gpu_inference(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    model = "qwen3-vl:4b"
+    expected_digest = "a" * 64
+    paths = []
+
+    def handle(request):
+        paths.append(request.url.path)
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{
+                "name": model, "digest": expected_digest,
+            }]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["completion", "vision"]})
+        payload = json.loads(request.content)
+        assert payload["options"]["num_ctx"] == 4096
+        assert "num_gpu" not in payload["options"]
+        return httpx.Response(200, json={"response": json.dumps({
+            "observation": "Save button visible", "uncertain": True,
+        })})
+
+    mock_ocr_client(monkeypatch, handle)
+    monkeypatch.setenv("NARRATION_VISION_URL", "http://ollama:11434")
+    monkeypatch.setenv("NARRATION_VISION_MODEL", model)
+    monkeypatch.setenv("NARRATION_VISION_MODEL_DIGEST", expected_digest)
+
+    result = narration.vision(frame, lambda: None)
+
+    assert paths == [
+        "/api/tags", "/api/show", "/api/generate", "/api/tags", "/api/show",
+    ]
+    assert result["text"] == "Save button visible"
+    assert result["model_digest"] == expected_digest
+    assert result["model_info_sha256"] == hashlib.sha256(
+        httpx.Response(200, json={"capabilities": ["completion", "vision"]}).content
+    ).hexdigest()
+
+
+def test_vision_rejects_mismatched_model_digest_before_generation(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    paths = []
+
+    def handle(request):
+        paths.append(request.url.path)
+        return httpx.Response(200, json={"models": [{
+            "name": "qwen3-vl:4b", "digest": "b" * 64,
+        }]})
+
+    mock_ocr_client(monkeypatch, handle)
+    monkeypatch.setenv("NARRATION_VISION_URL", "http://ollama:11434")
+    monkeypatch.setenv("NARRATION_VISION_MODEL", "qwen3-vl:4b")
+    monkeypatch.setenv("NARRATION_VISION_MODEL_DIGEST", "a" * 64)
+
+    with pytest.raises(
+        narration.NarrationError, match="vision_model_identity_unavailable_or_changed"
+    ):
+        narration.vision(frame, lambda: None)
+
+    assert paths == ["/api/tags"]
+
+
+def test_vision_rejects_identity_change_after_generation(monkeypatch, tmp_path):
+    frame = tmp_path / "frame.jpg"
+    frame.write_bytes(synthetic_jpeg())
+    expected_digest = "a" * 64
+    tag_calls = 0
+
+    def handle(request):
+        nonlocal tag_calls
+        if request.url.path == "/api/tags":
+            tag_calls += 1
+            digest = expected_digest if tag_calls == 1 else "b" * 64
+            return httpx.Response(200, json={"models": [{
+                "name": "qwen3-vl:4b", "digest": digest,
+            }]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["vision"]})
+        return httpx.Response(200, json={"response": json.dumps({
+            "observation": "Save button visible", "uncertain": True,
+        })})
+
+    mock_ocr_client(monkeypatch, handle)
+    monkeypatch.setenv("NARRATION_VISION_URL", "http://ollama:11434")
+    monkeypatch.setenv("NARRATION_VISION_MODEL", "qwen3-vl:4b")
+    monkeypatch.setenv("NARRATION_VISION_MODEL_DIGEST", expected_digest)
+
+    with pytest.raises(
+        narration.NarrationError, match="vision_model_identity_unavailable_or_changed"
+    ):
+        narration.vision(frame, lambda: None)
+
+
 def test_extract_ocr_uses_bounded_docling_rapidocr_request(monkeypatch, tmp_path):
     frame = tmp_path / "frame.jpg"
     frame.write_bytes(synthetic_jpeg())

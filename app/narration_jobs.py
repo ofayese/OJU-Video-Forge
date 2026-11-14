@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -387,6 +388,12 @@ def capabilities():
         "voices": media.VOICES, "speech_engine": "espeak-ng",
         "asr_requires_optional_worker_and_approved_model": True,
         "asr_model_present": (model / "model.bin").is_file(),
-        "vision_configured": bool(os.environ.get("NARRATION_VISION_MODEL")),
+        "vision_configured": bool(
+            os.environ.get("NARRATION_VISION_URL")
+            and os.environ.get("NARRATION_VISION_MODEL")
+            and re.fullmatch(
+                r"[0-9a-f]{64}", os.environ.get("NARRATION_VISION_MODEL_DIGEST", "")
+            )
+        ),
         "tts_available_in_this_process": bool(shutil.which("espeak-ng")),
     }
