@@ -133,7 +133,7 @@ def test_enabled_agent_requires_explicit_pinned_local_configuration(monkeypatch)
     with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
         agents.LocalOllamaAdapter("https://public.example", "model", "a" * 64)
     with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
-        agents.LocalOllamaAdapter("http://localhost:11434", "model", "latest")
+        agents.LocalOllamaAdapter("http://localhost:11434", "model", "latest", allow_host_endpoint=True)
     with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
         agents.LocalOllamaAdapter("http://localhost:not-a-port", "model", "a" * 64)
 
@@ -172,7 +172,7 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
         return client(transport=httpx.MockTransport(handler), **kwargs)
 
     monkeypatch.setattr(agents.httpx, "Client", create_client)
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "local-model", digest)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "local-model", digest, allow_host_endpoint=True)
     assert agents.validate_agent_output(adapter.propose("synthetic", agents.ALLOWED_TOOLS))
     assert [request.url.path for request in requests] == [
         "/api/tags", "/api/show", "/api/chat", "/api/tags", "/api/show",
@@ -256,7 +256,7 @@ def test_local_adapter_training_generation_runs_validated_bounded_stages(monkeyp
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
 
     evidence = {
         "duration_ms": 1000,
@@ -325,7 +325,7 @@ def test_training_stage_failures_capture_safe_structured_diagnostics(
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
     evidence = {
         "duration_ms": 1000,
         "approved_steps": [{
@@ -383,7 +383,7 @@ def test_local_adapter_rejects_token_truncated_chat_response(monkeypatch):
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
     with pytest.raises(agents.AgentUnavailable, match="generation_incomplete"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -399,7 +399,7 @@ def test_local_adapter_rejects_mismatched_model_without_generation(monkeypatch):
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
     with pytest.raises(agents.AgentUnavailable, match="identity"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
     assert paths == ["/api/tags"]
@@ -426,7 +426,7 @@ def test_local_adapter_rejects_identity_change_after_generation(monkeypatch):
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
     with pytest.raises(agents.AgentUnavailable, match="identity"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -440,7 +440,7 @@ def test_local_adapter_bounds_provider_responses(monkeypatch, response):
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(lambda _request: response), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
     with pytest.raises(agents.AgentUnavailable, match="response"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -457,7 +457,7 @@ def test_local_adapter_checks_deadline_on_small_stream_chunks(monkeypatch):
     ))
     clock = iter([0.0, 91.0])
     monkeypatch.setattr(agents, "time", SimpleNamespace(monotonic=lambda: next(clock)))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
     with pytest.raises(agents.AgentUnavailable, match="timeout"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -470,7 +470,7 @@ def test_local_adapter_reports_provider_timeout_and_preserves_cancellation(monke
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
     with pytest.raises(agents.AgentUnavailable, match="agent_provider_timeout"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -493,7 +493,7 @@ def test_local_status_requires_validated_generation_not_only_model_metadata(monk
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
     assert adapter.status(None)["status"] == "degraded"
     assert adapter.status(adapter.provenance())["status"] == "ready"
     assert adapter.status({**adapter.provenance(), "endpoint_sha256": "b" * 64})["status"] == "degraded"
@@ -513,7 +513,7 @@ def test_local_status_reports_unavailable_or_degraded(monkeypatch, response, exp
     monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
         transport=httpx.MockTransport(handler), **kwargs
     ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64)
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
     assert adapter.status(None)["status"] == expected
 
 

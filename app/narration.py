@@ -229,19 +229,45 @@ def transcribe(source: Path, directory: Path, metadata: dict, check: Callable[[]
 
 
 def vision(frame: Path, check: Callable[[], None]) -> dict:
-    endpoint = os.environ.get("NARRATION_VISION_URL", "")
-    model = os.environ.get("NARRATION_VISION_MODEL", "")
-    expected_digest = os.environ.get("NARRATION_VISION_MODEL_DIGEST", "")
+    endpoint = (os.environ.get("NARRATION_VISION_URL") or os.environ.get("AGENT_URL") or "").strip()
+    model = (os.environ.get("NARRATION_VISION_MODEL") or os.environ.get("AGENT_MODEL") or "").strip()
+    expected_digest = (
+        os.environ.get("NARRATION_VISION_MODEL_DIGEST")
+        or os.environ.get("AGENT_MODEL_DIGEST")
+        or ""
+    ).strip().lower()
     parsed = urlparse(endpoint)
     host = parsed.hostname or ""
     try:
         local = ipaddress.ip_address(host).is_loopback
     except ValueError:
-        local = host in {"host.docker.internal", "ollama"}
-    if (parsed.scheme != "http" or not local or parsed.username or parsed.password
-            or parsed.path not in {"", "/"} or parsed.query or parsed.fragment or not model
-            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)):
-        raise NarrationError("vision_unavailable; configure an approved local Ollama model")
+        local = host in {"localhost", "host.docker.internal", "ollama"}
+    canonical_ollama = (
+        parsed.scheme == "http"
+        and host == "ollama"
+        and (parsed.port is None or parsed.port == 11434)
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+        and not parsed.username
+        and not parsed.password
+    )
+    allow_host_dev = (
+        os.environ.get("APP_ENV", "development") in {"development", "test"}
+        and parsed.scheme == "http"
+        and local
+        and parsed.port is not None
+        and 1 <= parsed.port <= 65535
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+        and not parsed.username
+        and not parsed.password
+    )
+    if (not endpoint or not model
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+            or not (canonical_ollama or allow_host_dev)):
+        raise NarrationError("vision_unavailable; configure approved local OJU Ollama endpoint/model")
 
     def verify_model(client: httpx.Client) -> bytes:
         tags = client.get(f"{endpoint.rstrip('/')}/api/tags")

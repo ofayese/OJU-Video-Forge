@@ -513,16 +513,17 @@ def execute(db, job, check):
 
 def capabilities():
     model = Path(os.environ.get("NARRATION_ASR_MODEL", "/models/asr/faster-whisper-tiny"))
+    vision_url = os.environ.get("NARRATION_VISION_URL") or os.environ.get("AGENT_URL") or ""
+    vision_model = os.environ.get("NARRATION_VISION_MODEL") or os.environ.get("AGENT_MODEL") or ""
+    vision_digest = os.environ.get("NARRATION_VISION_MODEL_DIGEST") or os.environ.get("AGENT_MODEL_DIGEST") or ""
     return {
         "voices": media.VOICES, "speech_engine": "espeak-ng",
         "asr_requires_optional_worker_and_approved_model": True,
         "asr_model_present": (model / "model.bin").is_file(),
         "vision_configured": bool(
-            os.environ.get("NARRATION_VISION_URL")
-            and os.environ.get("NARRATION_VISION_MODEL")
-            and re.fullmatch(
-                r"[0-9a-f]{64}", os.environ.get("NARRATION_VISION_MODEL_DIGEST", "")
-            )
+            vision_url
+            and vision_model
+            and re.fullmatch(r"[0-9a-f]{64}", vision_digest.strip().lower())
         ),
         "tts_available_in_this_process": bool(shutil.which("espeak-ng")),
     }

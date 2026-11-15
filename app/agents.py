@@ -77,19 +77,40 @@ class LocalOllamaAdapter:
         digest: str,
         stage_timeout_seconds: int = 60,
         generation_timeout_seconds: int = 300,
+        allow_host_endpoint: bool = False,
     ):
         try:
             parsed = urlparse(endpoint)
             port = parsed.port
         except ValueError as exc:
             raise AgentUnavailable("agent_provider_configuration_invalid") from exc
+        host = parsed.hostname or ""
         try:
-            local = ipaddress.ip_address(parsed.hostname or "").is_loopback
+            local = ipaddress.ip_address(host).is_loopback
         except ValueError:
-            local = parsed.hostname in {"localhost", "host.docker.internal", "ollama"}
-        if (parsed.scheme != "http" or not local or parsed.username or parsed.password
-                or (port is not None and not 1 <= port <= 65535)
-                or parsed.path not in {"", "/"} or parsed.query or parsed.fragment
+            local = host in {"localhost", "host.docker.internal", "ollama"}
+        canonical_ollama = (
+            parsed.scheme == "http"
+            and host == "ollama"
+            and (port is None or port == 11434)
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+            and not parsed.username
+            and not parsed.password
+        )
+        allowed_host_dev = (
+            allow_host_endpoint
+            and parsed.scheme == "http"
+            and local
+            and not parsed.username
+            and not parsed.password
+            and (port is not None and 1 <= port <= 65535)
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+        )
+        if (not (canonical_ollama or allowed_host_dev)
                 or not re.fullmatch(r"[a-zA-Z0-9_./:-]{1,128}", model)
                 or not re.fullmatch(r"[a-f0-9]{64}", digest)):
             raise AgentUnavailable("agent_provider_configuration_invalid")
@@ -569,10 +590,12 @@ def get_agent_adapter() -> AgentAdapter:
         (settings.agent_url, settings.agent_model, settings.agent_model_digest)
     ):
         raise AgentUnavailable("agent_provider_unconfigured")
+    allow_host_endpoint = settings.app_env in {"development", "test"}
     return LocalOllamaAdapter(
         settings.agent_url, settings.agent_model, settings.agent_model_digest,
         settings.agent_stage_timeout_seconds,
         settings.agent_generation_timeout_seconds,
+        allow_host_endpoint=allow_host_endpoint,
     )
 
 
