@@ -338,6 +338,41 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         <p>{row.analysis.training_module.draft.title} · {row.analysis.training_module.draft.audience}</p>
         <p>Model: {row.analysis.training_module.provider.model}
           {" · Digest: "}{row.analysis.training_module.provider.model_digest}</p>
+        {row.analysis.training_module.provenance && <>
+          <p>Review status: {row.analysis.training_module.provenance.review_status}
+            {" · Source SHA-256: "}{row.analysis.training_module.provenance.source_video_sha256}
+            {" · Approved procedure revision: "}
+            {row.analysis.training_module.provenance.approved_procedure_revision}</p>
+          <ul aria-label="Training generation stages">
+            {row.analysis.training_module.provenance.stages.map((stage, index) =>
+              <li key={`${stage.stage}-${index}`}>
+                <strong>{stage.stage}</strong>
+                {" · Model: "}{stage.model_identifier ?? "unknown"}
+                {" · Digest: "}{stage.model_digest ?? "unknown"}
+                {" · Ollama: "}{stage.ollama_version ?? "unknown"}
+                {" · Route: "}{stage.api_route ?? "unknown"}
+                {" · Endpoint SHA-256: "}{stage.endpoint_sha256 ?? "unknown"}
+                {" · Schema: "}{stage.schema_validation_result ?? "unknown"}
+                {" · evidence: "}{stage.evidence_validation_result ?? "not reported"}
+                {" · tokens: "}{stage.prompt_tokens ?? "?"}/{stage.generated_tokens ?? "?"}
+                {" · response chars: "}{stage.response_length_chars ?? "?"}
+                {" · duration ms: "}{stage.inference_duration_ms ?? "?"}
+                {" · completion: "}{stage.completion_reason ?? "unknown"}
+                {" · context/output limit: "}{stage.context_tokens ?? "?"}/{stage.output_token_limit ?? "?"}
+                {" · thinking requested/present: "}{String(stage.thinking_requested ?? "unknown")}
+                /{String(stage.thinking_present ?? "unknown")}
+                {" · thinking control reported/behavior/disable support/default: "}
+                {String(stage.thinking_control_reported ?? "unknown")}
+                /{stage.thinking_behavior ?? "unknown"}
+                /{String(stage.thinking_disable_supported ?? "unknown")}
+                /{String(stage.thinking_default ?? "unknown")}
+                {" · worker memory bytes: "}{stage.worker_container_memory_bytes ?? "?"}
+                {" · model memory status: "}{stage.ollama_model_memory?.status ?? "unknown"}
+                {" · model/GPU bytes: "}{stage.ollama_model_memory?.model_bytes ?? "?"}
+                /{stage.ollama_model_memory?.gpu_bytes ?? "?"}
+              </li>)}
+          </ul>
+        </>}
         {(["learning_objectives", "prerequisites", "chapters", "annotations", "technical_explanations",
           "lab_steps", "validation_checkpoints", "troubleshooting", "assessment", "answer_explanations"] as const)
           .map((section) => <div key={section}><h3>{section.replaceAll("_", " ")}</h3>
@@ -355,6 +390,36 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
             void action(() => api.editTrainingDraft(projectId, row.id, row.revision, draft, token));
           }}>Save complete training draft revision</button>
         </fieldset>
+      </details>}
+      {row.analysis.training_generation_diagnostics && <details>
+        <summary>Incomplete training generation diagnostics</summary>
+        <ul>
+          {row.analysis.training_generation_diagnostics.stages.map((stage, index) =>
+            <li key={`${stage.stage}-${index}`}>
+              <strong>{stage.stage}</strong>
+              {" · Model: "}{stage.model_identifier ?? "unknown"}
+              {" · Digest: "}{stage.model_digest ?? "unknown"}
+              {" · Ollama: "}{stage.ollama_version ?? "unknown"}
+              {" · Route: "}{stage.api_route ?? "unknown"}
+              {" · Endpoint SHA-256: "}{stage.endpoint_sha256 ?? "unknown"}
+              {" · Schema: "}{stage.schema_validation_result ?? "unknown"}
+              {" · tokens: "}{stage.prompt_tokens ?? "?"}/{stage.generated_tokens ?? "?"}
+              {" · response chars: "}{stage.response_length_chars ?? "?"}
+              {" · duration ms: "}{stage.inference_duration_ms ?? "?"}
+              {" · completion: "}{stage.completion_reason ?? "unknown"}
+              {" · thinking requested/present: "}{String(stage.thinking_requested ?? "unknown")}
+              /{String(stage.thinking_present ?? "unknown")}
+              {" · thinking control reported/behavior/disable support/default: "}
+              {String(stage.thinking_control_reported ?? "unknown")}
+              /{stage.thinking_behavior ?? "unknown"}
+              /{String(stage.thinking_disable_supported ?? "unknown")}
+              /{String(stage.thinking_default ?? "unknown")}
+              {" · worker memory bytes: "}{stage.worker_container_memory_bytes ?? "?"}
+              {" · model memory status/GPU bytes: "}
+              {stage.ollama_model_memory?.status ?? "unknown"}
+              /{stage.ollama_model_memory?.gpu_bytes ?? "?"}
+            </li>)}
+        </ul>
       </details>}
       {script.map((segment, index) => <fieldset disabled={busy || !editable || moduleDirty} key={segment.id}>
         <legend>Segment {segment.id}</legend>

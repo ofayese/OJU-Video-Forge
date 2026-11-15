@@ -24,6 +24,8 @@ class Settings(BaseModel):
     agent_url: str = ""
     agent_model: str = ""
     agent_model_digest: str = ""
+    agent_stage_timeout_seconds: int = Field(default=60, ge=10, le=300)
+    agent_generation_timeout_seconds: int = Field(default=300, ge=30, le=900)
     ad_domain: str = "ojuidc.olutech.systems"
     public_app_fqdn: str = "video.olutechsys.com"
     public_api_fqdn: str = "video-api.olutechsys.com"
@@ -67,6 +69,10 @@ class Settings(BaseModel):
             "agent_url": os.getenv("AGENT_URL", ""),
             "agent_model": os.getenv("AGENT_MODEL", ""),
             "agent_model_digest": os.getenv("AGENT_MODEL_DIGEST", ""),
+            "agent_stage_timeout_seconds": int(os.getenv("AGENT_STAGE_TIMEOUT_SECONDS", "60")),
+            "agent_generation_timeout_seconds": int(
+                os.getenv("AGENT_GENERATION_TIMEOUT_SECONDS", "300")
+            ),
             "ad_domain": os.getenv("AD_DOMAIN", "ojuidc.olutech.systems"),
             "public_app_fqdn": os.getenv("PUBLIC_APP_FQDN", "video.olutechsys.com"),
             "public_api_fqdn": os.getenv("PUBLIC_API_FQDN", "video-api.olutechsys.com"),

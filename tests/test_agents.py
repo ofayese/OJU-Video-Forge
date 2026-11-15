@@ -148,7 +148,10 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
         if request.url.path == "/api/tags":
             return httpx.Response(200, json={"models": [{"name": "local-model", "digest": digest}]})
         if request.url.path == "/api/show":
-            return httpx.Response(200, json={"capabilities": ["completion"]})
+            return httpx.Response(200, json={
+                "capabilities": ["completion"],
+                "thinking": {"values": [False, True], "default": True},
+            })
         assert request.url.path == "/api/chat"
         payload = json.loads(request.content)
         assert [message["role"] for message in payload["messages"]] == ["system", "user"]
@@ -181,57 +184,72 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
     )
 
 
-def test_local_adapter_training_generation_uses_bounded_expanded_context(monkeypatch):
+def test_local_adapter_training_generation_runs_validated_bounded_stages(monkeypatch):
     digest = "a" * 64
-    draft = {
-        "title": "Reading a visible label",
-        "audience": "Training reviewers",
-        "prerequisites": [],
-        "learning_objectives": [{
-            "text": "Identify the visible library settings label.",
-            "kind": "evidence",
-            "evidence": ["frame-0"],
-        }],
-        "chapters": [{
-            "id": "chapter-1",
-            "start_ms": 0,
-            "end_ms": 1000,
-            "text": "Read the visible label.",
-            "kind": "evidence",
-            "evidence": ["frame-0"],
-        }],
-        "script": [{
-            "id": "script-1",
-            "start_ms": 0,
-            "end_ms": 1000,
-            "text": "The screen displays the library settings label.",
-            "kind": "evidence",
-            "evidence": ["frame-0"],
-        }],
-        "annotations": [],
-        "technical_explanations": [],
-        "lab_steps": [],
-        "validation_checkpoints": [],
-        "troubleshooting": [],
-        "assessment": [],
-        "answer_explanations": [],
+    outputs = {
+        "outline": {
+            "title": "Reading a visible label",
+            "audience": "Training reviewers",
+            "prerequisites": [],
+            "learning_objectives": [{
+                "text": "Identify the visible library settings label.",
+                "step_ids": ["step-1"],
+            }],
+            "chapters": [{
+                "id": "chapter-1", "title": "Read the visible label.",
+                "step_id": "step-1",
+            }],
+        },
+        "procedure": {
+            "steps": [{"step_id": "step-1", "evidence_ids": ["frame-0"]}],
+        },
+        "narration": {
+            "segments": [{
+                "step_id": "step-1",
+                "text": "The screen displays the library settings label.",
+            }],
+        },
+        "activities": {
+            "exercises": ["step-1"],
+            "validation_checkpoints": ["step-1"],
+            "troubleshooting": ["step-1"],
+            "assessment": ["step-1"],
+        },
     }
+    prompt_stages = {
+        "Create a concise training outline": "outline",
+        "Map each supplied approved step": "procedure",
+        "Write one short spoken narration": "narration",
+        "Select approved step IDs": "activities",
+    }
+    seen = []
 
     def handler(request):
         if request.url.path == "/api/tags":
             return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
         if request.url.path == "/api/show":
-            return httpx.Response(200, json={"capabilities": ["completion"]})
+            return httpx.Response(200, json={
+                "capabilities": ["completion"],
+                "thinking": {"values": [False, True], "default": True},
+            })
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json={"version": "0.40.16"})
+        if request.url.path == "/api/ps":
+            return httpx.Response(200, json={"models": [{
+                "name": "model", "size": 1_000_000, "size_vram": 0,
+            }]})
         payload = json.loads(request.content)
-        assert payload["options"]["num_ctx"] == 8192
-        assert payload["options"]["num_predict"] == 4096
-        prompt = payload["messages"][0]["content"]
-        assert "kind='evidence' and copy exact frame IDs" in prompt
-        assert "kind='supplemental' only for clearly general" in prompt
-        assert "set evidence=[] for it" in prompt
+        assert payload["options"]["num_ctx"] == 4096
+        assert payload["options"]["num_predict"] in {768, 256, 512, 384}
+        assert payload["think"] is False
+        system = payload["messages"][0]["content"]
+        stage_name = next(name for marker, name in prompt_stages.items() if marker in system)
+        seen.append((stage_name, payload["options"]["num_predict"]))
+        assert payload["format"]["type"] == "object"
         return httpx.Response(200, json={
             "done": True, "done_reason": "stop",
-            "message": {"content": json.dumps(draft)},
+            "prompt_eval_count": 120, "eval_count": 24, "total_duration": 1_000_000_000,
+            "message": {"content": json.dumps(outputs[stage_name]), "thinking": ""},
         })
 
     client = httpx.Client
@@ -240,9 +258,107 @@ def test_local_adapter_training_generation_uses_bounded_expanded_context(monkeyp
     ))
     adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
 
-    result = adapter.generate_training({"evidence": ["frame-0"]}, lambda: None)
+    evidence = {
+        "duration_ms": 1000,
+        "approved_steps": [{
+            "id": "step-1", "start_ms": 0, "end_ms": 1000,
+            "description": "Read the visible library settings label.",
+            "evidence": ["frame-0"], "decision": "accepted",
+            "confidence": "high", "evidence_category": "direct_observation",
+        }],
+        "frames": [{"id": "frame-0", "timestamp_ms": 0, "ocr": "Settings"}],
+        "request": {"learner_level": "beginner", "objectives": "", "feedback": ""},
+    }
+    result = adapter.generate_training(evidence, lambda: None)
 
-    assert result == draft
+    assert result.draft.title == "Reading a visible label"
+    assert result.draft.chapters[0].start_ms == 0
+    assert result.draft.chapters[0].end_ms == 1000
+    assert result.draft.script[0].evidence == ["frame-0"]
+    assert result.draft.troubleshooting[0].kind == "supplemental"
+    assert [name for name, _ in seen] == [
+        "outline", "procedure", "narration", "activities",
+    ]
+    assert len(result.stages) == 4
+    assert all(stage["schema_validation_result"] == "passed" for stage in result.stages)
+    assert all(stage["evidence_validation_result"] == "passed" for stage in result.stages)
+    assert all(stage["schema_version"] == 1 for stage in result.stages)
+    assert all(stage["prompt_tokens"] == 120 for stage in result.stages)
+    assert all(stage["generated_tokens"] == 24 for stage in result.stages)
+    assert all(stage["thinking_requested"] is False for stage in result.stages)
+    assert all(stage["thinking_disable_supported"] is True for stage in result.stages)
+    assert all(stage["thinking_default"] is True for stage in result.stages)
+    assert all(stage["ollama_version"] == "0.40.16" for stage in result.stages)
+    assert all(stage["ollama_model_memory"]["gpu_bytes"] == 0 for stage in result.stages)
+
+
+@pytest.mark.parametrize(("reason", "content", "error", "validation"), [
+    ("length", '{"partial":"PRIVATE-SYNTHETIC-OUTPUT"', "generation_incomplete", "not_run"),
+    ("stop", "{malformed", "generation_invalid_json", "invalid_json"),
+    ("stop", '{"title":"incomplete schema"}', "generation_schema_invalid", "failed"),
+])
+def test_training_stage_failures_capture_safe_structured_diagnostics(
+    monkeypatch, reason, content, error, validation
+):
+    digest = "a" * 64
+
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={
+                "capabilities": ["completion"],
+                "thinking": {"values": [False, True], "default": True},
+            })
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json={"version": "0.40.16"})
+        return httpx.Response(200, json={
+            "done": True,
+            "done_reason": reason,
+            "prompt_eval_count": 84,
+            "eval_count": 128,
+            "total_duration": 2_500_000_000,
+            "message": {"content": content, "thinking": "synthetic-private-thinking"},
+        })
+
+    client = httpx.Client
+    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
+        transport=httpx.MockTransport(handler), **kwargs
+    ))
+    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest)
+    evidence = {
+        "duration_ms": 1000,
+        "approved_steps": [{
+            "id": "step-1", "start_ms": 0, "end_ms": 1000,
+            "description": "Review the synthetic screen.",
+            "evidence": ["frame-0"], "decision": "accepted",
+            "confidence": "high", "evidence_category": "direct_observation",
+        }],
+        "frames": [{"id": "frame-0", "timestamp_ms": 0}],
+        "request": {},
+    }
+
+    with pytest.raises(agents.AgentUnavailable, match=error) as failure:
+        adapter.generate_training(evidence, lambda: None)
+
+    diagnostic = failure.value.diagnostics[0]
+    assert diagnostic["stage"] == "outline"
+    assert diagnostic["model_identifier"] == "model"
+    assert diagnostic["model_digest"] == digest
+    assert diagnostic["ollama_version"] == "0.40.16"
+    assert diagnostic["api_route"] == "/api/chat"
+    assert diagnostic["context_tokens"] == 4096
+    assert diagnostic["output_token_limit"] == 768
+    assert diagnostic["completion_reason"] == reason
+    assert diagnostic["prompt_tokens"] == 84
+    assert diagnostic["generated_tokens"] == 128
+    assert diagnostic["response_length_chars"] == len(content)
+    assert diagnostic["schema_validation_result"] == validation
+    assert diagnostic["thinking_disable_supported"] is True
+    assert diagnostic["thinking_behavior"] == "disable_control_not_honored"
+    assert "ollama_model_memory" in diagnostic
+    assert "PRIVATE-SYNTHETIC-OUTPUT" not in json.dumps(diagnostic)
+    assert "synthetic-private-thinking" not in json.dumps(diagnostic)
 
 
 def test_local_adapter_rejects_token_truncated_chat_response(monkeypatch):

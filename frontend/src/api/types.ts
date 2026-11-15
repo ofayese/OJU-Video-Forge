@@ -171,6 +171,64 @@ export interface TrainingDraft {
   answer_explanations: TrainingClaim[];
 }
 
+export interface TrainingStageDiagnostic {
+  stage: string;
+  schema_version?: number;
+  model_identifier?: string;
+  model_digest?: string;
+  endpoint_sha256?: string;
+  ollama_version?: string;
+  api_route?: string;
+  context_tokens?: number;
+  output_token_limit?: number;
+  stage_timeout_seconds?: number;
+  thinking_requested?: boolean;
+  thinking_present?: boolean;
+  thinking_control_reported?: boolean;
+  thinking_disable_supported?: boolean | null;
+  thinking_default?: boolean | string | null;
+  thinking_behavior?: string;
+  completion_reason?: string | null;
+  prompt_tokens?: number | null;
+  generated_tokens?: number | null;
+  response_length_chars?: number | null;
+  inference_duration_ms?: number | null;
+  http_status?: number;
+  schema_validation_result?: string;
+  evidence_validation_result?: string;
+  ollama_model_memory?: {
+    status: string;
+    model_bytes: number | null;
+    gpu_bytes: number | null;
+  };
+  worker_container_memory_bytes?: number | null;
+}
+
+export interface TrainingProvenance {
+  schema_version: 1 | 2;
+  source_video_sha256: string;
+  source_revision: number;
+  approved_procedure_revision: number;
+  provider: { provider: string; model: string; model_digest: string; endpoint_sha256: string };
+  review_status: "pending_human_review" | "human_approved";
+  stages: TrainingStageDiagnostic[];
+  elements: {
+    path: string;
+    content_sha256: string;
+    element_sha256?: string;
+    parent_content_sha256?: string;
+    parent_element_sha256?: string;
+    source_video_sha256: string;
+    evidence_ids: string[];
+    source_timestamps_ms: { evidence_id: string; timestamp_ms: number }[];
+    approved_procedure_revision: number;
+    provider: { provider: string; model: string; model_digest: string; endpoint_sha256: string };
+    generation_stage: string;
+    schema_version: 1 | 2;
+    review_status: string;
+  }[];
+}
+
 export interface TrainingAgentStatus {
   status: "disabled" | "unconfigured" | "unavailable" | "degraded" | "ready";
   reason: string;
@@ -208,8 +266,14 @@ export interface NarrationResult {
   options: Record<string, unknown>;
   analysis: {
     procedure?: { contract_version: number; status: string; steps: TrainingProcedureStep[] };
-    training_module?: { contract_version: number; draft: TrainingDraft;
-      provider: { provider: string; model: string; model_digest: string } };
+    training_module?: {
+      contract_version: number;
+      schema_version?: number;
+      draft: TrainingDraft;
+      provider: { provider: string; model: string; model_digest: string };
+      provenance?: TrainingProvenance;
+    };
+    training_generation_diagnostics?: { schema_version: number; stages: TrainingStageDiagnostic[] };
     media?: { format: { duration: string } };
     transcript?: { status: string; language?: string | null };
     scene_analysis?: { status: string; error: string | null };

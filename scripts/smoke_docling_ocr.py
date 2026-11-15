@@ -14,7 +14,7 @@ def main() -> int:
         narration.run([
             "ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
             "color=c=white:s=1280x720:r=2:d=1", "-vf",
-            "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"
+            "drawtext=fontfile=/usr/share/fonts/dejavu/DejaVuSans.ttf:"
             "text=SYNTHETIC-OCR-TEST:fontcolor=black:fontsize=52:"
             "x=(w-text_w)/2:y=(h-text_h)/2",
             "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",

@@ -4,9 +4,76 @@ import hashlib
 import html
 import json
 import re
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class TrainingOutlineObjective(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    text: str = Field(min_length=1, max_length=500)
+    step_ids: list[str] = Field(min_length=1, max_length=20)
+
+
+class TrainingOutlineChapter(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,40}$")
+    title: str = Field(min_length=1, max_length=200)
+    step_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,40}$")
+
+
+class TrainingOutline(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: str = Field(min_length=1, max_length=200)
+    audience: str = Field(min_length=1, max_length=500)
+    prerequisites: list[str] = Field(max_length=20)
+    learning_objectives: list[TrainingOutlineObjective] = Field(min_length=1, max_length=20)
+    chapters: list[TrainingOutlineChapter] = Field(min_length=1, max_length=20)
+
+
+class ProcedureEvidenceReference(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    step_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,40}$")
+    evidence_ids: list[str] = Field(min_length=1, max_length=24)
+
+
+class ProcedureEvidenceBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    steps: list[ProcedureEvidenceReference] = Field(min_length=1, max_length=4)
+
+
+class NarrationText(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    step_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,40}$")
+    text: str = Field(min_length=1, max_length=500)
+
+
+class NarrationBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    segments: list[NarrationText] = Field(min_length=1, max_length=4)
+
+
+class LearningActivityPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    exercises: list[str] = Field(min_length=1, max_length=4)
+    validation_checkpoints: list[str] = Field(min_length=1, max_length=4)
+    troubleshooting: list[str] = Field(min_length=1, max_length=4)
+    assessment: list[str] = Field(min_length=1, max_length=4)
+
+
+@dataclass(frozen=True)
+class TrainingGeneration:
+    draft: "TrainingDraft"
+    stages: list[dict]
 
 
 class ProcedureStep(BaseModel):
@@ -67,6 +134,388 @@ class TrainingDraft(BaseModel):
     troubleshooting: list[TrainingClaim] = Field(default_factory=list, max_length=100)
     assessment: list[TrainingClaim] = Field(default_factory=list, max_length=100)
     answer_explanations: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+
+
+def validate_training_observations(
+    approved_steps: list[dict], frames: list[dict], duration_ms: int
+) -> dict[str, dict]:
+    frame_by_id = {}
+    for frame in frames:
+        frame_id = frame.get("id")
+        timestamp = frame.get("timestamp_ms")
+        if (not isinstance(frame_id, str) or frame_id in frame_by_id
+                or not isinstance(timestamp, int) or isinstance(timestamp, bool)
+                or not 0 <= timestamp <= duration_ms):
+            raise ValueError("invalid_training_observation")
+        frame_by_id[frame_id] = frame
+
+    validated = validate_procedure(
+        approved_steps, set(frame_by_id), duration_ms, approved=True
+    )
+    for step in validated:
+        for evidence_id in step["evidence"]:
+            timestamp = frame_by_id[evidence_id]["timestamp_ms"]
+            if not step["start_ms"] <= timestamp < step["end_ms"]:
+                raise ValueError("training_observation_outside_approved_interval")
+    return frame_by_id
+
+
+def approved_procedure_revision(procedure: dict) -> int:
+    history = procedure.get("review_history")
+    if (procedure.get("status") != "approved" or not isinstance(history, list)
+            or not history or not isinstance(history[-1], dict)):
+        raise ValueError("approved_procedure_revision_unavailable")
+    revision = history[-1].get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        raise ValueError("approved_procedure_revision_invalid")
+    return revision
+
+
+def _step_claim(text: str, step_ids: list[str], steps: dict[str, dict]) -> TrainingClaim:
+    evidence = list(dict.fromkeys(
+        ref for step_id in step_ids for ref in steps[step_id]["evidence"]
+    ))
+    return TrainingClaim(text=text, kind="evidence", evidence=evidence)
+
+
+def assemble_training_draft(
+    outline: TrainingOutline,
+    procedure_batches: list[ProcedureEvidenceBatch],
+    narration_batches: list[NarrationBatch],
+    activities: LearningActivityPlan,
+    approved_steps: list[dict],
+    duration_ms: int,
+) -> TrainingDraft:
+    step_by_id = {step["id"]: step for step in approved_steps}
+    expected_ids = list(step_by_id)
+    if not expected_ids or len(expected_ids) > 20:
+        raise ValueError("training_generation_step_limit")
+
+    ordered_ids = []
+    for batch in procedure_batches:
+        batch_ids = [item.step_id for item in batch.steps]
+        if batch_ids != expected_ids[len(ordered_ids):len(ordered_ids) + len(batch_ids)]:
+            raise ValueError("training_procedure_batch_mismatch")
+        for item in batch.steps:
+            if item.evidence_ids != step_by_id[item.step_id]["evidence"]:
+                raise ValueError("training_procedure_evidence_mismatch")
+        ordered_ids.extend(batch_ids)
+    if ordered_ids != expected_ids:
+        raise ValueError("training_procedure_incomplete")
+
+    chapter_ids = [item.step_id for item in outline.chapters]
+    chapter_names = [item.id for item in outline.chapters]
+    if (chapter_ids != expected_ids or len(set(chapter_names)) != len(chapter_names)
+            or any(not set(item.step_ids).issubset(step_by_id)
+                   for item in outline.learning_objectives)):
+        raise ValueError("training_outline_evidence_mismatch")
+
+    segments = {}
+    for batch in narration_batches:
+        for segment in batch.segments:
+            if segment.step_id in segments or segment.step_id not in step_by_id:
+                raise ValueError("training_narration_step_mismatch")
+            segments[segment.step_id] = segment.text
+    if list(segments) != expected_ids:
+        raise ValueError("training_narration_incomplete")
+
+    activity_refs = (
+        activities.exercises + activities.validation_checkpoints
+        + activities.troubleshooting + activities.assessment
+    )
+    if any(step_id not in step_by_id for step_id in activity_refs):
+        raise ValueError("training_activity_evidence_mismatch")
+    for values in (
+        activities.exercises, activities.validation_checkpoints,
+        activities.troubleshooting, activities.assessment,
+    ):
+        if len(set(values)) != len(values):
+            raise ValueError("training_activity_duplicate_step")
+
+    chapters = []
+    scripts = []
+    for chapter in outline.chapters:
+        step = step_by_id[chapter.step_id]
+        chapters.append({
+            "id": chapter.id,
+            "start_ms": step["start_ms"],
+            "end_ms": step["end_ms"],
+            "text": chapter.title,
+            "kind": "evidence",
+            "evidence": step["evidence"],
+        })
+    for step_id in expected_ids:
+        step = step_by_id[step_id]
+        scripts.append({
+            "id": f"script-{step_id}",
+            "start_ms": step["start_ms"],
+            "end_ms": step["end_ms"],
+            "text": segments[step_id],
+            "kind": "evidence",
+            "evidence": step["evidence"],
+        })
+
+    def selected(ids: list[str], text: str) -> list[dict]:
+        return [
+            _step_claim(text.format(description=step_by_id[step_id]["description"]),
+                        [step_id], step_by_id).model_dump()
+            for step_id in ids
+        ]
+
+    draft = TrainingDraft.model_validate({
+        "title": outline.title,
+        "audience": outline.audience,
+        "prerequisites": [
+            {"text": item, "kind": "supplemental", "evidence": []}
+            for item in outline.prerequisites
+        ],
+        "learning_objectives": [
+            _step_claim(item.text, item.step_ids, step_by_id).model_dump()
+            for item in outline.learning_objectives
+        ],
+        "chapters": chapters,
+        "script": scripts,
+        "annotations": [],
+        "technical_explanations": [],
+        "lab_steps": selected(
+            activities.exercises, "Practice only the reviewed action: {description}"
+        ),
+        "validation_checkpoints": selected(
+            activities.validation_checkpoints,
+            "Check that the cited evidence supports the reviewed action: {description}",
+        ),
+        "troubleshooting": [{
+            "text": "If the reviewed action cannot be confirmed, pause and request human review.",
+            "kind": "supplemental", "evidence": [],
+        } for _ in activities.troubleshooting],
+        "assessment": selected(
+            activities.assessment, "What reviewed action is shown: {description}?"
+        ),
+        "answer_explanations": selected(
+            activities.assessment,
+            "The reviewed procedure describes: {description}",
+        ),
+    })
+    validate_training_draft(
+        draft.model_dump(),
+        {ref for step in approved_steps for ref in step["evidence"]},
+        duration_ms,
+        approved_steps,
+    )
+    return draft
+
+
+def _training_elements(draft: TrainingDraft) -> list[tuple[str, str, list[str], str, dict]]:
+    elements = [
+        ("title", draft.title, [], "outline", {"text": draft.title}),
+        ("audience", draft.audience, [], "outline", {"text": draft.audience}),
+    ]
+    for section, stage in (
+        ("prerequisites", "outline"),
+        ("learning_objectives", "outline"),
+        ("chapters", "outline"),
+        ("script", "narration"),
+        ("annotations", "narration"),
+        ("technical_explanations", "activities"),
+        ("lab_steps", "activities"),
+        ("validation_checkpoints", "activities"),
+        ("troubleshooting", "activities"),
+        ("assessment", "activities"),
+        ("answer_explanations", "activities"),
+    ):
+        for index, item in enumerate(getattr(draft, section)):
+            data = item.model_dump(mode="json")
+            elements.append((
+                f"{section}[{index}]",
+                data["text"],
+                data.get("evidence", []),
+                stage,
+                data,
+            ))
+    return elements
+
+
+def build_training_provenance(
+    draft: TrainingDraft,
+    stages: list[dict],
+    provider: dict,
+    frames: list[dict],
+    source_video_sha256: str,
+    source_revision: int,
+    approved_procedure_revision: int,
+) -> dict:
+    frame_by_id = {item["id"]: item["timestamp_ms"] for item in frames}
+    elements = []
+    for path, text, evidence_ids, generation_stage, data in _training_elements(draft):
+        elements.append({
+            "path": path,
+            "content_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "element_sha256": draft_digest({"path": path, "data": data}),
+            "source_video_sha256": source_video_sha256,
+            "evidence_ids": evidence_ids,
+            "source_timestamps_ms": [
+                {"evidence_id": ref, "timestamp_ms": frame_by_id[ref]}
+                for ref in evidence_ids
+            ],
+            "approved_procedure_revision": approved_procedure_revision,
+            "provider": provider,
+            "generation_stage": generation_stage,
+            "schema_version": 2,
+            "review_status": "pending_human_review",
+        })
+    return {
+        "schema_version": 2,
+        "source_video_sha256": source_video_sha256,
+        "source_revision": source_revision,
+        "approved_procedure_revision": approved_procedure_revision,
+        "provider": provider,
+        "review_status": "pending_human_review",
+        "stages": stages,
+        "elements": elements,
+    }
+
+
+def validate_training_provenance(
+    provenance: dict,
+    draft: TrainingDraft,
+    provider: dict,
+    frames: list[dict],
+    source_video_sha256: str,
+    approved_procedure_revision: int,
+    *,
+    require_human_approved: bool = False,
+) -> None:
+    expected_status = "human_approved" if require_human_approved else None
+    schema_version = provenance.get("schema_version")
+    source_revision = provenance.get("source_revision")
+    if (type(schema_version) is not int or schema_version not in {1, 2}
+            or provenance.get("source_video_sha256") != source_video_sha256
+            or not isinstance(source_revision, int) or source_revision < 1
+            or provenance.get("approved_procedure_revision") != approved_procedure_revision
+            or provenance.get("provider") != provider
+            or provenance.get("review_status") not in {
+                "pending_human_review", "human_approved",
+            }
+            or (expected_status and provenance.get("review_status") != expected_status)):
+        raise ValueError("training_provenance_identity_mismatch")
+    try:
+        frame_by_id = {item["id"]: item["timestamp_ms"] for item in frames}
+    except (KeyError, TypeError) as exc:
+        raise ValueError("training_provenance_observations_invalid") from exc
+    elements = provenance.get("elements")
+    if not isinstance(elements, list) or len(elements) != len(_training_elements(draft)):
+        raise ValueError("training_provenance_elements_mismatch")
+    by_path = {item.get("path"): item for item in elements if isinstance(item, dict)}
+    if len(by_path) != len(elements):
+        raise ValueError("training_provenance_elements_mismatch")
+    for path, text, evidence_ids, _, data in _training_elements(draft):
+        item = by_path.get(path)
+        expected_timestamps = [
+            {"evidence_id": ref, "timestamp_ms": frame_by_id[ref]}
+            for ref in evidence_ids if ref in frame_by_id
+        ]
+        if (item is None
+                or item.get("content_sha256")
+                != hashlib.sha256(text.encode("utf-8")).hexdigest()
+                or item.get("source_video_sha256") != source_video_sha256
+                or item.get("evidence_ids") != evidence_ids
+                or len(expected_timestamps) != len(evidence_ids)
+                or item.get("source_timestamps_ms") != expected_timestamps
+                or item.get("approved_procedure_revision") != approved_procedure_revision
+                or item.get("provider") != provider
+                or item.get("generation_stage") not in {
+                    "outline", "narration", "activities", "human_edit",
+                }
+                or item.get("schema_version") != schema_version
+                or (schema_version == 2 and item.get("element_sha256")
+                    != draft_digest({"path": path, "data": data}))
+                or item.get("review_status") not in {
+                    "pending_human_review", "human_approved",
+                }
+                or (expected_status and item.get("review_status") != expected_status)):
+            raise ValueError("training_provenance_element_mismatch")
+
+
+def update_training_provenance(
+    provenance: dict,
+    draft: TrainingDraft,
+    provider: dict,
+    frames: list[dict],
+    source_video_sha256: str,
+    approved_procedure_revision: int,
+    editor_id: str,
+) -> dict:
+    previous = {
+        item.get("path"): item
+        for item in provenance.get("elements", [])
+        if isinstance(item, dict)
+    }
+    frame_by_id = {item["id"]: item["timestamp_ms"] for item in frames}
+    elements = []
+    for path, text, evidence_ids, generation_stage, data in _training_elements(draft):
+        content_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        element_sha256 = draft_digest({"path": path, "data": data})
+        old = previous.get(path)
+        if old is not None:
+            item = dict(old)
+            old_element_sha256 = old.get("element_sha256")
+            changed = (
+                old_element_sha256 != element_sha256
+                if old_element_sha256 is not None
+                else (
+                    old.get("content_sha256") != content_sha256
+                    or old.get("evidence_ids") != evidence_ids
+                    or path not in {"title", "audience"}
+                )
+            )
+            if changed:
+                if old.get("content_sha256") != content_sha256:
+                    item["parent_content_sha256"] = old.get("content_sha256")
+                if old_element_sha256 is not None:
+                    item["parent_element_sha256"] = old_element_sha256
+                item["generation_stage"] = "human_edit"
+                item["authorship"] = "human"
+                item["edited_by"] = editor_id
+            item["content_sha256"] = content_sha256
+            item["element_sha256"] = element_sha256
+            item["evidence_ids"] = evidence_ids
+            item["source_timestamps_ms"] = [
+                {"evidence_id": ref, "timestamp_ms": frame_by_id[ref]}
+                for ref in evidence_ids
+            ]
+            item["source_video_sha256"] = source_video_sha256
+            item["approved_procedure_revision"] = approved_procedure_revision
+            item["schema_version"] = 2
+            item["review_status"] = "pending_human_review"
+        else:
+            item = {
+                "path": path,
+                "content_sha256": content_sha256,
+                "element_sha256": element_sha256,
+                "source_video_sha256": source_video_sha256,
+                "evidence_ids": evidence_ids,
+                "source_timestamps_ms": [
+                    {"evidence_id": ref, "timestamp_ms": frame_by_id[ref]}
+                    for ref in evidence_ids
+                ],
+                "approved_procedure_revision": approved_procedure_revision,
+                "provider": provider,
+                "generation_stage": "human_edit",
+                "schema_version": 2,
+                "review_status": "pending_human_review",
+                "authorship": "human",
+                "edited_by": editor_id,
+            }
+        elements.append(item)
+    result = {
+        **provenance,
+        "schema_version": 2,
+        "review_status": "pending_human_review",
+        "elements": elements,
+    }
+    result.pop("human_approved_by", None)
+    result.pop("human_approved_at", None)
+    return result
 
 
 def validate_script_evidence(script: list[dict], approved_steps: list[dict]) -> None:

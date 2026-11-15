@@ -1,5 +1,7 @@
 """Isolated synthetic training smoke with a fake agent and real CPU media tools."""
 
+import argparse
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -8,10 +10,26 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import api, narration as media, narration_jobs
+from app import agents, api, narration as media, narration_jobs
 from app.auth import Actor, get_current_actor
 from app.config import Settings
 from app.core import Base, Job, MediaAsset, Project, ProjectMembership, User
+from app.training import (
+    TrainingDraft,
+    TrainingGeneration,
+    approved_procedure_revision,
+    draft_script,
+    validate_script_evidence,
+    validate_training_draft,
+    validate_training_provenance,
+)
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--real-model", action="store_true",
+    help="Use the configured local Ollama adapter and stop before human approval.",
+)
+args = parser.parse_args()
 
 
 class SyntheticAgent:
@@ -20,16 +38,32 @@ class SyntheticAgent:
         assert evidence["approved_steps"][0]["evidence"] == ["frame-0"]
         claim = {"text": "A blue screen is visible.", "kind": "evidence", "evidence": ["frame-0"]}
         timed = {**claim, "id": "segment-1", "start_ms": 0, "end_ms": 4000}
-        return {
+        draft = TrainingDraft.model_validate({
             "title": "Synthetic training", "audience": "Beginner", "prerequisites": [],
             "learning_objectives": [claim], "chapters": [timed], "script": [timed],
             "annotations": [timed], "technical_explanations": [], "lab_steps": [],
             "validation_checkpoints": [], "troubleshooting": [], "assessment": [],
             "answer_explanations": [],
-        }
+        })
+        return TrainingGeneration(draft=draft, stages=[{
+            "stage": stage, "schema_version": 1,
+            "model_identifier": "test", "model_digest": "a" * 64,
+            "endpoint_sha256": "b" * 64, "ollama_version": "synthetic",
+            "api_route": "/api/chat", "thinking_requested": False,
+            "schema_validation_result": "passed",
+            "evidence_validation_result": "passed",
+        } for stage in ("outline", "procedure", "narration", "activities")])
 
     def provenance(self):
-        return {"provider": "synthetic", "model": "test", "model_digest": "a" * 64}
+        return {
+            "provider": "synthetic", "model": "test", "model_digest": "a" * 64,
+            "endpoint_sha256": "b" * 64,
+        }
+
+
+adapter = agents.get_agent_adapter() if args.real_model else SyntheticAgent()
+if args.real_model and not isinstance(adapter, agents.LocalOllamaAdapter):
+    raise RuntimeError("real_model_smoke_requires_configured_local_ollama")
 
 
 with TemporaryDirectory() as tmp:
@@ -58,8 +92,8 @@ with TemporaryDirectory() as tmp:
     narration_jobs.ARTIFACT_ROOT = root
     api.dispatch_outbox = lambda _id: None
     api.get_settings = lambda: Settings(agents_enabled=True)
-    api.get_agent_adapter = lambda: SyntheticAgent()
-    narration_jobs.get_agent_adapter = lambda: SyntheticAgent()
+    api.get_agent_adapter = lambda: adapter
+    narration_jobs.get_agent_adapter = lambda: adapter
     with sessions() as db:
         db.add(User(id="editor", username="editor", password_hash="unused"))
         db.add(Project(id="project", owner="editor", name="Synthetic"))
@@ -105,9 +139,51 @@ with TemporaryDirectory() as tmp:
         ), 200)
         row = ok(client.post(base + "/training-draft", json={"expected_revision": row["revision"]}), 202)
         with sessions() as db:
-            narration_jobs.execute(db, db.get(Job, row["job_id"]), lambda: None)
+            job = db.get(Job, row["job_id"])
+            try:
+                narration_jobs.execute(db, job, lambda: None)
+            except media.NarrationError as exc:
+                failed = ok(client.get(base), 200)
+                print(json.dumps({
+                    "status": "FAIL",
+                    "error": str(exc),
+                    "stages": failed["analysis"].get(
+                        "training_generation_diagnostics", {}
+                    ).get("stages", []),
+                }, sort_keys=True))
+                if args.real_model:
+                    raise SystemExit(1) from exc
+                raise
         row = ok(client.get(base), 200)
         assert row["stage"] == "awaiting_script_approval"
+        if args.real_model:
+            procedure = row["analysis"]["procedure"]
+            module = row["analysis"]["training_module"]
+            accepted = [item for item in procedure["steps"] if item["decision"] == "accepted"]
+            allowed = {ref for item in accepted for ref in item["evidence"]}
+            duration_ms = round(float(row["analysis"]["media"]["format"]["duration"]) * 1000)
+            draft = validate_training_draft(
+                module["draft"], allowed, duration_ms, accepted,
+            )
+            script = media.validate_script(draft_script(draft), duration_ms)
+            validate_script_evidence(script, accepted)
+            validate_training_provenance(
+                module["provenance"], draft, module["provider"],
+                row["analysis"]["scenes"], row["source_sha256"],
+                approved_procedure_revision(procedure),
+            )
+            assert module["provenance"]["review_status"] == "pending_human_review"
+            print(json.dumps({
+                "status": "PASS",
+                "adapter": "OJU LocalOllamaAdapter",
+                "api_worker_path": "API request -> persisted job -> worker execute",
+                "script_evidence_validation": "passed",
+                "review_status": module["provenance"]["review_status"],
+                "provider": module["provider"],
+                "stages": module["provenance"]["stages"],
+                "draft": draft.model_dump(),
+            }, sort_keys=True))
+            raise SystemExit(0)
         row = ok(client.post(base + "/approval", json={
             "expected_revision": row["revision"], "decision": "approved",
         }), 200)

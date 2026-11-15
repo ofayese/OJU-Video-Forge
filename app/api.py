@@ -90,12 +90,15 @@ from .rendering import RenderEngine, RenderError, parse_timeline
 from . import narration as narration_media
 from .training import (
     TrainingDraft,
+    approved_procedure_revision,
+    update_training_provenance,
     draft_digest,
     draft_matches_script,
     draft_script,
     validate_procedure,
     validate_script_evidence,
     validate_training_draft,
+    validate_training_provenance,
 )
 
 logger = logging.getLogger(__name__)
@@ -2025,7 +2028,10 @@ def reopen_training_procedure(
         raise HTTPException(409, "Procedure cannot be reopened at this revision")
     procedure = row.analysis["procedure"]
     row.analysis = {
-        **{key: value for key, value in row.analysis.items() if key != "training_module"},
+        **{
+            key: value for key, value in row.analysis.items()
+            if key not in {"training_module", "training_generation_diagnostics"}
+        },
         "procedure": {
             "contract_version": procedure["contract_version"], "status": "pending",
             "evidence_version": procedure["evidence_version"],
@@ -2063,6 +2069,17 @@ def edit_training_draft(
     except ValueError as exc:
         raise HTTPException(422, "Invalid training draft, evidence, or timing") from exc
     module = {**row.analysis["training_module"], "draft": draft.model_dump()}
+    if module.get("provenance"):
+        procedure = row.analysis["procedure"]
+        module["provenance"] = update_training_provenance(
+            module["provenance"],
+            draft,
+            module["provider"],
+            row.analysis["scenes"],
+            row.source_sha256,
+            approved_procedure_revision(procedure),
+            actor.user_id,
+        )
     module.pop("approved_sha256", None)
     row.analysis = {**row.analysis, "training_module": module}
     row.revision += 1
@@ -2113,6 +2130,16 @@ def edit_narration(
         raise HTTPException(422, "Invalid script timing, text, or evidence references") from exc
     if row.options.get("workflow") == "silent_training":
         updated_module = {**module, "draft": draft.model_dump()}
+        if module.get("provenance"):
+            updated_module["provenance"] = update_training_provenance(
+                module["provenance"],
+                draft,
+                module["provider"],
+                row.analysis["scenes"],
+                row.source_sha256,
+                approved_procedure_revision(row.analysis["procedure"]),
+                actor.user_id,
+            )
         updated_module.pop("approved_sha256", None)
         row.analysis = {**row.analysis, "training_module": updated_module}
     row.revision += 1
@@ -2154,10 +2181,32 @@ def approve_narration(
                 validate_script_evidence(revision.script, steps)
                 if not draft_matches_script(draft, revision.script):
                     raise ValueError("draft_script_mismatch")
+                if module.get("contract_version") == 2:
+                    validate_training_provenance(
+                        module["provenance"],
+                        draft,
+                        module["provider"],
+                        row.analysis["scenes"],
+                        row.source_sha256,
+                        approved_procedure_revision(procedure),
+                    )
             except ValueError as exc:
                 raise HTTPException(422, "Training draft and script must match approved evidence") from exc
+            provenance = module.get("provenance")
+            if module.get("contract_version") == 2:
+                provenance = {
+                    **provenance,
+                    "review_status": "human_approved",
+                    "human_approved_by": actor.user_id,
+                    "human_approved_at": datetime.now(timezone.utc).isoformat(),
+                    "elements": [
+                        {**item, "review_status": "human_approved"}
+                        for item in provenance["elements"]
+                    ],
+                }
             row.analysis = {**row.analysis, "training_module": {
-                **module, "approved_sha256": draft_digest(draft.model_dump()),
+                **module, "provenance": provenance,
+                "approved_sha256": draft_digest(draft.model_dump()),
             }}
         revision.approved_by = actor.user_id
         revision.approved_at = datetime.now(timezone.utc)
@@ -2222,10 +2271,15 @@ def retry_narration(
     previous = db.get(Job, row.job_id)
     if row.stage != "failed" or previous.status != "failed" or previous.spec["attempt"] >= 2:
         raise HTTPException(409, "Only failed eligible narration operations can be retried twice")
-    job = _new_narration_job(db, actor, row, previous.spec["phase"], previous.spec["attempt"] + 1)
-    if previous.spec["phase"] == "voice_preview":
+    phase = previous.spec["phase"]
+    if phase == "training_draft":
+        analysis = dict(row.analysis or {})
+        analysis.pop("training_generation_diagnostics", None)
+        row.analysis = analysis
+    job = _new_narration_job(db, actor, row, phase, previous.spec["attempt"] + 1)
+    if phase == "voice_preview":
         job.spec = {**job.spec, "return_stage": previous.spec["return_stage"]}
-    elif previous.spec["phase"] == "training_draft":
+    elif phase == "training_draft":
         job.spec = {**job.spec, "training": previous.spec["training"]}
     db.commit()
     dispatch_outbox(job.id)

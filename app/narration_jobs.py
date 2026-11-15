@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from . import narration as media
 from .agents import AgentUnavailable, get_agent_adapter
@@ -26,14 +26,54 @@ from .core import (
 )
 from .private_storage import private_file, write_private_file
 from .training import (
+    approved_procedure_revision,
     draft_digest,
     draft_matches_script,
     draft_script,
+    build_training_provenance,
     training_markdown,
     validate_procedure,
     validate_script_evidence,
     validate_training_draft,
+    validate_training_observations,
+    validate_training_provenance,
 )
+
+
+def _validate_generation_stage_provenance(
+    stages: list[dict], provider: dict, step_count: int
+) -> None:
+    if (not isinstance(stages, list) or not stages
+            or any(not isinstance(item, dict) for item in stages)
+            or not isinstance(provider, dict)
+            or not isinstance(provider.get("model"), str)
+            or not provider["model"]
+            or not isinstance(provider.get("model_digest"), str)
+            or len(provider["model_digest"]) != 64
+            or any(char not in "0123456789abcdef" for char in provider["model_digest"])):
+        raise ValueError("training_generation_stage_provenance_invalid")
+    expected = ["outline"]
+    for _ in range((step_count + 3) // 4):
+        expected.extend(("procedure", "narration"))
+    expected.append("activities")
+    if [item.get("stage") for item in stages] != expected:
+        raise ValueError("training_generation_stages_incomplete")
+
+    for item in stages:
+        if (
+            item.get("schema_version") != 1
+            or item.get("model_identifier") != provider.get("model")
+            or item.get("model_digest") != provider.get("model_digest")
+            or (provider.get("endpoint_sha256")
+                and item.get("endpoint_sha256") != provider["endpoint_sha256"])
+            or item.get("api_route") != "/api/chat"
+            or not isinstance(item.get("ollama_version"), str)
+            or not item["ollama_version"]
+            or item.get("thinking_requested") is not False
+            or item.get("schema_validation_result") != "passed"
+            or item.get("evidence_validation_result") != "passed"
+        ):
+            raise ValueError("training_generation_stage_provenance_invalid")
 
 
 def stage(db, row, name, check):
@@ -225,6 +265,15 @@ def execute(db, job, check):
             )
             accepted = [item for item in steps if item["decision"] == "accepted"]
             allowed = {evidence for item in accepted for evidence in item["evidence"]}
+            try:
+                approved_revision = approved_procedure_revision(procedure)
+                validate_training_observations(
+                    accepted,
+                    [frame for frame in row.analysis["scenes"] if frame["id"] in allowed],
+                    duration,
+                )
+            except ValueError as exc:
+                raise media.NarrationError("approved_training_evidence_invalid") from exc
             evidence = {
                 "contract_version": 1, "source_sha256": row.source_sha256,
                 "duration_ms": duration, "approved_steps": accepted,
@@ -238,28 +287,98 @@ def execute(db, job, check):
             stage(db, row, "drafting_script", check)
             try:
                 adapter = get_agent_adapter()
+                source_revision = row.revision
+                source_sha256 = row.source_sha256
+                procedure_identity = draft_digest({
+                    "evidence_version": procedure["evidence_version"],
+                    "approved_procedure_revision": approved_revision,
+                    "approved_steps": accepted,
+                })
+                generation = adapter.generate_training(evidence, check)
                 draft = validate_training_draft(
-                    adapter.generate_training(evidence, check), allowed, duration, accepted
+                    generation.draft.model_dump(), allowed, duration, accepted
                 )
                 script = media.validate_script(draft_script(draft), duration)
+                validate_script_evidence(script, accepted)
+                provider = adapter.provenance()
+                _validate_generation_stage_provenance(
+                    generation.stages, provider, len(accepted)
+                )
+                provenance = build_training_provenance(
+                    draft,
+                    generation.stages,
+                    provider,
+                    evidence["frames"],
+                    source_sha256,
+                    source_revision,
+                    approved_revision,
+                )
+                check()
+                db.refresh(row)
+                current_procedure = row.analysis.get("procedure", {})
+                current_steps = [
+                    item for item in current_procedure.get("steps", [])
+                    if item.get("decision") == "accepted"
+                ]
+                current_identity = draft_digest({
+                    "evidence_version": current_procedure.get("evidence_version"),
+                    "approved_procedure_revision": (
+                        approved_procedure_revision(current_procedure)
+                        if current_procedure.get("status") == "approved" else None
+                    ),
+                    "approved_steps": current_steps,
+                })
+                if (row.revision != source_revision or row.source_sha256 != source_sha256
+                        or current_identity != procedure_identity):
+                    raise media.NarrationError("training_generation_source_stale")
             except AgentUnavailable as exc:
+                if exc.diagnostics:
+                    db.refresh(row)
+                    if (row.revision == job.spec["revision"]
+                            and row.source_sha256 == evidence["source_sha256"]):
+                        row.analysis = {
+                            **row.analysis,
+                            "training_generation_diagnostics": {
+                                "schema_version": 1, "stages": exc.diagnostics,
+                            },
+                        }
+                        db.commit()
                 raise media.NarrationError(str(exc)) from exc
             except ValueError as exc:
                 raise media.NarrationError("invalid_training_model_output") from exc
-            row.analysis = {
+            except KeyError as exc:
+                raise media.NarrationError("training_generation_source_stale") from exc
+            new_analysis = {
                 **row.analysis,
+                "training_generation_diagnostics": None,
                 "training_module": {
-                    "contract_version": 1, "draft": draft.model_dump(),
-                    "provider": adapter.provenance(),
+                    "contract_version": 2,
+                    "schema_version": 1,
+                    "draft": draft.model_dump(),
+                    "provider": provider,
+                    "provenance": provenance,
                 },
             }
-            row.revision += 1
-            row.approved_revision = None
+            new_analysis.pop("training_generation_diagnostics", None)
+            result = db.execute(update(Narration).where(
+                Narration.id == row.id,
+                Narration.revision == source_revision,
+                Narration.source_sha256 == source_sha256,
+            ).values(
+                analysis=new_analysis,
+                revision=source_revision + 1,
+                approved_revision=None,
+                stage="awaiting_script_approval",
+                error=None,
+            ).execution_options(synchronize_session=False))
+            if result.rowcount != 1:
+                db.rollback()
+                raise media.NarrationError("training_generation_source_stale")
+            db.refresh(row)
             db.add(NarrationRevision(
                 id=str(uuid.uuid4()), narration_id=row.id, revision=row.revision,
                 editor_id=job.owner_principal_id, script=script,
             ))
-            row.stage = "awaiting_script_approval"
             db.commit()
             return None
 
@@ -306,6 +425,16 @@ def execute(db, job, check):
                 if (module.get("approved_sha256") != draft_digest(draft.model_dump())
                         or not draft_matches_script(draft, script)):
                     raise ValueError("training_draft_approval_changed")
+                if module.get("contract_version") == 2:
+                    validate_training_provenance(
+                        module["provenance"],
+                        draft,
+                        module["provider"],
+                        row.analysis["scenes"],
+                        row.source_sha256,
+                        approved_procedure_revision(procedure),
+                        require_human_approved=True,
+                    )
             except ValueError as exc:
                 raise media.NarrationError("training_approval_or_evidence_invalid") from exc
         audio = None

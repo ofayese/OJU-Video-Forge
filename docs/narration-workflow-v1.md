@@ -13,6 +13,30 @@ not model-calculated probabilities. Missing evidence cannot be accepted. Each
 review snapshot retains its evidence version, reviewer, timestamp, comment and
 decisions, with a limit of 20 reviews per analysis.
 
+Training generation uses bounded outline, evidence-mapping, narration, and activity
+selection stages. The application assembles the final `TrainingDraft`
+deterministically from the validated stage results and approved procedure; the
+model cannot add evidence IDs or timestamps. Per-stage diagnostics retain model
+and endpoint identity hashes, schema version, completion reason, token counts,
+response length, duration, and bounded memory readings without logging prompt or
+source text. Generated content remains pending human review. Model-backed
+generation and API/worker acceptance are not established until the opt-in local
+model integration gate passes.
+
+The installed `qwen3-vl:4b` has not passed that gate. Ollama 0.40.16 reports
+`thinking.values=[false,true]` with `default=true`, but the bounded request with
+`think:false` still emitted thinking tokens. The API/worker smoke stopped in
+Stage A with `done_reason=length`, 768 generated tokens and no response content;
+later stages and a final `TrainingDraft` were not produced. Do not raise token
+limits or treat this run as accepted. Any replacement model download requires
+owner approval.
+
+Training provenance schema v2 fingerprints each element's serialized fields,
+including segment timing, evidence identifiers and claim kind, so an edit to
+those fields is recorded as a human edit rather than retaining model attribution.
+Schema v1 records remain readable; editing one upgrades it to v2 and conservatively
+marks un-fingerprinted list elements as human-edited.
+
 The current implementation samples up to 12 frames, marks large sampled visual
 changes, and removes near-identical samples using mean grayscale difference.
 It can miss brief transitions and does not establish clicks, hidden input, or
@@ -206,6 +230,14 @@ worker cannot select or supply OCR models. Hugging Face offline mode and
 Docling's remote-service option are disabled. The earlier synthetic OCR
 acceptance used Tesseract before this replacement and is historical evidence;
 it does not validate the Docling service or its RapidOCR inference.
+
+The patched candidate `sha256:23defece97363c712406628e7875d084b8e038e3aeb40b2a339cf91478339e35`
+passed an unsuppressed HIGH/CRITICAL scan and its baked package pins and
+offline OCR model hashes matched. Its isolated synthetic OCR request returned
+no recognized text while the resource-capped container approached its memory
+limit, so it has not passed functional acceptance and was not cut over. The
+active Docling image remains
+`sha256:bdcf8993ac29dbfb74d7c02f677a6f8dd1e08492469852c9262438028277c19c`.
 The current service smoke is `scripts/smoke_docling_ocr.py`; unlike the
 historical Tesseract runtime smoke, it requires the private Docling network but
 does not require or download the Whisper model.

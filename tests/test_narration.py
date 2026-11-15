@@ -109,6 +109,42 @@ def test_submission_is_durable_idempotent_source_scoped_and_never_wan(context):
     assert missing.status_code == 404
 
 
+def test_training_retry_clears_diagnostics_from_the_previous_attempt(context):
+    client, sessions, _ = context
+    narration_id = start(client)
+    with sessions() as db:
+        row = db.get(Narration, narration_id)
+        row.stage = "failed"
+        row.error = "agent_generation_incomplete"
+        row.analysis = {
+            "training_generation_diagnostics": {
+                "schema_version": 1,
+                "stages": [{"stage": "outline", "model_identifier": "old-attempt"}],
+            },
+        }
+        previous = db.get(Job, row.job_id)
+        previous.status = "failed"
+        previous.spec = {
+            **previous.spec,
+            "phase": "training_draft",
+            "attempt": 0,
+            "training": {"source_revision": row.revision},
+        }
+        db.commit()
+
+    response = client.post(
+        f"/v1/projects/project/narrations/{narration_id}/retry",
+    )
+    assert response.status_code == 202
+    assert "training_generation_diagnostics" not in response.json()["analysis"]
+    with sessions() as db:
+        row = db.get(Narration, narration_id)
+        assert "training_generation_diagnostics" not in row.analysis
+        retry = db.get(Job, row.job_id)
+        assert retry.spec["phase"] == "training_draft"
+        assert retry.spec["attempt"] == 1
+
+
 def test_approval_is_revision_bound_and_edits_invalidate_it(context):
     client, sessions, _ = context
     narration_id = start(client)
@@ -432,16 +468,36 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
         def generate_training(self, evidence, check):
             check()
             assert evidence["approved_steps"][0]["description"] == "The menu is visible."
-            return {
+            from app.training import TrainingDraft, TrainingGeneration
+
+            draft = TrainingDraft.model_validate({
                 "title": "Synthetic module", "audience": "Beginner", "prerequisites": [],
                 "learning_objectives": [claim], "chapters": [timed], "script": [timed],
                 "annotations": [], "technical_explanations": [], "lab_steps": [],
                 "validation_checkpoints": [], "troubleshooting": [], "assessment": [],
                 "answer_explanations": [],
-            }
+            })
+            return TrainingGeneration(
+                draft=draft,
+                stages=[{
+                    "stage": stage,
+                    "schema_version": 1,
+                    "model_identifier": "test",
+                    "model_digest": "a" * 64,
+                    "endpoint_sha256": "b" * 64,
+                    "ollama_version": "synthetic",
+                    "api_route": "/api/chat",
+                    "thinking_requested": False,
+                    "schema_validation_result": "passed",
+                    "evidence_validation_result": "passed",
+                } for stage in ("outline", "procedure", "narration", "activities")],
+            )
 
         def provenance(self):
-            return {"provider": "synthetic", "model": "test", "model_digest": "a" * 64}
+            return {
+                "provider": "synthetic", "model": "test",
+                "model_digest": "a" * 64, "endpoint_sha256": "b" * 64,
+            }
 
     monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=True))
     monkeypatch.setattr(api, "get_agent_adapter", lambda: SyntheticAdapter())
@@ -454,6 +510,14 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
     assert drafted["stage"] == "awaiting_script_approval"
     assert drafted["script"][0]["text"] == "The menu is visible."
     assert drafted["analysis"]["training_module"]["provider"]["provider"] == "synthetic"
+    provenance = drafted["analysis"]["training_module"]["provenance"]
+    assert provenance["review_status"] == "pending_human_review"
+    assert provenance["source_video_sha256"] == source_hash
+    assert provenance["approved_procedure_revision"] == 2
+    script_provenance = next(item for item in provenance["elements"] if item["path"] == "script[0]")
+    assert script_provenance["evidence_ids"] == ["frame-0"]
+    assert script_provenance["source_timestamps_ms"] == [{"evidence_id": "frame-0", "timestamp_ms": 0}]
+    assert script_provenance["review_status"] == "pending_human_review"
     altered_script = [{**drafted["script"][0], "start_ms": 45000, "end_ms": 90000}]
     assert client.put(f"{base}/script", json={
         "expected_revision": 3, "segments": altered_script,
@@ -479,6 +543,10 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
     assert edited.status_code == 200
     assert edited.json()["revision"] == 4
     assert edited.json()["analysis"]["training_module"]["draft"]["title"] == "Reviewed synthetic module"
+    edited_provenance = edited.json()["analysis"]["training_module"]["provenance"]
+    title_provenance = next(item for item in edited_provenance["elements"] if item["path"] == "title")
+    assert title_provenance["generation_stage"] == "human_edit"
+    assert edited_provenance["review_status"] == "pending_human_review"
     assert client.post(f"{base}/approval", json={
         "expected_revision": 3, "decision": "approved",
     }).status_code == 409
@@ -488,6 +556,9 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
     assert client.post(f"{base}/approval", json={
         "expected_revision": 4, "decision": "approved",
     }).status_code == 200
+    approved = client.get(base).json()["analysis"]["training_module"]["provenance"]
+    assert approved["review_status"] == "human_approved"
+    assert all(item["review_status"] == "human_approved" for item in approved["elements"])
     api.app.dependency_overrides[get_current_actor] = lambda: Actor(
         name="editor", user_id="editor", roles=["viewer"])
     assert client.post(f"{base}/render", json={
@@ -507,6 +578,34 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
     api.app.dependency_overrides[get_current_actor] = lambda: Actor(
         name="editor", user_id="editor", roles=["viewer"])
     assert client.post(f"{base}/render", json={"expected_revision": 3}).status_code == 409
+
+
+def test_generation_stage_provenance_rejects_missing_or_mismatched_stages():
+    provider = {
+        "provider": "ollama", "model": "qwen3-vl:4b",
+        "model_digest": "a" * 64, "endpoint_sha256": "b" * 64,
+    }
+    stages = [{
+        "stage": stage, "schema_version": 1,
+        "model_identifier": provider["model"],
+        "model_digest": provider["model_digest"],
+        "endpoint_sha256": provider["endpoint_sha256"],
+        "ollama_version": "0.40.16", "api_route": "/api/chat",
+        "thinking_requested": False,
+        "schema_validation_result": "passed",
+        "evidence_validation_result": "passed",
+    } for stage in ("outline", "procedure", "narration", "activities")]
+    narration_jobs._validate_generation_stage_provenance(stages, provider, 1)
+
+    with pytest.raises(ValueError, match="stages_incomplete"):
+        narration_jobs._validate_generation_stage_provenance(stages[:-1], provider, 1)
+    with pytest.raises(ValueError, match="stage_provenance_invalid"):
+        narration_jobs._validate_generation_stage_provenance(
+            [{**stage, "model_digest": "c" * 64} if index == 1 else stage
+             for index, stage in enumerate(stages)],
+            provider,
+            1,
+        )
 
 
 def test_training_render_rechecks_procedure_approver_membership(context, monkeypatch, tmp_path):
