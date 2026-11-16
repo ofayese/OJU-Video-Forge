@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -66,6 +66,10 @@ def agent_api(tmp_path, monkeypatch):
         with test_sessions() as db:
             yield db
 
+    def _noop_lease(*_args, **_kwargs):
+        from contextlib import nullcontext
+        return nullcontext(object())
+
     def dispatch_job(job_id):
         enqueued.append(job_id)
         with test_sessions() as db:
@@ -84,6 +88,7 @@ def agent_api(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=True))
     monkeypatch.setattr(api, "get_agent_adapter", lambda: adapter)
     monkeypatch.setattr(api, "dispatch_outbox", dispatch_job)
+    monkeypatch.setattr(api, "heavy_inference_lease", _noop_lease)
     api.app.dependency_overrides[api.db_session] = session_override
     api.app.dependency_overrides[auth.get_current_actor] = lambda: state["actor"]
     with TestClient(api.app) as client:

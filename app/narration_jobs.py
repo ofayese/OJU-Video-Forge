@@ -13,7 +13,8 @@ import httpx
 from sqlalchemy import select, update
 
 from . import narration as media
-from .agents import AgentUnavailable, get_agent_adapter
+from .adapters import get_training_text_adapter, training_text_status
+from .agents import AgentUnavailable
 from .core import (
     ARTIFACT_ROOT,
     Audit,
@@ -24,13 +25,17 @@ from .core import (
     User,
     WorkflowArtifact,
 )
+from .inference_coordination import (
+    InferenceCoordinationError,
+    heavy_inference_lease,
+)
 from .private_storage import private_file, write_private_file
 from .training import (
     approved_procedure_revision,
+    build_training_provenance,
     draft_digest,
     draft_matches_script,
     draft_script,
-    build_training_provenance,
     training_markdown,
     validate_procedure,
     validate_script_evidence,
@@ -74,6 +79,14 @@ def _validate_generation_stage_provenance(
             or item.get("evidence_validation_result") != "passed"
         ):
             raise ValueError("training_generation_stage_provenance_invalid")
+
+
+
+def heavy_inference_context(purpose, check, *, wait_seconds=30, ttl_seconds=300):
+    """Authoritative admission boundary for OJU heavy inference/model transitions."""
+    return heavy_inference_lease(
+        purpose, check, wait_seconds=wait_seconds, ttl_seconds=ttl_seconds
+    )
 
 
 def stage(db, row, name, check):
@@ -135,7 +148,13 @@ def execute(db, job, check):
             stage(db, row, "analyzing_scenes", check)
             scene_error = None
             try:
-                observations = media.scenes(source, directory, metadata, options, check)
+                if options.vision:
+                    with heavy_inference_context("vision:scene_analysis", check):
+                        observations = media.scenes(source, directory, metadata, options, check)
+                else:
+                    observations = media.scenes(source, directory, metadata, options, check)
+            except InferenceCoordinationError as exc:
+                raise media.NarrationError(str(exc)) from exc
             except (media.NarrationError, httpx.HTTPError, json.JSONDecodeError) as exc:
                 observations = []
                 scene_error = (
@@ -286,7 +305,7 @@ def execute(db, job, check):
             }
             stage(db, row, "drafting_script", check)
             try:
-                adapter = get_agent_adapter()
+                adapter = get_training_text_adapter()
                 source_revision = row.revision
                 source_sha256 = row.source_sha256
                 procedure_identity = draft_digest({
@@ -294,7 +313,11 @@ def execute(db, job, check):
                     "approved_procedure_revision": approved_revision,
                     "approved_steps": accepted,
                 })
-                generation = adapter.generate_training(evidence, check)
+                try:
+                    with heavy_inference_context("training_text:draft", check):
+                        generation = adapter.generate_training(evidence, check)
+                except InferenceCoordinationError as exc:
+                    raise media.NarrationError(str(exc)) from exc
                 draft = validate_training_draft(
                     generation.draft.model_dump(), allowed, duration, accepted
                 )
@@ -525,5 +548,6 @@ def capabilities():
             and vision_model
             and re.fullmatch(r"[0-9a-f]{64}", vision_digest.strip().lower())
         ),
+        "training_text": training_text_status(),
         "tts_available_in_this_process": bool(shutil.which("espeak-ng")),
     }

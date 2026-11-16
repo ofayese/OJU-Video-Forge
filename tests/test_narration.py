@@ -1,5 +1,7 @@
+import contextlib
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -45,6 +47,12 @@ def context(monkeypatch):
         with sessions() as db:
             yield db
 
+    # Direct narration_jobs.execute calls in tests bypass worker coordination;
+    # keep them isolated unless a test explicitly exercises coordination.
+    monkeypatch.setattr(
+        narration_jobs, "heavy_inference_context",
+        lambda *a, **k: contextlib.nullcontext(),
+    )
     api.app.dependency_overrides[api.db_session] = database
     api.app.dependency_overrides[get_current_actor] = lambda: Actor(
         name="editor", user_id="editor", roles=["viewer"])
@@ -408,13 +416,22 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
 
     base = f"/v1/projects/project/narrations/{narration_id}"
     result = client.get(base).json()
+    from app import adapters as _adapters
     monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=False))
+    monkeypatch.setattr(narration_jobs, "get_settings", lambda: Settings(agents_enabled=False), raising=False)
+    monkeypatch.setattr(_adapters, "get_settings", lambda: Settings(agents_enabled=False))
     assert client.get(f"{base}/training-agent").json()["status"] == "disabled"
     monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=True))
-    monkeypatch.setattr(api, "get_agent_adapter", lambda: (
-        _ for _ in ()
-    ).throw(api.AgentUnavailable("agent_provider_unconfigured")))
-    assert client.get(f"{base}/training-agent").json()["status"] == "unconfigured"
+    monkeypatch.setattr(_adapters, "get_settings", lambda: Settings(
+        agents_enabled=True,
+        training_text_provider="",
+        training_text_url="",
+        training_text_model="",
+        training_text_model_digest="",
+    ))
+    status = client.get(f"{base}/training-agent").json()
+    assert status["status"] == "unconfigured"
+    assert status.get("reason") == "training_text_unconfigured"
     assert result["stage"] == "awaiting_procedure_review"
     assert result["script"] == []
     screenshot_id = result["analysis"]["scenes"][0]["artifact_id"]
@@ -499,9 +516,25 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
                 "model_digest": "a" * 64, "endpoint_sha256": "b" * 64,
             }
 
-    monkeypatch.setattr(api, "get_settings", lambda: Settings(agents_enabled=True))
-    monkeypatch.setattr(api, "get_agent_adapter", lambda: SyntheticAdapter())
-    monkeypatch.setattr(narration_jobs, "get_agent_adapter", lambda: SyntheticAdapter())
+    monkeypatch.setattr(api, "get_settings", lambda: Settings(
+        agents_enabled=True,
+        training_text_provider="ollama",
+        training_text_url="http://ollama:11434",
+        training_text_model="synthetic",
+        training_text_model_digest="a" * 64,
+    ))
+    monkeypatch.setattr(_adapters, "get_settings", lambda: Settings(
+        agents_enabled=True,
+        training_text_provider="ollama",
+        training_text_url="http://ollama:11434",
+        training_text_model="synthetic",
+        training_text_model_digest="a" * 64,
+    ))
+    monkeypatch.setattr(_adapters, "get_training_text_adapter", lambda: SyntheticAdapter())
+    monkeypatch.setattr(narration_jobs, "get_training_text_adapter", lambda: SyntheticAdapter())
+    assert client.get(f"{base}/training-agent").json()["status"] in {
+        "configured", "ready", "degraded", "unchecked", "unverified"
+    }
     queued = client.post(f"{base}/training-draft", json={"expected_revision": 2})
     assert queued.status_code == 202
     with sessions() as db:
@@ -1125,10 +1158,22 @@ def test_silent_training_deduplicates_similar_samples_before_ocr(monkeypatch, tm
     assert len(calls) == 2
 
 
-@pytest.mark.parametrize("kind", ["cfr", "vfr", "offset"])
-def test_scenes_timestamp_matches_decoded_source_pts(tmp_path, kind):
+def _test_h264_encoder():
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         pytest.skip("FFmpeg/FFprobe are required for source-PTS acceptance")
+    encoders = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-encoders"],
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    ).stdout
+    for candidate in ("libx264", "libopenh264", "h264_mf", "h264_nvenc", "h264_qsv", "h264_amf"):
+        if re.search(rf"^\s*V\S*\s+{re.escape(candidate)}\b", encoders, re.MULTILINE):
+            return candidate
+    pytest.skip("No compatible H.264 encoder available for scene timestamp fixtures")
+
+
+@pytest.mark.parametrize("kind", ["cfr", "vfr", "offset"])
+def test_scenes_timestamp_matches_decoded_source_pts(tmp_path, kind):
+    encoder = _test_h264_encoder()
 
     source = tmp_path / f"{kind}.mp4"
     command = [
@@ -1142,9 +1187,13 @@ def test_scenes_timestamp_matches_decoded_source_pts(tmp_path, kind):
         ])
     elif kind == "offset":
         command.extend(["-vf", "setpts=PTS+2/TB"])
+    command.extend(["-c:v", encoder])
+    if encoder == "libx264":
+        command.extend(["-preset", "ultrafast"])
+    elif encoder == "libopenh264":
+        command.extend(["-b:v", "2M"])
     command.extend([
-        "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
-        "-g", "10", "-pix_fmt", "yuv420p", str(source),
+        "-threads", "1", "-g", "10", "-pix_fmt", "yuv420p", str(source),
     ])
     subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -1177,26 +1226,35 @@ def test_scenes_timestamp_matches_decoded_source_pts(tmp_path, kind):
 
 
 def test_scenes_detects_real_transition_and_removes_duplicate_frame(tmp_path):
-    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-        pytest.skip("FFmpeg/FFprobe are required for scene acceptance")
+    encoder = _test_h264_encoder()
 
     transition = tmp_path / "transition.mp4"
-    subprocess.run([
+    transition_cmd = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "color=c=black:s=160x90:r=5:d=6",
         "-f", "lavfi", "-i", "color=c=white:s=160x90:r=5:d=6",
         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0,setpts=PTS-STARTPTS[v]",
-        "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
-        "-g", "5", "-pix_fmt", "yuv420p", str(transition),
-    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        "-map", "[v]", "-c:v", encoder,
+    ]
+    if encoder == "libx264":
+        transition_cmd.extend(["-preset", "ultrafast"])
+    elif encoder == "libopenh264":
+        transition_cmd.extend(["-b:v", "2M"])
+    transition_cmd.extend(["-threads", "1", "-g", "5", "-pix_fmt", "yuv420p", str(transition)])
+    subprocess.run(transition_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     duplicate = tmp_path / "duplicate.mp4"
-    subprocess.run([
+    duplicate_cmd = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "color=c=black:s=160x90:r=5:d=12",
-        "-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
-        "-g", "5", "-pix_fmt", "yuv420p", str(duplicate),
-    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        "-c:v", encoder,
+    ]
+    if encoder == "libx264":
+        duplicate_cmd.extend(["-preset", "ultrafast"])
+    elif encoder == "libopenh264":
+        duplicate_cmd.extend(["-b:v", "2M"])
+    duplicate_cmd.extend(["-threads", "1", "-g", "5", "-pix_fmt", "yuv420p", str(duplicate)])
+    subprocess.run(duplicate_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def check():
         return None

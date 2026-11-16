@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from redis import Redis
 from rq import Queue, Worker
 from sqlalchemy import select, update
 
+from . import narration_jobs
 from .audio_workflows import (
     MAX_AUDIO_BYTES,
     WORKFLOW_VERSION,
@@ -32,22 +33,21 @@ from .comfyui import ComfyUIAdapter, WorkflowRegistry
 from .config import get_settings
 from .core import (
     ARTIFACT_ROOT,
+    REDIS_URL,
     AudioAsset,
     Job,
+    MediaAsset,
     Project,
     ProjectMembership,
-    MediaAsset,
-    User,
-    REDIS_URL,
     SessionLocal,
+    User,
     WorkflowArtifact,
     recover_jobs,
     transition,
 )
 from .private_storage import private_file, write_private_file
-from .review import generated_checksum
 from .rendering import RenderEngine
-from . import narration_jobs
+from .review import generated_checksum
 
 WORKFLOW = Path("/workflows/wan22-t2v-api.json")
 GPU_LOCK_NAME = "oju-video-forge:comfyui:generation"
@@ -547,7 +547,7 @@ def execute(job_id: str):
                         with SessionLocal() as heartbeat_db:
                             heartbeat_db.execute(update(Job).where(
                                 Job.id == job_id, Job.status == "running",
-                            ).values(updated_at=datetime.now(timezone.utc)))
+                            ).values(updated_at=datetime.now(UTC)))
                             heartbeat_db.commit()
                         last_heartbeat = now
                     return _cancel_requested(job_id)
@@ -593,17 +593,21 @@ def execute(job_id: str):
                     if _cancel_requested(job.id):
                         raise JobCancelled()
 
-                redis_client = Redis.from_url(REDIS_URL)
-                lock = redis_client.lock("oju-video-forge:narration:cpu", timeout=3900, blocking_timeout=5)
                 try:
-                    if not lock.acquire(blocking=True):
-                        raise narration_jobs.media.NarrationError("narration_capacity_busy; retry later")
-                    try:
+                    with narration_jobs.heavy_inference_context(
+                        f"narration:{job.spec.get('phase', 'unknown')}",
+                        check_narration,
+                        wait_seconds=5,
+                        ttl_seconds=3900,
+                    ):
                         result = narration_jobs.execute(db, job, check_narration)
-                    finally:
-                        lock.release()
-                finally:
-                    redis_client.close()
+                except narration_jobs.InferenceCoordinationError as exc:
+                    reason = str(exc)
+                    if "lease_unavailable" in reason:
+                        raise narration_jobs.media.NarrationError(
+                            "narration_capacity_busy; retry later"
+                        ) from exc
+                    raise narration_jobs.media.NarrationError(reason) from exc
                 if result:
                     artifact_id, artifact, output_hash = result
                     _finish_or_cancel(db, job, "awaiting_review", artifact=artifact,

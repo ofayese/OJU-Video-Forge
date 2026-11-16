@@ -26,6 +26,14 @@ x-app-env: &app-env
   AGENT_STAGE_TIMEOUT_SECONDS: ${AGENT_STAGE_TIMEOUT_SECONDS:-60}
   AGENT_GENERATION_TIMEOUT_SECONDS: ${AGENT_GENERATION_TIMEOUT_SECONDS:-300}
 
+x-training-text-env: &training-text-env
+  TRAINING_TEXT_PROVIDER: ${TRAINING_TEXT_PROVIDER:-}
+  TRAINING_TEXT_URL: ${TRAINING_TEXT_URL:-}
+  TRAINING_TEXT_MODEL: ${TRAINING_TEXT_MODEL:-}
+  TRAINING_TEXT_MODEL_DIGEST: ${TRAINING_TEXT_MODEL_DIGEST:-}
+  TRAINING_TEXT_STAGE_TIMEOUT_SECONDS: ${TRAINING_TEXT_STAGE_TIMEOUT_SECONDS:-60}
+  TRAINING_TEXT_GENERATION_TIMEOUT_SECONDS: ${TRAINING_TEXT_GENERATION_TIMEOUT_SECONDS:-300}
+
 services:
   api:
     <<: *common
@@ -34,7 +42,7 @@ services:
     mem_limit: 512m
     pids_limit: 128
     environment:
-      <<: *app-env
+      <<: [*app-env, *training-text-env]
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
     volumes: [artifacts:/artifacts, uploads:/artifacts/projects]
@@ -84,7 +92,8 @@ services:
     cpus: 2.0
     mem_limit: 2g
     pids_limit: 128
-    environment: *app-env
+    environment:
+      <<: [*app-env, *training-text-env]
     volumes:
       - artifacts:/artifacts
       - uploads:/artifacts/projects

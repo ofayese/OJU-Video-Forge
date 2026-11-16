@@ -25,6 +25,14 @@ class Settings(BaseModel):
     agent_model: str = ""
     agent_model_digest: str = ""
     agent_stage_timeout_seconds: int = Field(default=60, ge=10, le=300)
+
+    # Training text inference settings (separate from vision)
+    training_text_provider: Literal["", "ollama"] = ""
+    training_text_url: str = ""
+    training_text_model: str = ""
+    training_text_model_digest: str = ""
+    training_text_stage_timeout_seconds: int = Field(default=60, ge=10, le=300)
+    training_text_generation_timeout_seconds: int = Field(default=300, ge=30, le=900)
     agent_generation_timeout_seconds: int = Field(default=300, ge=30, le=900)
     ad_domain: str = "ojuidc.olutech.systems"
     public_app_fqdn: str = "video.olutechsys.com"
@@ -42,7 +50,7 @@ class Settings(BaseModel):
     @field_validator("app_base_url", "api_base_url")
     @classmethod
     def validate_http_url(cls, value: str) -> str:
-        if value.startswith("http://") or value.startswith("https://"):
+        if value.startswith(("http://", "https://")):
             return value.rstrip("/")
         raise ValueError("must be a valid absolute HTTP(S) URL")
 
@@ -50,12 +58,12 @@ class Settings(BaseModel):
     @classmethod
     def validate_hostnames(cls, value: str) -> str:
         host = value.strip()
-        if not host or host.startswith("http://") or host.startswith("https://"):
+        if not host or host.startswith(("http://", "https://")):
             raise ValueError("must be a hostname without a scheme")
         return host
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         values = {
             "app_env": os.getenv("APP_ENV", "development"),
             "app_base_url": os.getenv("APP_BASE_URL", "http://localhost:5173"),
@@ -64,6 +72,15 @@ class Settings(BaseModel):
             "ad_enabled": os.getenv("AD_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "azure_enabled": os.getenv("AZURE_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "external_access_enabled": os.getenv("EXTERNAL_ACCESS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+
+            "training_text_provider": os.getenv("TRAINING_TEXT_PROVIDER", ""),
+            "training_text_url": os.getenv("TRAINING_TEXT_URL", ""),
+            "training_text_model": os.getenv("TRAINING_TEXT_MODEL", ""),
+            "training_text_model_digest": os.getenv("TRAINING_TEXT_MODEL_DIGEST", ""),
+            "training_text_stage_timeout_seconds": int(os.getenv("TRAINING_TEXT_STAGE_TIMEOUT_SECONDS", "60")),
+            "training_text_generation_timeout_seconds": int(
+                os.getenv("TRAINING_TEXT_GENERATION_TIMEOUT_SECONDS", "300")
+            ),
             "agents_enabled": os.getenv("AGENTS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "agent_provider": os.getenv("AGENT_PROVIDER", ""),
             "agent_url": os.getenv("AGENT_URL", ""),
