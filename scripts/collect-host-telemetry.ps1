@@ -88,9 +88,15 @@ try {
         $collectionErrors += "nvidia-smi utility not found; GPU capacity unavailable"
     }
 
-    $collectedAt = [DateTime]::UtcNow
+    # Derive both timestamps from a single UTC instant so collected_at and
+    # iso_timestamp always represent the same measurement moment.
+    $now = [DateTimeOffset]::UtcNow
+    # collected_at is a Unix-epoch seconds number (with sub-second precision)
+    # so the coordinator can compare it against time.time(); iso_timestamp keeps
+    # the human-readable ISO-8601 form derived from the same instant.
+    $collectedAtUnix = [double]$now.ToUnixTimeMilliseconds() / 1000.0
     $result = @{
-        collected_at          = $collectedAt.ToString("o")
+        collected_at          = $collectedAtUnix
         max_age_seconds       = 30
         source_id             = [string]$SourceId
         available_ram_bytes   = $availableRamBytes
@@ -101,7 +107,7 @@ try {
         collector_version     = [string]$CollectorVersion
         host_id               = [string]$env:COMPUTERNAME
         sequence              = [int64]$Sequence
-        iso_timestamp         = $collectedAt.ToString("o")
+        iso_timestamp         = $now.UtcDateTime.ToString("o")
     }
     if ($collectionErrors.Count -gt 0) {
         $result["errors"] = $collectionErrors
@@ -111,9 +117,10 @@ try {
     exit 0
 }
 catch {
-    $collectedAt = [DateTime]::UtcNow
+    $now = [DateTimeOffset]::UtcNow
+    $collectedAtUnix = [double]$now.ToUnixTimeMilliseconds() / 1000.0
     $result = @{
-        collected_at         = $collectedAt.ToString("o")
+        collected_at         = $collectedAtUnix
         max_age_seconds      = 30
         source_id            = [string]$SourceId
         available_ram_bytes  = $null

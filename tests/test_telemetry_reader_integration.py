@@ -7,9 +7,12 @@ and sequence/replay validation with durable consumer state.
 
 from __future__ import annotations
 
+import hashlib as _hashlib
+import hmac as _hmac
 import json
 import threading
 import time
+from datetime import UTC, datetime
 
 import pytest
 
@@ -34,6 +37,7 @@ def _write_telemetry_file(path, envelope):
 def _base_payload(now=1_700_000_000.0, **overrides):
     payload = {
         "collected_at": now,
+        "iso_timestamp": datetime.fromtimestamp(now, tz=UTC).isoformat(),
         "max_age_seconds": 30,
         "source_id": "ere-host:ERE",
         "available_ram_bytes": 16 * 1024**3,
@@ -129,6 +133,98 @@ def test_reader_rejects_future_timestamp_beyond_skew(monkeypatch, tmp_path):
         ic.read_trusted_telemetry()
 
 
+def test_reader_rejects_timestamp_inconsistency(monkeypatch, tmp_path):
+    now = 1_700_000_000.0
+    env_file, _ = _set_file_env(
+        monkeypatch, tmp_path, _base_payload(now=now)
+    )
+    # collected_at says "now" but iso_timestamp claims an hour later -> inconsistent.
+    raw = json.loads(env_file.read_text(encoding="utf-8"))
+    raw["payload"]["iso_timestamp"] = datetime.fromtimestamp(
+        now + 3600, tz=UTC
+    ).isoformat()
+    raw["signature"] = hmac_sign(raw["payload"], b"reader-secret")
+    env_file.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(ic.time, "time", lambda: now)
+    with pytest.raises(
+        ic.InferenceCoordinationError,
+        match="telemetry_timestamp_inconsistent|telemetry_timestamp_invalid",
+    ):
+        ic.read_trusted_telemetry()
+
+
+def test_reader_rejects_malformed_iso_timestamp(monkeypatch, tmp_path):
+    now = 1_700_000_000.0
+    env_file, _ = _set_file_env(
+        monkeypatch, tmp_path, _base_payload(now=now)
+    )
+    raw = json.loads(env_file.read_text(encoding="utf-8"))
+    raw["payload"]["iso_timestamp"] = "not-a-timestamp"
+    raw["signature"] = hmac_sign(raw["payload"], b"reader-secret")
+    env_file.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(ic.time, "time", lambda: now)
+    with pytest.raises(
+        ic.InferenceCoordinationError,
+        match="telemetry_timestamp_invalid|telemetry_invalid",
+    ):
+        ic.read_trusted_telemetry()
+
+
+def test_reader_key_rotation_invalidates_old_signature(monkeypatch, tmp_path):
+    now = 1_700_000_000.0
+    _env_file, _ = _set_file_env(
+        monkeypatch, tmp_path, _base_payload(now=now), key=b"old-key"
+    )
+    # Rotate the verification key; the old signature must no longer verify.
+    monkeypatch.setenv("INFERENCE_TELEMETRY_HMAC_KEY", "new-key")
+    monkeypatch.setattr(ic.time, "time", lambda: now)
+    with pytest.raises(ic.InferenceCoordinationError, match="integrity_unverified"):
+        ic.read_trusted_telemetry()
+
+
+def test_reader_permits_concurrent_re_reads_of_same_observation(monkeypatch, tmp_path):
+    now = 1_700_000_000.0
+    _env_file, _ = _set_file_env(
+        monkeypatch, tmp_path, _base_payload(now=now, sequence=1)
+    )
+    monkeypatch.setattr(ic.time, "time", lambda: now)
+    results = []
+    errors = []
+
+    def reader():
+        try:
+            for _ in range(20):
+                try:
+                    results.append(ic.read_trusted_telemetry().sequence)
+                except ic.InferenceCoordinationError as exc:
+                    if "replay_or_rollback" in str(exc):
+                        # Re-reads of the identical observation are permitted;
+                        # treat any other replay error as unexpected.
+                        errors.append(exc)
+                    else:
+                        errors.append(exc)
+                except (PermissionError, OSError, ht.HostTelemetryError):
+                    pass
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=reader) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, f"errors during concurrent re-reads: {errors}"
+    assert all(seq == 1 for seq in results), f"unexpected sequences: {results}"
+
+
+def hmac_sign(payload, key):
+    return _hmac.new(
+        key,
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        _hashlib.sha256,
+    ).hexdigest()
+
+
 def test_reader_rejects_replay_or_rollback(monkeypatch, tmp_path):
     now = 1_700_000_000.0
     env_file, _state_file = _set_file_env(
@@ -138,7 +234,16 @@ def test_reader_rejects_replay_or_rollback(monkeypatch, tmp_path):
     telemetry = ic.read_trusted_telemetry()
     assert telemetry.sequence == 5
 
-    # Replay the same observation (sequence 5 <= last accepted 5) must be rejected.
+    # Re-reading the identical signed observation while fresh is permitted.
+    telemetry = ic.read_trusted_telemetry()
+    assert telemetry.sequence == 5
+
+    # Same sequence with different signed content is a tampered replay.
+    tampered_payload = _base_payload(now=now, sequence=5)
+    tampered_payload["gpu_capacity_ok"] = False
+    _write_telemetry_file(
+        env_file, _make_envelope(tampered_payload, b"reader-secret")
+    )
     with pytest.raises(ic.InferenceCoordinationError, match="replay_or_rollback"):
         ic.read_trusted_telemetry()
 
@@ -157,12 +262,15 @@ def test_reader_sequence_continues_after_restart(monkeypatch, tmp_path):
         monkeypatch, tmp_path, _base_payload(now=now, sequence=9)
     )
     monkeypatch.setattr(ic.time, "time", lambda: now)
-    telemetry = ic.read_trusted_telemetry()  # accepts sequence 9, records state
+    telemetry = ic.read_trusted_telemetry()  # accepts sequence 9
     assert telemetry.sequence == 9
 
-    # Simulate process restart: advance the file to sequence 10, then a fresh
-    # read_trusted_telemetry() call loads the durable replay state (last=9) and
-    # accepts only a strictly greater sequence.
+    # Simulate process restart: re-reading the identical signed observation
+    # (sequence 9, same content) is permitted after restart while fresh.
+    telemetry = ic.read_trusted_telemetry()
+    assert telemetry.sequence == 9
+
+    # A higher sequence (10) is accepted and advances durable state.
     newer_payload = _base_payload(now=now, sequence=10)
     _write_telemetry_file(
         env_file, _make_envelope(newer_payload, b"reader-secret")
@@ -173,6 +281,15 @@ def test_reader_sequence_continues_after_restart(monkeypatch, tmp_path):
     # Sequence 9 again is rejected (durable rollback prevention across restart).
     _write_telemetry_file(
         env_file, _make_envelope(_base_payload(now=now, sequence=9), b"reader-secret")
+    )
+    with pytest.raises(ic.InferenceCoordinationError, match="replay_or_rollback"):
+        ic.read_trusted_telemetry()
+
+    # Same sequence (10) with different content is rejected as tampered replay.
+    tampered_payload = _base_payload(now=now, sequence=10)
+    tampered_payload["available_ram_bytes"] = 2 * 1024**3
+    _write_telemetry_file(
+        env_file, _make_envelope(tampered_payload, b"reader-secret")
     )
     with pytest.raises(ic.InferenceCoordinationError, match="replay_or_rollback"):
         ic.read_trusted_telemetry()

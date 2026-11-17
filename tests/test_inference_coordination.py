@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from datetime import UTC, datetime
 
 import pytest
 from redis.exceptions import RedisError
@@ -83,8 +84,10 @@ def _allow_resources(monkeypatch, now=1_000_000.0):
 
 
 def _signed_telemetry(monkeypatch, now=1_000_000.0, **payload_overrides):
+    collected_at = payload_overrides.get("collected_at", now)
     payload = {
-        "collected_at": now,
+        "collected_at": collected_at,
+        "iso_timestamp": datetime.fromtimestamp(collected_at, tz=UTC).isoformat(),
         "max_age_seconds": 30,
         "source_id": "ere-host:gpu0",
         "available_ram_bytes": 8 * 1024**3,

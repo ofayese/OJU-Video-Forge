@@ -22,6 +22,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,10 @@ DEFAULT_RENEW_INTERVAL_SECONDS = 30
 MIN_HOST_RAM_RESERVE_BYTES = 4 * 1024 * 1024 * 1024
 DEFAULT_CLOCK_SKEW_SECONDS = 5
 DEFAULT_TELEMETRY_MAX_FILE_BYTES = 64 * 1024
+# collected_at (unix seconds) and iso_timestamp must derive from the same UTC
+# measurement instant. Allow a small tolerance for host/reader clock skew and
+# sub-second serialization rounding.
+TELEMETRY_TIMESTAMP_TOLERANCE_SECONDS = 2
 
 
 class InferenceCoordinationError(RuntimeError):
@@ -124,18 +129,24 @@ def _allowed_telemetry_source_ids() -> set[str] | None:
 
 
 class _ReplayStore:
-    """Durable per-source last-accepted sequence store for replay/rollback prevention.
+    """Durable per-source replay-state store for replay/rollback prevention.
 
+    Stores, per source, the last accepted ``(sequence, payload_hash)`` tuple.
     Backed by a JSON file when INFERENCE_TELEMETRY_STATE_FILE is configured; an
     in-memory store is used otherwise (process-local only, not durable across
-    restarts). A valid observation is accepted only when its sequence is strictly
-    greater than the last recorded sequence for its source, preventing an older
-    observation from being accepted as new across process restarts.
+    restarts).
+
+    Multi-consumer replay rules:
+    - Higher sequence than last accepted: accept and advance state.
+    - Same sequence with the same canonical payload hash: accept (re-read of an
+      identical observation while fresh).
+    - Same sequence with a different payload hash: reject (tampered replay).
+    - Lower sequence than last accepted: reject (rollback).
     """
 
     def __init__(self, path: str | None) -> None:
         self._path = Path(path) if path else None
-        self._state: dict[str, int] = {}
+        self._state: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
     def _load(self) -> None:
@@ -155,32 +166,58 @@ class _ReplayStore:
             self._loaded = True
             return
         if isinstance(data, dict) and isinstance(data.get("sources"), dict):
-            self._state = {
-                str(key): int(value)
-                for key, value in data["sources"].items()
-                if isinstance(value, int) and not isinstance(value, bool) and value >= 0
-            }
+            loaded: dict[str, dict[str, Any]] = {}
+            for key, value in data["sources"].items():
+                if not isinstance(value, dict):
+                    continue
+                seq = value.get("sequence")
+                hsh = value.get("hash")
+                if isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0 and isinstance(hsh, str):
+                    loaded[str(key)] = {"sequence": seq, "hash": hsh}
+            self._state = loaded
         else:
             self._state = {}
         self._loaded = True
 
-    def last_sequence(self, source_id: str) -> int | None:
+    def record_if_fresh(self, source_id: str, sequence: int, payload_hash: str) -> bool:
+        """Record the observation if it is fresh; return True if accepted."""
+        if not self._loaded:
+            self._load()
+        current = self._state.get(source_id)
+        if current is None:
+            self._state[source_id] = {"sequence": int(sequence), "hash": payload_hash}
+            self._persist()
+            return True
+        last_seq = int(current["sequence"])
+        last_hash = str(current["hash"])
+        if sequence > last_seq:
+            self._state[source_id] = {"sequence": int(sequence), "hash": payload_hash}
+            self._persist()
+            return True
+        if sequence == last_seq:
+            # Same sequence: accept only if the signed content is identical
+            # (a legitimate re-read of the same observation while fresh).
+            return payload_hash == last_hash
+        # Lower sequence: rollback.
+        return False
+
+    def last_state(self, source_id: str) -> dict[str, Any] | None:
         if not self._loaded:
             self._load()
         return self._state.get(source_id)
-
-    def record(self, source_id: str, sequence: int) -> None:
-        if not self._loaded:
-            self._load()
-        self._state[source_id] = int(sequence)
-        self._persist()
 
     def _persist(self) -> None:
         if self._path is None:
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        serializable = {
+            "sources": {
+                key: {"sequence": val["sequence"], "hash": val["hash"]}
+                for key, val in self._state.items()
+            }
+        }
         payload = json.dumps(
-            {"sources": self._state}, sort_keys=True, separators=(",", ":")
+            serializable, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
         fd, tmp_name = tempfile.mkstemp(
             dir=str(self._path.parent), prefix=self._path.name + ".", suffix=".tmp"
@@ -223,6 +260,18 @@ def _build_trusted_telemetry(
     except (KeyError, TypeError, ValueError) as exc:
         raise InferenceCoordinationError("inference_telemetry_invalid") from exc
 
+    # --- Timestamp consistency: collected_at and iso_timestamp must derive ---
+    # --- from the same UTC measurement instant (within documented tolerance). ---
+    iso_timestamp = payload.get("iso_timestamp")
+    if not isinstance(iso_timestamp, str) or not iso_timestamp:
+        raise InferenceCoordinationError("inference_telemetry_invalid")
+    try:
+        iso_unix = _iso_timestamp_to_unix(iso_timestamp)
+    except (ValueError, TypeError) as exc:
+        raise InferenceCoordinationError("inference_telemetry_timestamp_invalid") from exc
+    if abs(iso_unix - collected_at) > TELEMETRY_TIMESTAMP_TOLERANCE_SECONDS:
+        raise InferenceCoordinationError("inference_telemetry_timestamp_inconsistent")
+
     if max_age <= 0 or not source_id:
         raise InferenceCoordinationError("inference_telemetry_invalid")
     if collected_at - now > allowed_clock_skew_seconds:
@@ -240,14 +289,18 @@ def _build_trusted_telemetry(
     if allowed_source_ids is not None and source_id not in allowed_source_ids:
         raise InferenceCoordinationError("inference_telemetry_unauthorized_source")
 
-    # Sequence / replay validation: reject rollback to an older observation.
+    # Sequence / replay validation (multi-consumer safe):
+    # - Higher sequence: accept, advance state.
+    # - Same sequence + same canonical payload: accept (re-read while fresh).
+    # - Same sequence + different payload: reject (tampered replay).
+    # - Lower sequence: reject (rollback).
     if sequence is not None:
         if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
             raise InferenceCoordinationError("inference_telemetry_invalid")
-        last = replay_store.last_sequence(source_id)
-        if last is not None and sequence <= last:
+        payload_hash = _canonical_payload_hash(payload)
+        accepted = replay_store.record_if_fresh(source_id, int(sequence), payload_hash)
+        if not accepted:
             raise InferenceCoordinationError("inference_telemetry_replay_or_rollback")
-        replay_store.record(source_id, sequence)
 
     return TrustedTelemetry(
         available_ram_bytes=available_ram,
@@ -260,6 +313,22 @@ def _build_trusted_telemetry(
         integrity_verified=True,
         sequence=sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else None,
     )
+
+
+def _iso_timestamp_to_unix(iso_timestamp: str) -> float:
+    """Parse an ISO-8601 timestamp and return its Unix-epoch value."""
+    text = iso_timestamp.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    dt = datetime.fromisoformat(text)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.UTC)
+    return dt.timestamp()
+
+
+def _canonical_payload_hash(payload: dict[str, Any]) -> str:
+    """SHA-256 of the canonical payload encoding for replay content binding."""
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def read_trusted_telemetry(now: float | None = None) -> TrustedTelemetry:
