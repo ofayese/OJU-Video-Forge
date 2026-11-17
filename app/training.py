@@ -31,8 +31,31 @@ class TrainingOutline(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     audience: str = Field(min_length=1, max_length=500)
     prerequisites: list[str] = Field(max_length=20)
-    learning_objectives: list[TrainingOutlineObjective] = Field(min_length=1, max_length=20)
+    learning_objectives: list[TrainingOutlineObjective] = Field(
+        min_length=1, max_length=20
+    )
     chapters: list[TrainingOutlineChapter] = Field(min_length=1, max_length=20)
+
+
+class TrainingOutlineChapterTitle(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    step_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,40}$")
+    title: str = Field(min_length=1, max_length=200)
+
+
+class TrainingOutlineMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: str = Field(min_length=1, max_length=200)
+    audience: str = Field(min_length=1, max_length=500)
+    prerequisites: list[str] = Field(max_length=20)
+    learning_objectives: list[TrainingOutlineObjective] = Field(
+        min_length=1, max_length=20
+    )
+    chapter_titles: list[TrainingOutlineChapterTitle] = Field(
+        min_length=1, max_length=20
+    )
 
 
 class ProcedureEvidenceReference(BaseModel):
@@ -103,9 +126,11 @@ class TrainingClaim(BaseModel):
 
     @model_validator(mode="after")
     def evidence_required(self):
-        if (not self.text.strip()
-                or any(not char.isprintable() and char not in "\n\t" for char in self.text)
-                or (self.kind == "evidence" and not self.evidence)):
+        if (
+            not self.text.strip()
+            or any(not char.isprintable() and char not in "\n\t" for char in self.text)
+            or (self.kind == "evidence" and not self.evidence)
+        ):
             raise ValueError("evidence_or_guidance_required")
         if self.kind == "supplemental" and self.evidence:
             raise ValueError("supplemental_guidance_must_not_claim_evidence")
@@ -128,12 +153,18 @@ class TrainingDraft(BaseModel):
     chapters: list[TeachingSegment] = Field(min_length=1, max_length=100)
     script: list[TeachingSegment] = Field(min_length=1, max_length=200)
     annotations: list[TeachingSegment] = Field(default_factory=list, max_length=200)
-    technical_explanations: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    technical_explanations: list[TrainingClaim] = Field(
+        default_factory=list, max_length=100
+    )
     lab_steps: list[TrainingClaim] = Field(default_factory=list, max_length=100)
-    validation_checkpoints: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    validation_checkpoints: list[TrainingClaim] = Field(
+        default_factory=list, max_length=100
+    )
     troubleshooting: list[TrainingClaim] = Field(default_factory=list, max_length=100)
     assessment: list[TrainingClaim] = Field(default_factory=list, max_length=100)
-    answer_explanations: list[TrainingClaim] = Field(default_factory=list, max_length=100)
+    answer_explanations: list[TrainingClaim] = Field(
+        default_factory=list, max_length=100
+    )
 
 
 def validate_training_observations(
@@ -143,9 +174,13 @@ def validate_training_observations(
     for frame in frames:
         frame_id = frame.get("id")
         timestamp = frame.get("timestamp_ms")
-        if (not isinstance(frame_id, str) or frame_id in frame_by_id
-                or not isinstance(timestamp, int) or isinstance(timestamp, bool)
-                or not 0 <= timestamp <= duration_ms):
+        if (
+            not isinstance(frame_id, str)
+            or frame_id in frame_by_id
+            or not isinstance(timestamp, int)
+            or isinstance(timestamp, bool)
+            or not 0 <= timestamp <= duration_ms
+        ):
             raise ValueError("invalid_training_observation")
         frame_by_id[frame_id] = frame
 
@@ -162,8 +197,12 @@ def validate_training_observations(
 
 def approved_procedure_revision(procedure: dict) -> int:
     history = procedure.get("review_history")
-    if (procedure.get("status") != "approved" or not isinstance(history, list)
-            or not history or not isinstance(history[-1], dict)):
+    if (
+        procedure.get("status") != "approved"
+        or not isinstance(history, list)
+        or not history
+        or not isinstance(history[-1], dict)
+    ):
         raise ValueError("approved_procedure_revision_unavailable")
     revision = history[-1].get("revision")
     if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
@@ -171,10 +210,12 @@ def approved_procedure_revision(procedure: dict) -> int:
     return revision
 
 
-def _step_claim(text: str, step_ids: list[str], steps: dict[str, dict]) -> TrainingClaim:
-    evidence = list(dict.fromkeys(
-        ref for step_id in step_ids for ref in steps[step_id]["evidence"]
-    ))
+def _step_claim(
+    text: str, step_ids: list[str], steps: dict[str, dict]
+) -> TrainingClaim:
+    evidence = list(
+        dict.fromkeys(ref for step_id in step_ids for ref in steps[step_id]["evidence"])
+    )
     return TrainingClaim(text=text, kind="evidence", evidence=evidence)
 
 
@@ -194,7 +235,10 @@ def assemble_training_draft(
     ordered_ids = []
     for batch in procedure_batches:
         batch_ids = [item.step_id for item in batch.steps]
-        if batch_ids != expected_ids[len(ordered_ids):len(ordered_ids) + len(batch_ids)]:
+        if (
+            batch_ids
+            != expected_ids[len(ordered_ids) : len(ordered_ids) + len(batch_ids)]
+        ):
             raise ValueError("training_procedure_batch_mismatch")
         for item in batch.steps:
             if item.evidence_ids != step_by_id[item.step_id]["evidence"]:
@@ -205,9 +249,14 @@ def assemble_training_draft(
 
     chapter_ids = [item.step_id for item in outline.chapters]
     chapter_names = [item.id for item in outline.chapters]
-    if (chapter_ids != expected_ids or len(set(chapter_names)) != len(chapter_names)
-            or any(not set(item.step_ids).issubset(step_by_id)
-                   for item in outline.learning_objectives)):
+    if (
+        chapter_ids != expected_ids
+        or len(set(chapter_names)) != len(chapter_names)
+        or any(
+            not set(item.step_ids).issubset(step_by_id)
+            for item in outline.learning_objectives
+        )
+    ):
         raise ValueError("training_outline_evidence_mismatch")
 
     segments = {}
@@ -220,14 +269,18 @@ def assemble_training_draft(
         raise ValueError("training_narration_incomplete")
 
     activity_refs = (
-        activities.exercises + activities.validation_checkpoints
-        + activities.troubleshooting + activities.assessment
+        activities.exercises
+        + activities.validation_checkpoints
+        + activities.troubleshooting
+        + activities.assessment
     )
     if any(step_id not in step_by_id for step_id in activity_refs):
         raise ValueError("training_activity_evidence_mismatch")
     for values in (
-        activities.exercises, activities.validation_checkpoints,
-        activities.troubleshooting, activities.assessment,
+        activities.exercises,
+        activities.validation_checkpoints,
+        activities.troubleshooting,
+        activities.assessment,
     ):
         if len(set(values)) != len(values):
             raise ValueError("training_activity_duplicate_step")
@@ -236,66 +289,79 @@ def assemble_training_draft(
     scripts = []
     for chapter in outline.chapters:
         step = step_by_id[chapter.step_id]
-        chapters.append({
-            "id": chapter.id,
-            "start_ms": step["start_ms"],
-            "end_ms": step["end_ms"],
-            "text": chapter.title,
-            "kind": "evidence",
-            "evidence": step["evidence"],
-        })
+        chapters.append(
+            {
+                "id": chapter.id,
+                "start_ms": step["start_ms"],
+                "end_ms": step["end_ms"],
+                "text": chapter.title,
+                "kind": "evidence",
+                "evidence": step["evidence"],
+            }
+        )
     for step_id in expected_ids:
         step = step_by_id[step_id]
-        scripts.append({
-            "id": f"script-{step_id}",
-            "start_ms": step["start_ms"],
-            "end_ms": step["end_ms"],
-            "text": segments[step_id],
-            "kind": "evidence",
-            "evidence": step["evidence"],
-        })
+        scripts.append(
+            {
+                "id": f"script-{step_id}",
+                "start_ms": step["start_ms"],
+                "end_ms": step["end_ms"],
+                "text": segments[step_id],
+                "kind": "evidence",
+                "evidence": step["evidence"],
+            }
+        )
 
     def selected(ids: list[str], text: str) -> list[dict]:
         return [
-            _step_claim(text.format(description=step_by_id[step_id]["description"]),
-                        [step_id], step_by_id).model_dump()
+            _step_claim(
+                text.format(description=step_by_id[step_id]["description"]),
+                [step_id],
+                step_by_id,
+            ).model_dump()
             for step_id in ids
         ]
 
-    draft = TrainingDraft.model_validate({
-        "title": outline.title,
-        "audience": outline.audience,
-        "prerequisites": [
-            {"text": item, "kind": "supplemental", "evidence": []}
-            for item in outline.prerequisites
-        ],
-        "learning_objectives": [
-            _step_claim(item.text, item.step_ids, step_by_id).model_dump()
-            for item in outline.learning_objectives
-        ],
-        "chapters": chapters,
-        "script": scripts,
-        "annotations": [],
-        "technical_explanations": [],
-        "lab_steps": selected(
-            activities.exercises, "Practice only the reviewed action: {description}"
-        ),
-        "validation_checkpoints": selected(
-            activities.validation_checkpoints,
-            "Check that the cited evidence supports the reviewed action: {description}",
-        ),
-        "troubleshooting": [{
-            "text": "If the reviewed action cannot be confirmed, pause and request human review.",
-            "kind": "supplemental", "evidence": [],
-        } for _ in activities.troubleshooting],
-        "assessment": selected(
-            activities.assessment, "What reviewed action is shown: {description}?"
-        ),
-        "answer_explanations": selected(
-            activities.assessment,
-            "The reviewed procedure describes: {description}",
-        ),
-    })
+    draft = TrainingDraft.model_validate(
+        {
+            "title": outline.title,
+            "audience": outline.audience,
+            "prerequisites": [
+                {"text": item, "kind": "supplemental", "evidence": []}
+                for item in outline.prerequisites
+            ],
+            "learning_objectives": [
+                _step_claim(item.text, item.step_ids, step_by_id).model_dump()
+                for item in outline.learning_objectives
+            ],
+            "chapters": chapters,
+            "script": scripts,
+            "annotations": [],
+            "technical_explanations": [],
+            "lab_steps": selected(
+                activities.exercises, "Practice only the reviewed action: {description}"
+            ),
+            "validation_checkpoints": selected(
+                activities.validation_checkpoints,
+                "Check that the cited evidence supports the reviewed action: {description}",
+            ),
+            "troubleshooting": [
+                {
+                    "text": "If the reviewed action cannot be confirmed, pause and request human review.",
+                    "kind": "supplemental",
+                    "evidence": [],
+                }
+                for _ in activities.troubleshooting
+            ],
+            "assessment": selected(
+                activities.assessment, "What reviewed action is shown: {description}?"
+            ),
+            "answer_explanations": selected(
+                activities.assessment,
+                "The reviewed procedure describes: {description}",
+            ),
+        }
+    )
     validate_training_draft(
         draft.model_dump(),
         {ref for step in approved_steps for ref in step["evidence"]},
@@ -305,7 +371,9 @@ def assemble_training_draft(
     return draft
 
 
-def _training_elements(draft: TrainingDraft) -> list[tuple[str, str, list[str], str, dict]]:
+def _training_elements(
+    draft: TrainingDraft,
+) -> list[tuple[str, str, list[str], str, dict]]:
     elements = [
         ("title", draft.title, [], "outline", {"text": draft.title}),
         ("audience", draft.audience, [], "outline", {"text": draft.audience}),
@@ -325,13 +393,15 @@ def _training_elements(draft: TrainingDraft) -> list[tuple[str, str, list[str], 
     ):
         for index, item in enumerate(getattr(draft, section)):
             data = item.model_dump(mode="json")
-            elements.append((
-                f"{section}[{index}]",
-                data["text"],
-                data.get("evidence", []),
-                stage,
-                data,
-            ))
+            elements.append(
+                (
+                    f"{section}[{index}]",
+                    data["text"],
+                    data.get("evidence", []),
+                    stage,
+                    data,
+                )
+            )
     return elements
 
 
@@ -347,22 +417,24 @@ def build_training_provenance(
     frame_by_id = {item["id"]: item["timestamp_ms"] for item in frames}
     elements = []
     for path, text, evidence_ids, generation_stage, data in _training_elements(draft):
-        elements.append({
-            "path": path,
-            "content_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            "element_sha256": draft_digest({"path": path, "data": data}),
-            "source_video_sha256": source_video_sha256,
-            "evidence_ids": evidence_ids,
-            "source_timestamps_ms": [
-                {"evidence_id": ref, "timestamp_ms": frame_by_id[ref]}
-                for ref in evidence_ids
-            ],
-            "approved_procedure_revision": approved_procedure_revision,
-            "provider": provider,
-            "generation_stage": generation_stage,
-            "schema_version": 2,
-            "review_status": "pending_human_review",
-        })
+        elements.append(
+            {
+                "path": path,
+                "content_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "element_sha256": draft_digest({"path": path, "data": data}),
+                "source_video_sha256": source_video_sha256,
+                "evidence_ids": evidence_ids,
+                "source_timestamps_ms": [
+                    {"evidence_id": ref, "timestamp_ms": frame_by_id[ref]}
+                    for ref in evidence_ids
+                ],
+                "approved_procedure_revision": approved_procedure_revision,
+                "provider": provider,
+                "generation_stage": generation_stage,
+                "schema_version": 2,
+                "review_status": "pending_human_review",
+            }
+        )
     return {
         "schema_version": 2,
         "source_video_sha256": source_video_sha256,
@@ -388,22 +460,30 @@ def validate_training_provenance(
     expected_status = "human_approved" if require_human_approved else None
     schema_version = provenance.get("schema_version")
     source_revision = provenance.get("source_revision")
-    if (type(schema_version) is not int or schema_version not in {1, 2}
-            or provenance.get("source_video_sha256") != source_video_sha256
-            or not isinstance(source_revision, int) or source_revision < 1
-            or provenance.get("approved_procedure_revision") != approved_procedure_revision
-            or provenance.get("provider") != provider
-            or provenance.get("review_status") not in {
-                "pending_human_review", "human_approved",
-            }
-            or (expected_status and provenance.get("review_status") != expected_status)):
+    if (
+        type(schema_version) is not int
+        or schema_version not in {1, 2}
+        or provenance.get("source_video_sha256") != source_video_sha256
+        or not isinstance(source_revision, int)
+        or source_revision < 1
+        or provenance.get("approved_procedure_revision") != approved_procedure_revision
+        or provenance.get("provider") != provider
+        or provenance.get("review_status")
+        not in {
+            "pending_human_review",
+            "human_approved",
+        }
+        or (expected_status and provenance.get("review_status") != expected_status)
+    ):
         raise ValueError("training_provenance_identity_mismatch")
     try:
         frame_by_id = {item["id"]: item["timestamp_ms"] for item in frames}
     except (KeyError, TypeError) as exc:
         raise ValueError("training_provenance_observations_invalid") from exc
     elements = provenance.get("elements")
-    if not isinstance(elements, list) or len(elements) != len(_training_elements(draft)):
+    if not isinstance(elements, list) or len(elements) != len(
+        _training_elements(draft)
+    ):
         raise ValueError("training_provenance_elements_mismatch")
     by_path = {item.get("path"): item for item in elements if isinstance(item, dict)}
     if len(by_path) != len(elements):
@@ -412,27 +492,39 @@ def validate_training_provenance(
         item = by_path.get(path)
         expected_timestamps = [
             {"evidence_id": ref, "timestamp_ms": frame_by_id[ref]}
-            for ref in evidence_ids if ref in frame_by_id
+            for ref in evidence_ids
+            if ref in frame_by_id
         ]
-        if (item is None
-                or item.get("content_sha256")
-                != hashlib.sha256(text.encode("utf-8")).hexdigest()
-                or item.get("source_video_sha256") != source_video_sha256
-                or item.get("evidence_ids") != evidence_ids
-                or len(expected_timestamps) != len(evidence_ids)
-                or item.get("source_timestamps_ms") != expected_timestamps
-                or item.get("approved_procedure_revision") != approved_procedure_revision
-                or item.get("provider") != provider
-                or item.get("generation_stage") not in {
-                    "outline", "narration", "activities", "human_edit",
-                }
-                or item.get("schema_version") != schema_version
-                or (schema_version == 2 and item.get("element_sha256")
-                    != draft_digest({"path": path, "data": data}))
-                or item.get("review_status") not in {
-                    "pending_human_review", "human_approved",
-                }
-                or (expected_status and item.get("review_status") != expected_status)):
+        if (
+            item is None
+            or item.get("content_sha256")
+            != hashlib.sha256(text.encode("utf-8")).hexdigest()
+            or item.get("source_video_sha256") != source_video_sha256
+            or item.get("evidence_ids") != evidence_ids
+            or len(expected_timestamps) != len(evidence_ids)
+            or item.get("source_timestamps_ms") != expected_timestamps
+            or item.get("approved_procedure_revision") != approved_procedure_revision
+            or item.get("provider") != provider
+            or item.get("generation_stage")
+            not in {
+                "outline",
+                "narration",
+                "activities",
+                "human_edit",
+            }
+            or item.get("schema_version") != schema_version
+            or (
+                schema_version == 2
+                and item.get("element_sha256")
+                != draft_digest({"path": path, "data": data})
+            )
+            or item.get("review_status")
+            not in {
+                "pending_human_review",
+                "human_approved",
+            }
+            or (expected_status and item.get("review_status") != expected_status)
+        ):
             raise ValueError("training_provenance_element_mismatch")
 
 
@@ -528,7 +620,10 @@ def validate_script_evidence(script: list[dict], approved_steps: list[dict]) -> 
             not any(
                 step["decision"] == "accepted"
                 and ref in step["evidence"]
-                and step["start_ms"] <= segment["start_ms"] < segment["end_ms"] <= step["end_ms"]
+                and step["start_ms"]
+                <= segment["start_ms"]
+                < segment["end_ms"]
+                <= step["end_ms"]
                 for step in approved_steps
             )
             for ref in references
@@ -537,21 +632,29 @@ def validate_script_evidence(script: list[dict], approved_steps: list[dict]) -> 
 
 
 def draft_script(draft: TrainingDraft) -> list[dict]:
-    return [{
-        "id": item.id, "start_ms": item.start_ms, "end_ms": item.end_ms,
-        "text": item.text, "evidence": item.evidence,
-        "uncertainty": (
-            "Supplemental guidance; not established by recording"
-            if item.kind == "supplemental"
-            else "Model-generated claim; verify against approved evidence"
-        ),
-    } for item in draft.script]
+    return [
+        {
+            "id": item.id,
+            "start_ms": item.start_ms,
+            "end_ms": item.end_ms,
+            "text": item.text,
+            "evidence": item.evidence,
+            "uncertainty": (
+                "Supplemental guidance; not established by recording"
+                if item.kind == "supplemental"
+                else "Model-generated claim; verify against approved evidence"
+            ),
+        }
+        for item in draft.script
+    ]
 
 
 def draft_digest(value: dict) -> str:
-    return hashlib.sha256(json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def draft_matches_script(draft: TrainingDraft, script: list[dict]) -> bool:
@@ -563,11 +666,15 @@ def draft_matches_script(draft: TrainingDraft, script: list[dict]) -> bool:
     )
 
 
-def training_markdown(draft: TrainingDraft, sections: tuple[str, ...] | None = None) -> bytes:
+def training_markdown(
+    draft: TrainingDraft, sections: tuple[str, ...] | None = None
+) -> bytes:
     def safe(text: str) -> str:
-        return re.sub(r"([\\`*_{}\[\]()#+.!|>-])", r"\\\1", html.escape(
-            " ".join(text.split()), quote=True
-        ))
+        return re.sub(
+            r"([\\`*_{}\[\]()#+.!|>-])",
+            r"\\\1",
+            html.escape(" ".join(text.split()), quote=True),
+        )
 
     def claim(item: TrainingClaim) -> str:
         source = ", ".join(item.evidence) if item.evidence else "supplemental guidance"
@@ -575,11 +682,17 @@ def training_markdown(draft: TrainingDraft, sections: tuple[str, ...] | None = N
 
     lines = [f"# {safe(draft.title)}", "", f"Audience: {safe(draft.audience)}", ""]
     available = {
-        "Prerequisites": draft.prerequisites, "Learning objectives": draft.learning_objectives,
-        "Chapters": draft.chapters, "Teaching script": draft.script, "Annotations": draft.annotations,
-        "Technical explanations": draft.technical_explanations, "Lab steps": draft.lab_steps,
-        "Validation checkpoints": draft.validation_checkpoints, "Troubleshooting": draft.troubleshooting,
-        "Assessment": draft.assessment, "Answer explanations": draft.answer_explanations,
+        "Prerequisites": draft.prerequisites,
+        "Learning objectives": draft.learning_objectives,
+        "Chapters": draft.chapters,
+        "Teaching script": draft.script,
+        "Annotations": draft.annotations,
+        "Technical explanations": draft.technical_explanations,
+        "Lab steps": draft.lab_steps,
+        "Validation checkpoints": draft.validation_checkpoints,
+        "Troubleshooting": draft.troubleshooting,
+        "Assessment": draft.assessment,
+        "Answer explanations": draft.answer_explanations,
     }
     for label in sections if sections is not None else available:
         items = available[label]
@@ -587,7 +700,11 @@ def training_markdown(draft: TrainingDraft, sections: tuple[str, ...] | None = N
         if not items:
             lines.append("Not provided.")
         for item in items:
-            timestamp = f" [{item.start_ms}-{item.end_ms} ms]" if isinstance(item, TeachingSegment) else ""
+            timestamp = (
+                f" [{item.start_ms}-{item.end_ms} ms]"
+                if isinstance(item, TeachingSegment)
+                else ""
+            )
             lines.append(claim(item) + timestamp)
         lines.append("")
     return ("\n".join(lines) + "\n").encode("utf-8")
@@ -598,9 +715,16 @@ def validate_training_draft(
 ) -> TrainingDraft:
     draft = TrainingDraft.model_validate(value)
     claims = (
-        draft.prerequisites + draft.learning_objectives + draft.chapters + draft.script
-        + draft.annotations + draft.technical_explanations + draft.lab_steps
-        + draft.validation_checkpoints + draft.troubleshooting + draft.assessment
+        draft.prerequisites
+        + draft.learning_objectives
+        + draft.chapters
+        + draft.script
+        + draft.annotations
+        + draft.technical_explanations
+        + draft.lab_steps
+        + draft.validation_checkpoints
+        + draft.troubleshooting
+        + draft.assessment
         + draft.answer_explanations
     )
     if any(not set(item.evidence).issubset(evidence_ids) for item in claims):
@@ -621,7 +745,11 @@ def validate_training_draft(
 
 
 def validate_procedure(
-    steps: list[dict], evidence_ids: set[str], duration_ms: int, *, approved: bool = False
+    steps: list[dict],
+    evidence_ids: set[str],
+    duration_ms: int,
+    *,
+    approved: bool = False,
 ) -> list[dict]:
     if not 1 <= len(steps) <= 200:
         raise ValueError("procedure_requires_1_to_200_steps")
@@ -638,7 +766,11 @@ def validate_procedure(
             or any(not c.isprintable() and c not in "\n\t" for c in step.description)
             or (step.decision == "accepted" and not step.description.strip())
             or (step.decision == "accepted" and step.evidence_category == "missing")
-            or (approved and step.decision == "accepted" and step.confidence == "unassessed")
+            or (
+                approved
+                and step.decision == "accepted"
+                and step.confidence == "unassessed"
+            )
             or (approved and step.decision == "pending")
         ):
             raise ValueError("invalid_or_unreviewed_procedure_step")

@@ -41,6 +41,7 @@ class FakeAgentAdapter:
 @contextlib.contextmanager
 def _adapter_lease_context():
     from app import inference_coordination as ic
+
     lease = ic.InferenceLease(owner="test-agent-adapter")
     token = ic._set_active_lease(lease)
     try:
@@ -52,6 +53,7 @@ def _adapter_lease_context():
 @pytest.fixture(autouse=True)
 def _allow_direct_adapter_inference(monkeypatch):
     from app import inference_coordination as ic
+
     monkeypatch.setattr(ic, "ensure_lease_owned", lambda *_a, **_k: None)
     token = ic._set_active_lease(ic.InferenceLease(owner="test-agent-adapter"))
     try:
@@ -91,6 +93,7 @@ def agent_api(tmp_path, monkeypatch):
 
     def _noop_lease(*_args, **_kwargs):
         from contextlib import nullcontext
+
         return nullcontext(object())
 
     def dispatch_job(job_id):
@@ -139,11 +142,35 @@ def test_agent_tool_output_allows_only_the_fixed_render_action():
 
     for output in (
         {"tool_calls": [{"name": "shell", "arguments": {"command": "id"}}]},
-        {"tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test", "prompt": "private"}}]},
-        {"tool_calls": [{"name": "create_render_job", "arguments": {"operation": "wan22_t2v"}}]},
+        {
+            "tool_calls": [
+                {
+                    "name": "create_render_job",
+                    "arguments": {"operation": "render_test", "prompt": "private"},
+                }
+            ]
+        },
+        {
+            "tool_calls": [
+                {"name": "create_render_job", "arguments": {"operation": "wan22_t2v"}}
+            ]
+        },
         {"tool_calls": []},
-        {"tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test"}}] * 2},
-        {"tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test"}, "shell": True}]},
+        {
+            "tool_calls": [
+                {"name": "create_render_job", "arguments": {"operation": "render_test"}}
+            ]
+            * 2
+        },
+        {
+            "tool_calls": [
+                {
+                    "name": "create_render_job",
+                    "arguments": {"operation": "render_test"},
+                    "shell": True,
+                }
+            ]
+        },
     ):
         with pytest.raises(ValueError, match="Malformed agent output"):
             agents.validate_agent_output(output)
@@ -161,7 +188,9 @@ def test_enabled_agent_requires_explicit_pinned_local_configuration(monkeypatch)
     with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
         agents.LocalOllamaAdapter("https://public.example", "model", "a" * 64)
     with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
-        agents.LocalOllamaAdapter("http://localhost:11434", "model", "latest", allow_host_endpoint=True)
+        agents.LocalOllamaAdapter(
+            "http://localhost:11434", "model", "latest", allow_host_endpoint=True
+        )
     with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
         agents.LocalOllamaAdapter("http://localhost:not-a-port", "model", "a" * 64)
 
@@ -174,36 +203,68 @@ def test_local_adapter_checks_identity_and_requests_structured_output(monkeypatc
     def handler(request):
         requests.append(request)
         if request.url.path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "local-model", "digest": digest}]})
+            return httpx.Response(
+                200, json={"models": [{"name": "local-model", "digest": digest}]}
+            )
         if request.url.path == "/api/show":
-            return httpx.Response(200, json={
-                "capabilities": ["completion"],
-                "thinking": {"values": [False, True], "default": True},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "capabilities": ["completion"],
+                    "thinking": {"values": [False, True], "default": True},
+                },
+            )
         assert request.url.path == "/api/chat"
         payload = json.loads(request.content)
-        assert [message["role"] for message in payload["messages"]] == ["system", "user"]
+        assert [message["role"] for message in payload["messages"]] == [
+            "system",
+            "user",
+        ]
         assert payload["messages"][1]["content"] == "synthetic"
         assert payload["stream"] is False
         assert payload["think"] is False
         assert payload["format"]["type"] == "object"
         assert payload["options"]["num_predict"] == 3072
         assert "num_gpu" not in payload["options"]
-        return httpx.Response(200, json={"done": True, "done_reason": "stop",
-                                         "message": {"content": json.dumps({
-            "tool_calls": [{"name": "create_render_job", "arguments": {"operation": "render_test"}}]
-        })}})
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "done_reason": "stop",
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "tool_calls": [
+                                {
+                                    "name": "create_render_job",
+                                    "arguments": {"operation": "render_test"},
+                                }
+                            ]
+                        }
+                    )
+                },
+            },
+        )
 
     client = httpx.Client
+
     def create_client(**kwargs):
         timeouts.append(kwargs["timeout"])
         return client(transport=httpx.MockTransport(handler), **kwargs)
 
     monkeypatch.setattr(agents.httpx, "Client", create_client)
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "local-model", digest, allow_host_endpoint=True)
-    assert agents.validate_agent_output(adapter.propose("synthetic", agents.ALLOWED_TOOLS))
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "local-model", digest, allow_host_endpoint=True
+    )
+    assert agents.validate_agent_output(
+        adapter.propose("synthetic", agents.ALLOWED_TOOLS)
+    )
     assert [request.url.path for request in requests] == [
-        "/api/tags", "/api/show", "/api/chat", "/api/tags", "/api/show",
+        "/api/tags",
+        "/api/show",
+        "/api/chat",
+        "/api/tags",
+        "/api/show",
     ]
     assert [timeout.read for timeout in timeouts] == [15, 15, 90, 15, 15]
     assert all(
@@ -219,23 +280,25 @@ def test_local_adapter_training_generation_runs_validated_bounded_stages(monkeyp
             "title": "Reading a visible label",
             "audience": "Training reviewers",
             "prerequisites": [],
-            "learning_objectives": [{
-                "text": "Identify the visible library settings label.",
-                "step_ids": ["step-1"],
-            }],
-            "chapters": [{
-                "id": "chapter-1", "title": "Read the visible label.",
-                "step_id": "step-1",
-            }],
+            "learning_objectives": [
+                {
+                    "text": "Identify the visible library settings label.",
+                    "step_ids": ["step-1"],
+                }
+            ],
+            "chapter_titles": [
+                {
+                    "step_id": "step-1",
+                    "title": "Read the visible label.",
+                }
+            ],
         },
         "procedure": {
             "steps": [{"step_id": "step-1", "evidence_ids": ["frame-0"]}],
         },
         "narration": {
-            "segments": [{
-                "step_id": "step-1",
-                "text": "The screen displays the library settings label.",
-            }],
+            "step_id": "step-1",
+            "text": "The screen displays the library settings label.",
         },
         "activities": {
             "exercises": ["step-1"],
@@ -254,46 +317,78 @@ def test_local_adapter_training_generation_runs_validated_bounded_stages(monkeyp
 
     def handler(request):
         if request.url.path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+            return httpx.Response(
+                200, json={"models": [{"name": "model", "digest": digest}]}
+            )
         if request.url.path == "/api/show":
-            return httpx.Response(200, json={
-                "capabilities": ["completion"],
-                "thinking": {"values": [False, True], "default": True},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "capabilities": ["completion"],
+                    "thinking": {"values": [False, True], "default": True},
+                },
+            )
         if request.url.path == "/api/version":
             return httpx.Response(200, json={"version": "0.40.16"})
         if request.url.path == "/api/ps":
-            return httpx.Response(200, json={"models": [{
-                "name": "model", "size": 1_000_000, "size_vram": 0,
-            }]})
+            return httpx.Response(
+                200,
+                json={
+                    "models": [
+                        {
+                            "name": "model",
+                            "size": 1_000_000,
+                            "size_vram": 0,
+                        }
+                    ]
+                },
+            )
         payload = json.loads(request.content)
         assert payload["options"]["num_ctx"] == 4096
         assert payload["options"]["num_predict"] in {768, 256, 512, 384}
         assert payload["think"] is False
         system = payload["messages"][0]["content"]
-        stage_name = next(name for marker, name in prompt_stages.items() if marker in system)
+        stage_name = next(
+            name for marker, name in prompt_stages.items() if marker in system
+        )
         seen.append((stage_name, payload["options"]["num_predict"]))
         assert payload["format"]["type"] == "object"
-        return httpx.Response(200, json={
-            "done": True, "done_reason": "stop",
-            "prompt_eval_count": 120, "eval_count": 24, "total_duration": 1_000_000_000,
-            "message": {"content": json.dumps(outputs[stage_name]), "thinking": ""},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "done_reason": "stop",
+                "prompt_eval_count": 120,
+                "eval_count": 24,
+                "total_duration": 1_000_000_000,
+                "message": {"content": json.dumps(outputs[stage_name]), "thinking": ""},
+            },
+        )
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", digest, allow_host_endpoint=True
+    )
 
     evidence = {
         "duration_ms": 1000,
-        "approved_steps": [{
-            "id": "step-1", "start_ms": 0, "end_ms": 1000,
-            "description": "Read the visible library settings label.",
-            "evidence": ["frame-0"], "decision": "accepted",
-            "confidence": "high", "evidence_category": "direct_observation",
-        }],
+        "approved_steps": [
+            {
+                "id": "step-1",
+                "start_ms": 0,
+                "end_ms": 1000,
+                "description": "Read the visible library settings label.",
+                "evidence": ["frame-0"],
+                "decision": "accepted",
+                "confidence": "high",
+                "evidence_category": "direct_observation",
+            }
+        ],
         "frames": [{"id": "frame-0", "timestamp_ms": 0, "ocr": "Settings"}],
         "request": {"learner_level": "beginner", "objectives": "", "feedback": ""},
     }
@@ -305,11 +400,16 @@ def test_local_adapter_training_generation_runs_validated_bounded_stages(monkeyp
     assert result.draft.script[0].evidence == ["frame-0"]
     assert result.draft.troubleshooting[0].kind == "supplemental"
     assert [name for name, _ in seen] == [
-        "outline", "procedure", "narration", "activities",
+        "outline",
+        "procedure",
+        "narration",
+        "activities",
     ]
     assert len(result.stages) == 4
     assert all(stage["schema_validation_result"] == "passed" for stage in result.stages)
-    assert all(stage["evidence_validation_result"] == "passed" for stage in result.stages)
+    assert all(
+        stage["evidence_validation_result"] == "passed" for stage in result.stages
+    )
     assert all(stage["schema_version"] == 1 for stage in result.stages)
     assert all(stage["prompt_tokens"] == 120 for stage in result.stages)
     assert all(stage["generated_tokens"] == 24 for stage in result.stages)
@@ -317,14 +417,29 @@ def test_local_adapter_training_generation_runs_validated_bounded_stages(monkeyp
     assert all(stage["thinking_disable_supported"] is True for stage in result.stages)
     assert all(stage["thinking_default"] is True for stage in result.stages)
     assert all(stage["ollama_version"] == "0.40.16" for stage in result.stages)
-    assert all(stage["ollama_model_memory"]["gpu_bytes"] == 0 for stage in result.stages)
+    assert all(
+        stage["ollama_model_memory"]["gpu_bytes"] == 0 for stage in result.stages
+    )
 
 
-@pytest.mark.parametrize(("reason", "content", "error", "validation"), [
-    ("length", '{"partial":"PRIVATE-SYNTHETIC-OUTPUT"', "generation_incomplete", "not_run"),
-    ("stop", "{malformed", "generation_invalid_json", "invalid_json"),
-    ("stop", '{"title":"incomplete schema"}', "generation_schema_invalid", "failed"),
-])
+@pytest.mark.parametrize(
+    ("reason", "content", "error", "validation"),
+    [
+        (
+            "length",
+            '{"partial":"PRIVATE-SYNTHETIC-OUTPUT"',
+            "generation_incomplete",
+            "not_run",
+        ),
+        ("stop", "{malformed", "generation_invalid_json", "invalid_json"),
+        (
+            "stop",
+            '{"title":"incomplete schema"}',
+            "generation_schema_invalid",
+            "failed",
+        ),
+    ],
+)
 def test_training_stage_failures_capture_safe_structured_diagnostics(
     monkeypatch, reason, content, error, validation
 ):
@@ -332,36 +447,57 @@ def test_training_stage_failures_capture_safe_structured_diagnostics(
 
     def handler(request):
         if request.url.path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+            return httpx.Response(
+                200, json={"models": [{"name": "model", "digest": digest}]}
+            )
         if request.url.path == "/api/show":
-            return httpx.Response(200, json={
-                "capabilities": ["completion"],
-                "thinking": {"values": [False, True], "default": True},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "capabilities": ["completion"],
+                    "thinking": {"values": [False, True], "default": True},
+                },
+            )
         if request.url.path == "/api/version":
             return httpx.Response(200, json={"version": "0.40.16"})
-        return httpx.Response(200, json={
-            "done": True,
-            "done_reason": reason,
-            "prompt_eval_count": 84,
-            "eval_count": 128,
-            "total_duration": 2_500_000_000,
-            "message": {"content": content, "thinking": "synthetic-private-thinking"},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "done_reason": reason,
+                "prompt_eval_count": 84,
+                "eval_count": 128,
+                "total_duration": 2_500_000_000,
+                "message": {
+                    "content": content,
+                    "thinking": "synthetic-private-thinking",
+                },
+            },
+        )
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", digest, allow_host_endpoint=True
+    )
     evidence = {
         "duration_ms": 1000,
-        "approved_steps": [{
-            "id": "step-1", "start_ms": 0, "end_ms": 1000,
-            "description": "Review the synthetic screen.",
-            "evidence": ["frame-0"], "decision": "accepted",
-            "confidence": "high", "evidence_category": "direct_observation",
-        }],
+        "approved_steps": [
+            {
+                "id": "step-1",
+                "start_ms": 0,
+                "end_ms": 1000,
+                "description": "Review the synthetic screen.",
+                "evidence": ["frame-0"],
+                "decision": "accepted",
+                "confidence": "high",
+                "evidence_category": "direct_observation",
+            }
+        ],
         "frames": [{"id": "frame-0", "timestamp_ms": 0}],
         "request": {},
     }
@@ -394,24 +530,40 @@ def test_local_adapter_rejects_token_truncated_chat_response(monkeypatch):
 
     def handler(request):
         if request.url.path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+            return httpx.Response(
+                200, json={"models": [{"name": "model", "digest": digest}]}
+            )
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities": ["completion"]})
-        return httpx.Response(200, json={
-            "done": True, "done_reason": "length",
-            "message": {"content": json.dumps({
-                "tool_calls": [{
-                    "name": "create_render_job",
-                    "arguments": {"operation": "render_test"},
-                }],
-            })},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "done_reason": "length",
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "tool_calls": [
+                                {
+                                    "name": "create_render_job",
+                                    "arguments": {"operation": "render_test"},
+                                }
+                            ],
+                        }
+                    )
+                },
+            },
+        )
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", digest, allow_host_endpoint=True
+    )
     with pytest.raises(agents.AgentUnavailable, match="generation_incomplete"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -421,13 +573,19 @@ def test_local_adapter_rejects_mismatched_model_without_generation(monkeypatch):
 
     def handler(request):
         paths.append(request.url.path)
-        return httpx.Response(200, json={"models": [{"name": "model", "digest": "b" * 64}]})
+        return httpx.Response(
+            200, json={"models": [{"name": "model", "digest": "b" * 64}]}
+        )
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
+    )
     with pytest.raises(agents.AgentUnavailable, match="identity"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
     assert paths == ["/api/tags"]
@@ -441,34 +599,64 @@ def test_local_adapter_rejects_identity_change_after_generation(monkeypatch):
         nonlocal tag_calls
         if request.url.path == "/api/tags":
             tag_calls += 1
-            return httpx.Response(200, json={"models": [{
-                "name": "model", "digest": digest if tag_calls == 1 else "b" * 64,
-            }]})
+            return httpx.Response(
+                200,
+                json={
+                    "models": [
+                        {
+                            "name": "model",
+                            "digest": digest if tag_calls == 1 else "b" * 64,
+                        }
+                    ]
+                },
+            )
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities": ["completion"]})
-        return httpx.Response(200, json={
-            "done": True, "done_reason": "stop", "message": {"content": "{}"},
-        })
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "done_reason": "stop",
+                "message": {"content": "{}"},
+            },
+        )
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", digest, allow_host_endpoint=True
+    )
     with pytest.raises(agents.AgentUnavailable, match="identity"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
 
-@pytest.mark.parametrize("response", [
-    httpx.Response(200, content=b"x" * (1024 * 1024 + 1)),
-    httpx.Response(200, headers={"content-encoding": "gzip"}, content=gzip.compress(b"synthetic")),
-])
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, content=b"x" * (1024 * 1024 + 1)),
+        httpx.Response(
+            200,
+            headers={"content-encoding": "gzip"},
+            content=gzip.compress(b"synthetic"),
+        ),
+    ],
+)
 def test_local_adapter_bounds_provider_responses(monkeypatch, response):
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(lambda _request: response), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(
+            transport=httpx.MockTransport(lambda _request: response), **kwargs
+        ),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
+    )
     with pytest.raises(agents.AgentUnavailable, match="response"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -480,12 +668,21 @@ def test_local_adapter_checks_deadline_on_small_stream_chunks(monkeypatch):
             yield b"}"
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(lambda _request: httpx.Response(200, stream=TinyChunks())), **kwargs
-    ))
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(200, stream=TinyChunks())
+            ),
+            **kwargs,
+        ),
+    )
     clock = iter([0.0, 91.0])
     monkeypatch.setattr(agents, "time", SimpleNamespace(monotonic=lambda: next(clock)))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
+    )
     with pytest.raises(agents.AgentUnavailable, match="timeout"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -495,10 +692,14 @@ def test_local_adapter_reports_provider_timeout_and_preserves_cancellation(monke
         raise httpx.ReadTimeout("timeout", request=request)
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
+    )
     with pytest.raises(agents.AgentUnavailable, match="agent_provider_timeout"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
@@ -509,28 +710,42 @@ def test_local_adapter_reports_provider_timeout_and_preserves_cancellation(monke
         adapter.generate_training({}, cancel)
 
 
-def test_local_status_requires_validated_generation_not_only_model_metadata(monkeypatch):
+def test_local_status_requires_validated_generation_not_only_model_metadata(
+    monkeypatch,
+):
     digest = "a" * 64
 
     def handler(request):
         if request.url.path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "model", "digest": digest}]})
+            return httpx.Response(
+                200, json={"models": [{"name": "model", "digest": digest}]}
+            )
         return httpx.Response(200, json={"capabilities": ["completion"]})
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", digest, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", digest, allow_host_endpoint=True
+    )
     assert adapter.status(None)["status"] == "degraded"
     assert adapter.status(adapter.provenance())["status"] == "ready"
-    assert adapter.status({**adapter.provenance(), "endpoint_sha256": "b" * 64})["status"] == "degraded"
+    assert (
+        adapter.status({**adapter.provenance(), "endpoint_sha256": "b" * 64})["status"]
+        == "degraded"
+    )
 
 
-@pytest.mark.parametrize(("response", "expected"), [
-    (httpx.ConnectError("offline"), "unavailable"),
-    (httpx.Response(200, json={"models": []}), "degraded"),
-])
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        (httpx.ConnectError("offline"), "unavailable"),
+        (httpx.Response(200, json={"models": []}), "degraded"),
+    ],
+)
 def test_local_status_reports_unavailable_or_degraded(monkeypatch, response, expected):
     def handler(request):
         if isinstance(response, Exception):
@@ -538,10 +753,14 @@ def test_local_status_reports_unavailable_or_degraded(monkeypatch, response, exp
         return response
 
     client = httpx.Client
-    monkeypatch.setattr(agents.httpx, "Client", lambda **kwargs: client(
-        transport=httpx.MockTransport(handler), **kwargs
-    ))
-    adapter = agents.LocalOllamaAdapter("http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True)
+    monkeypatch.setattr(
+        agents.httpx,
+        "Client",
+        lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    adapter = agents.LocalOllamaAdapter(
+        "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
+    )
     assert adapter.status(None)["status"] == expected
 
 
@@ -595,7 +814,10 @@ def test_proposals_are_project_scoped_validated_and_approval_gated(agent_api):
     )
     assert repeated.status_code == 409
     with test_sessions() as db:
-        assert [event.action for event in db.scalars(select(AgentAudit).order_by(AgentAudit.id))] == [
+        assert [
+            event.action
+            for event in db.scalars(select(AgentAudit).order_by(AgentAudit.id))
+        ] == [
             "proposed",
             "approved",
         ]
@@ -651,9 +873,7 @@ def test_cross_project_and_agent_service_approval_are_denied(agent_api):
 def test_malformed_agent_output_is_not_persisted(agent_api, caplog):
     client, _state, adapter, _, test_sessions = agent_api
     project_id = create_project(client)
-    adapter.output = {
-        "tool_calls": [{"name": "shell", "arguments": {"command": "id"}}]
-    }
+    adapter.output = {"tool_calls": [{"name": "shell", "arguments": {"command": "id"}}]}
     private_task = "synthetic prompt sentinel that must not be logged"
 
     response = client.post(
@@ -687,12 +907,15 @@ def test_agent_service_cannot_create_projects_or_bypass_approval(agent_api):
 
     with test_sessions() as db:
         assert db.scalars(select(Job)).all() == []
-        assert db.scalar(
-            select(ProjectMembership).where(
-                ProjectMembership.project_id == project_id,
-                ProjectMembership.user_id == "owner-id",
+        assert (
+            db.scalar(
+                select(ProjectMembership).where(
+                    ProjectMembership.project_id == project_id,
+                    ProjectMembership.user_id == "owner-id",
+                )
             )
-        ) is not None
+            is not None
+        )
 
 
 def test_integration_identity_can_submit_jobs_when_agents_are_disabled(
@@ -820,7 +1043,9 @@ def test_direct_ollama_request_without_lease_fails_closed(monkeypatch):
     if ic._active_lease is not None:
         ic._active_lease.set(None)
     adapter = agents.LocalOllamaAdapter("http://ollama:11434", "qwen3-vl:4b", "a" * 64)
-    with pytest.raises(ic.InferenceCoordinationError, match="inference_coordination_required"):
+    with pytest.raises(
+        ic.InferenceCoordinationError, match="inference_coordination_required"
+    ):
         adapter._request("GET", "/api/tags")
 
 
@@ -830,11 +1055,16 @@ def test_direct_ollama_request_with_lost_lease_fails_closed(monkeypatch):
     lease = ic.InferenceLease(owner="owner")
     token = ic._set_active_lease(lease)
     monkeypatch.setattr(
-        ic, "ensure_lease_owned",
-        lambda *_a, **_k: (_ for _ in ()).throw(ic.LeaseLostError("inference_lease_lost")),
+        ic,
+        "ensure_lease_owned",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            ic.LeaseLostError("inference_lease_lost")
+        ),
     )
     try:
-        adapter = agents.LocalOllamaAdapter("http://ollama:11434", "qwen3-vl:4b", "a" * 64)
+        adapter = agents.LocalOllamaAdapter(
+            "http://ollama:11434", "qwen3-vl:4b", "a" * 64
+        )
         with pytest.raises(ic.LeaseLostError, match="inference_lease_lost|lease_lost"):
             adapter._request("GET", "/api/tags")
     finally:
