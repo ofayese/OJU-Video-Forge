@@ -220,8 +220,10 @@ to a configured local Ollama vision model with explicit UI opt-in. Set
 loopback/`host.docker.internal`/`ollama` HTTP endpoint and
 `NARRATION_VISION_MODEL` to an approved installed model. Public endpoints,
 redirects and environment HTTP proxies are not used. Capability is checked before
-inference; the model is requested with `num_gpu=0`, two threads, bounded output
-and no keep-alive. No inference service is exposed publicly or reconfigured.
+inference; the adapter uses Ollama's chat API with the image attached to the
+user message, two threads, bounded output and no keep-alive. The request does not
+force CPU-only execution; GPU placement remains managed by the Ollama service.
+No inference service is exposed publicly or reconfigured.
 Interpretations are explicitly uncertain and require human review. Real VLM
 interpretation was not exercised; installed-model metadata advertised vision.
 
@@ -259,7 +261,7 @@ Trivy 0.76.2 scanned OS and library vulnerabilities with one refreshed database
 not security acceptance:
 
 | Image | Local image ID | OS | HIGH | CRITICAL | H/C records | Unique H/C CVEs | Packages |
-|---|---|---|---:|---:|---:|---:|---:|
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Baseline `ovf-narration:test-security` | `sha256:99a0ab1af5e2b8785dfedb3916de0d209aafa86a3d307e10fc6af9bcd135d83b` | Debian 13.7 | 295 | 1 | 296 | 74 | 44 |
 | Replacement `oju-video-forge-narration:docling-ocr` | `sha256:a6a709b69b2e381eee281a7a241150423ce53e3ed95527e6809d0b5ac880c7af` | Debian 13.7 | 281 | 1 | 282 | 66 | 41 |
 | OCR `oju-video-forge-docling-ocr:1.37.0` | `sha256:61a0357faf78e0e8df2fa5e20058d03a398d0517e6b6e4ad3c0b67c3fead7988` | CentOS Stream 9 | 16 | 0 | 16 | 16 | 8 |

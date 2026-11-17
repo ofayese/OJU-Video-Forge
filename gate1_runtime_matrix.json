@@ -1,0 +1,117 @@
+{
+  "endpoint": "http://ollama:11434",
+  "model": "qwen3-vl:4b",
+  "model_digest": "a1b29c246319cdcb1f3842f36d29f198f737c0cf516ba1bcba34b1b974e87980",
+  "ollama_version": "0.40.16",
+  "tags": [
+    {
+      "name": "qwen3-vl:4b",
+      "model": "qwen3-vl:4b",
+      "modified_at": "2026-11-14T01:04:04.405885274Z",
+      "size": 3336619180,
+      "digest": "a1b29c246319cdcb1f3842f36d29f198f737c0cf516ba1bcba34b1b974e87980",
+      "details": {
+        "parent_model": "dhiltgen/qwen3-vl:4b-thinking-q4_K_M-llamacpp",
+        "format": "gguf",
+        "family": "qwen3vl",
+        "families": [
+          "qwen3vl"
+        ],
+        "parameter_size": "4.0B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 262144,
+        "embedding_length": 2560,
+        "runner": "llamacpp"
+      },
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ]
+    }
+  ],
+  "capabilities": [
+    "completion",
+    "vision",
+    "tools",
+    "thinking"
+  ],
+  "thinking_info": {
+    "values": [
+      false,
+      true
+    ],
+    "default": true
+  },
+  "cases": [
+    {
+      "case": "A_plain_text_think_false",
+      "endpoint": "http://ollama:11434",
+      "model": "qwen3-vl:4b",
+      "model_digest": "a1b29c246319cdcb1f3842f36d29f198f737c0cf516ba1bcba34b1b974e87980",
+      "ollama_version": "0.40.16",
+      "thinking_requested": false,
+      "thinking_observed": true,
+      "completion_reason": "length",
+      "prompt_tokens": 55,
+      "generated_tokens": 768,
+      "final_response_length": 1096,
+      "thinking_response_length": 2336,
+      "schema_validation_result": "not_applicable",
+      "execution_duration_ms": 10015,
+      "final_preview": "Data Science 101: Beginner's Training Outline\n\n**Goal:** Build foundational skills to understand, clean, analyze, and vi"
+    },
+    {
+      "case": "B_minimal_json_think_false",
+      "endpoint": "http://ollama:11434",
+      "model": "qwen3-vl:4b",
+      "model_digest": "a1b29c246319cdcb1f3842f36d29f198f737c0cf516ba1bcba34b1b974e87980",
+      "ollama_version": "0.40.16",
+      "thinking_requested": false,
+      "thinking_observed": true,
+      "completion_reason": "length",
+      "prompt_tokens": 40,
+      "generated_tokens": 256,
+      "final_response_length": 0,
+      "thinking_response_length": 1116,
+      "schema_validation_result": "not_applicable",
+      "execution_duration_ms": 7591,
+      "final_preview": ""
+    },
+    {
+      "case": "C_minimal_json_think_true",
+      "endpoint": "http://ollama:11434",
+      "model": "qwen3-vl:4b",
+      "model_digest": "a1b29c246319cdcb1f3842f36d29f198f737c0cf516ba1bcba34b1b974e87980",
+      "ollama_version": "0.40.16",
+      "thinking_requested": true,
+      "thinking_observed": true,
+      "completion_reason": "length",
+      "prompt_tokens": 42,
+      "generated_tokens": 256,
+      "final_response_length": 0,
+      "thinking_response_length": 1110,
+      "schema_validation_result": "not_applicable",
+      "execution_duration_ms": 7521,
+      "final_preview": ""
+    },
+    {
+      "case": "D_stage_a_schema_think_false",
+      "endpoint": "http://ollama:11434",
+      "model": "qwen3-vl:4b",
+      "model_digest": "a1b29c246319cdcb1f3842f36d29f198f737c0cf516ba1bcba34b1b974e87980",
+      "ollama_version": "0.40.16",
+      "thinking_requested": false,
+      "thinking_observed": true,
+      "completion_reason": "length",
+      "prompt_tokens": 70,
+      "generated_tokens": 768,
+      "final_response_length": 0,
+      "thinking_response_length": 3388,
+      "schema_validation_result": "failed",
+      "execution_duration_ms": 8462,
+      "final_preview": ""
+    }
+  ]
+}

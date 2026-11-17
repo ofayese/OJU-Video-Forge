@@ -1,5 +1,6 @@
 {
     "chat.editor.preferCopilotHarness": false,
     "chat.defaultToCopilotHarness": false,
-    "python.terminal.useEnvFile": true
+    "python.terminal.useEnvFile": true,
+    "markdown.validate.enabled": true
 }

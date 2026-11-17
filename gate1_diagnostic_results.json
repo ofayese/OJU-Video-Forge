@@ -1,0 +1,22 @@
+[
+  {
+    "case": "Case 1: Default Stage A (Full Schema)",
+    "status": "ERROR",
+    "error": "agent_provider_invalid_response"
+  },
+  {
+    "case": "Case 2: Minimal Schema (Only Title and Audience)",
+    "status": "ERROR",
+    "error": "agent_provider_invalid_response"
+  },
+  {
+    "case": "Case 3: High num_predict (2048)",
+    "status": "ERROR",
+    "error": "agent_provider_invalid_response"
+  },
+  {
+    "case": "Case 4: Short Prompt with forced JSON",
+    "status": "ERROR",
+    "error": "agent_provider_invalid_response"
+  }
+]
