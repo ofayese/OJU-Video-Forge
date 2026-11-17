@@ -10,9 +10,12 @@ from __future__ import annotations
 import hashlib as _hashlib
 import hmac as _hmac
 import json
+import os
+import sys
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -491,3 +494,164 @@ def test_reader_recovers_after_publisher_resumes(monkeypatch, tmp_path):
     _write_telemetry_file(env_file, _make_envelope(resumed_payload, b"reader-secret"))
     telemetry = ic.read_trusted_telemetry()
     assert telemetry.sequence == 3
+
+
+# ---------------------------------------------------------------------------
+# Cross-process replay-state tests (separate OS processes, not threads).
+# ---------------------------------------------------------------------------
+
+_CROSS_PROCESS_SCRIPT = r'''
+import json
+import os
+import sys
+
+sys.path.insert(0, os.getcwd())
+
+from app import inference_coordination as ic
+
+env_file = os.environ["TELEMETRY_FILE"]
+state_file = os.environ["TELEMETRY_STATE_FILE"]
+key = os.environ["TELEMETRY_KEY"]
+now = float(os.environ["TELEMETRY_NOW"])
+sequence = int(os.environ["TELEMETRY_SEQUENCE"])
+
+os.environ["INFERENCE_TELEMETRY_FILE"] = env_file
+os.environ["INFERENCE_TELEMETRY_STATE_FILE"] = state_file
+os.environ["INFERENCE_TELEMETRY_HMAC_KEY"] = key
+os.environ.pop("INFERENCE_TELEMETRY_JSON", None)
+os.environ.pop("INFERENCE_TELEMETRY_ALLOW_UNSIGNED", None)
+
+payload = {
+    "collected_at": now,
+    "iso_timestamp": __import__("datetime").datetime.fromtimestamp(
+        now, tz=__import__("datetime").timezone.utc
+    ).isoformat(),
+    "max_age_seconds": 30,
+    "source_id": os.environ.get("TELEMETRY_SOURCE_ID", "ere-host:ERE"),
+    "available_ram_bytes": 16 * 1024**3,
+    "gpu_capacity_ok": True,
+    "gpu_free_bytes": 8 * 1024**3,
+    "gpu_total_bytes": 16 * 1024**3,
+    "sequence": sequence,
+}
+tamper_ram = os.environ.get("TELEMETRY_TAMPER_RAM")
+if tamper_ram is not None:
+    payload["available_ram_bytes"] = int(tamper_ram)
+canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+import hmac as _hmac, hashlib as _hashlib
+signature = _hmac.new(key.encode(), canonical, _hashlib.sha256).hexdigest()
+
+with open(env_file, "w") as fh:
+    json.dump({"signature": signature, "payload": payload}, fh)
+
+ic.time.time = lambda: now
+try:
+    telemetry = ic.read_trusted_telemetry()
+    result = {"accepted": True, "sequence": telemetry.sequence}
+except ic.InferenceCoordinationError as exc:
+    result = {"accepted": False, "error": str(exc)}
+
+print(json.dumps(result))
+'''
+
+
+def _run_cross_process(
+    tmp_path, sequence, key=b"crossproc-secret", now=1_700_000_000.0,
+    source_id="ere-host:ERE", extra_env=None,
+):
+    """Run read_trusted_telemetry() in a separate OS process."""
+    env_file = tmp_path / "cross_telemetry.json"
+    state_file = tmp_path / "cross_state.json"
+    env = dict(os.environ)
+    env["TELEMETRY_FILE"] = str(env_file)
+    env["TELEMETRY_STATE_FILE"] = str(state_file)
+    env["TELEMETRY_KEY"] = key.decode("utf-8")
+    env["TELEMETRY_SOURCE_ID"] = source_id
+    env["TELEMETRY_NOW"] = str(now)
+    env["TELEMETRY_SEQUENCE"] = str(sequence)
+    if extra_env:
+        env.update(extra_env)
+    completed = __import__("subprocess").run(
+        [sys.executable, "-c", _CROSS_PROCESS_SCRIPT],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+        cwd=str(Path(__file__).resolve().parent.parent),
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"subprocess failed (rc={completed.returncode}): {completed.stderr}"
+        )
+    return json.loads(completed.stdout.strip().splitlines()[-1])
+
+
+def test_cross_process_higher_sequence_advances_state(tmp_path):
+    now = 1_700_000_000.0
+    # Process A: seq 5 accepted, advances state to 5.
+    result_a = _run_cross_process(tmp_path, 5, now=now)
+    assert result_a["accepted"] is True
+    assert result_a["sequence"] == 5
+
+    # Process B: seq 6 (higher) accepted, advances state to 6.
+    result_b = _run_cross_process(tmp_path, 6, now=now)
+    assert result_b["accepted"] is True
+    assert result_b["sequence"] == 6
+
+    # Process C: seq 5 (now lower than 6) rejected as rollback.
+    result_c = _run_cross_process(tmp_path, 5, now=now)
+    assert result_c["accepted"] is False
+    assert "replay_or_rollback" in result_c["error"]
+
+
+def test_cross_process_same_sequence_same_hash_permitted(tmp_path):
+    now = 1_700_000_000.0
+    # Process A: seq 3 accepted.
+    result_a = _run_cross_process(tmp_path, 3, now=now)
+    assert result_a["accepted"] is True
+
+    # Process B: seq 3 with identical content accepted (re-read while fresh).
+    result_b = _run_cross_process(tmp_path, 3, now=now)
+    assert result_b["accepted"] is True
+    assert result_b["sequence"] == 3
+
+
+def test_cross_process_same_sequence_different_hash_rejected(tmp_path, monkeypatch):
+    now = 1_700_000_000.0
+    # Prime state with seq 4 using a different payload via direct write.
+    env_file = tmp_path / "cross_telemetry.json"
+    state_file = tmp_path / "cross_state.json"
+    monkeypatch.setenv("INFERENCE_TELEMETRY_FILE", str(env_file))
+    monkeypatch.setenv("INFERENCE_TELEMETRY_STATE_FILE", str(state_file))
+    monkeypatch.setenv("INFERENCE_TELEMETRY_HMAC_KEY", b"crossproc-secret".decode("utf-8"))
+    monkeypatch.delenv("INFERENCE_TELEMETRY_JSON", raising=False)
+    monkeypatch.delenv("INFERENCE_TELEMETRY_ALLOW_UNSIGNED", raising=False)
+    ic.time.time = lambda: now
+    payload = _base_payload(now=now, sequence=4)
+    _write_telemetry_file(env_file, _make_envelope(payload, b"crossproc-secret"))
+    ic.read_trusted_telemetry()  # accepts seq 4
+
+    # Now a separate process tries seq 4 with different content -> rejected.
+    result = _run_cross_process(
+        tmp_path, 4, now=now,
+        extra_env={"TELEMETRY_TAMPER_RAM": str(2 * 1024**3)},
+    )
+    assert result["accepted"] is False
+    assert "replay_or_rollback" in result["error"]
+
+
+def test_cross_process_state_monotonic_across_restarts(tmp_path):
+    now = 1_700_000_000.0
+    # Process A: seq 10 accepted.
+    result_a = _run_cross_process(tmp_path, 10, now=now)
+    assert result_a["accepted"] is True
+
+    # New process (simulated restart): seq 11 accepted.
+    result_b = _run_cross_process(tmp_path, 11, now=now)
+    assert result_b["accepted"] is True
+
+    # New process: seq 10 rejected (rollback prevention across restart).
+    result_c = _run_cross_process(tmp_path, 10, now=now)
+    assert result_c["accepted"] is False
+    assert "replay_or_rollback" in result_c["error"]
+

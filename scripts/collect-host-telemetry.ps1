@@ -55,7 +55,11 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw "nvidia-smi exited with code $LASTEXITCODE"
             }
-            $lines = $csv | Where-Object { $_.Trim() -ne "" }
+            # Split by newline explicitly so single-line output is still an array.
+            # PowerShell captures single-line native output as a scalar string,
+            # and -split unrolls single-element arrays back to a scalar.
+            # @() forces array context so index-based access always works.
+            $lines = @($csv -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
             if ($lines.Count -eq 0) {
                 throw "nvidia-smi returned no GPU records"
             }

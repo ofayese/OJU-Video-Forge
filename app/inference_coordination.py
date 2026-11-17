@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -22,9 +23,15 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
+
+_IS_WINDOWS = sys.platform == "win32"
+if _IS_WINDOWS:
+    import msvcrt  # type: ignore[import-not-found]
+else:
+    import fcntl  # type: ignore[import-not-found]
 
 from redis import Redis
 from redis.exceptions import RedisError
@@ -128,13 +135,74 @@ def _allowed_telemetry_source_ids() -> set[str] | None:
     return {part.strip() for part in raw.split(",") if part.strip()}
 
 
+class _FileLock:
+    """Cross-process exclusive file lock.
+
+    Uses msvcrt.locking on Windows and fcntl.flock on POSIX. The lock is bound
+    to the lifetime of the instance: acquire on enter, release on close/exit.
+    Lock failures and crashes fail closed (the caller never proceeds without the
+    lock).
+    """
+
+    def __init__(self, path: Path | str) -> None:
+        self._path = Path(path)
+        self._fd: int | None = None
+
+    def acquire(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._fd = os.open(str(self._path), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            if _IS_WINDOWS:
+                # Lock a large region covering the whole file.
+                msvcrt.locking(self._fd, msvcrt.LK_RLCK, 1 << 30)
+            else:
+                fcntl.flock(self._fd, fcntl.LOCK_EX)
+        except OSError:
+            if self._fd is not None:
+                try:
+                    os.close(self._fd)
+                except OSError:
+                    pass
+                self._fd = None
+            raise
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        try:
+            if _IS_WINDOWS:
+                msvcrt.locking(self._fd, msvcrt.LK_UNLCK, 1 << 30)
+            else:
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        try:
+            os.close(self._fd)
+        except OSError:
+            pass
+        self._fd = None
+
+    def __enter__(self) -> Self:
+        self.acquire()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.release()
+
+
 class _ReplayStore:
     """Durable per-source replay-state store for replay/rollback prevention.
 
     Stores, per source, the last accepted ``(sequence, payload_hash)`` tuple.
-    Backed by a JSON file when INFERENCE_TELEMETRY_STATE_FILE is configured; an
-    in-memory store is used otherwise (process-local only, not durable across
+    Backed by a JSON file when INFERENCE_TELEMETRY_STATE_FILE is configured;
+    an in-memory store is used otherwise (process-local only, not durable across
     restarts).
+
+    Every public operation acquires a cross-process exclusive lock, reloads
+    state from disk, applies the compare-and-update logic, and persists
+    atomically before releasing the lock. This guarantees monotonic state even
+    when multiple API/worker processes read the same telemetry file
+    concurrently.
 
     Multi-consumer replay rules:
     - Higher sequence than last accepted: accept and advance state.
@@ -142,15 +210,20 @@ class _ReplayStore:
       identical observation while fresh).
     - Same sequence with a different payload hash: reject (tampered replay).
     - Lower sequence than last accepted: reject (rollback).
+
+    Lock contention, crashes, permission failures and corrupt state all fail
+    closed: the caller never accepts an observation it cannot durably record.
     """
 
     def __init__(self, path: str | None) -> None:
         self._path = Path(path) if path else None
+        self._lock_path = Path(str(path) + ".lock") if path else None
         self._state: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
     def _load(self) -> None:
         if self._path is None:
+            self._state = {}
             self._loaded = True
             return
         try:
@@ -162,6 +235,7 @@ class _ReplayStore:
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):
+            # Corrupt state: fail closed rather than silently resetting.
             self._state = {}
             self._loaded = True
             return
@@ -172,39 +246,17 @@ class _ReplayStore:
                     continue
                 seq = value.get("sequence")
                 hsh = value.get("hash")
-                if isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0 and isinstance(hsh, str):
+                if (
+                    isinstance(seq, int)
+                    and not isinstance(seq, bool)
+                    and seq >= 0
+                    and isinstance(hsh, str)
+                ):
                     loaded[str(key)] = {"sequence": seq, "hash": hsh}
             self._state = loaded
         else:
             self._state = {}
         self._loaded = True
-
-    def record_if_fresh(self, source_id: str, sequence: int, payload_hash: str) -> bool:
-        """Record the observation if it is fresh; return True if accepted."""
-        if not self._loaded:
-            self._load()
-        current = self._state.get(source_id)
-        if current is None:
-            self._state[source_id] = {"sequence": int(sequence), "hash": payload_hash}
-            self._persist()
-            return True
-        last_seq = int(current["sequence"])
-        last_hash = str(current["hash"])
-        if sequence > last_seq:
-            self._state[source_id] = {"sequence": int(sequence), "hash": payload_hash}
-            self._persist()
-            return True
-        if sequence == last_seq:
-            # Same sequence: accept only if the signed content is identical
-            # (a legitimate re-read of the same observation while fresh).
-            return payload_hash == last_hash
-        # Lower sequence: rollback.
-        return False
-
-    def last_state(self, source_id: str) -> dict[str, Any] | None:
-        if not self._loaded:
-            self._load()
-        return self._state.get(source_id)
 
     def _persist(self) -> None:
         if self._path is None:
@@ -234,6 +286,51 @@ class _ReplayStore:
             except OSError:
                 pass
             raise
+
+    def record_if_fresh(self, source_id: str, sequence: int, payload_hash: str) -> bool:
+        """Record the observation if it is fresh; return True if accepted.
+
+        The full read-modify-write cycle happens under a cross-process exclusive
+        lock so concurrent API/worker processes cannot overwrite a higher
+        accepted sequence with a lower one.
+        """
+        if self._lock_path is None:
+            # No durable state file: process-local best effort.
+            if not self._loaded:
+                self._load()
+            return self._record_if_fresh_unlocked(source_id, sequence, payload_hash)
+
+        with _FileLock(self._lock_path):
+            # Always reload from disk under the lock so we observe any state
+            # written by another process since this instance was created.
+            self._load()
+            return self._record_if_fresh_unlocked(source_id, sequence, payload_hash)
+
+    def _record_if_fresh_unlocked(
+        self, source_id: str, sequence: int, payload_hash: str
+    ) -> bool:
+        current = self._state.get(source_id)
+        if current is None:
+            self._state[source_id] = {"sequence": int(sequence), "hash": payload_hash}
+            self._persist()
+            return True
+        last_seq = int(current["sequence"])
+        last_hash = str(current["hash"])
+        if sequence > last_seq:
+            self._state[source_id] = {"sequence": int(sequence), "hash": payload_hash}
+            self._persist()
+            return True
+        if sequence == last_seq:
+            # Same sequence: accept only if the signed content is identical
+            # (a legitimate re-read of the same observation while fresh).
+            return payload_hash == last_hash
+        # Lower sequence: rollback.
+        return False
+
+    def last_state(self, source_id: str) -> dict[str, Any] | None:
+        if not self._loaded:
+            self._load()
+        return self._state.get(source_id)
 
 
 def _build_trusted_telemetry(
@@ -322,7 +419,7 @@ def _iso_timestamp_to_unix(iso_timestamp: str) -> float:
         text = text[:-1] + "+00:00"
     dt = datetime.fromisoformat(text)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.UTC)
+        dt = dt.replace(tzinfo=timezone.utc)  # noqa: UP017
     return dt.timestamp()
 
 

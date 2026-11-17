@@ -1037,7 +1037,7 @@ def test_extract_ocr_uses_bounded_docling_rapidocr_request(monkeypatch, tmp_path
      "ocr_frame_invalid"),
     (synthetic_jpeg(width=961), "ocr_frame_dimensions_invalid"),
     (synthetic_jpeg(height=541), "ocr_frame_dimensions_invalid"),
-])
+], ids=["not_jpeg", "oversized", "width_invalid", "height_invalid"])
 def test_extract_ocr_rejects_invalid_oversized_or_large_frames(
     monkeypatch, tmp_path, content, error,
 ):
