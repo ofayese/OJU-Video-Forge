@@ -12,6 +12,9 @@ COPY app/ ./app/
 # Writable, persistent telemetry-state directory for replay-state + lock files.
 # Owned by forge in-image; entrypoint re-chowns after named-volume mount (volumes are root-owned).
 RUN mkdir -p /opt/forge/telemetry-state && chown forge:forge /opt/forge/telemetry-state
+# Read-only signed observation mount point (parent dir for observation.json).
+# Owned by forge; the observation file itself is mounted read-only at runtime.
+RUN mkdir -p /opt/forge/telemetry/observation && chown forge:forge /opt/forge/telemetry/observation
 COPY services/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 EXPOSE 8000

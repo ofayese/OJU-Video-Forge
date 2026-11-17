@@ -45,7 +45,7 @@ services:
       <<: [*app-env, *training-text-env]
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
-      # Trusted host telemetry for heavy-inference admission (read-only mount, key via secret).
+      # Trusted host telemetry for heavy-inference admission (read-only observation mount, key via secret).
       INFERENCE_TELEMETRY_FILE: ${INFERENCE_TELEMETRY_FILE:-}
       INFERENCE_TELEMETRY_HMAC_KEY: ${INFERENCE_TELEMETRY_HMAC_KEY:-}
       INFERENCE_TELEMETRY_STATE_FILE: ${INFERENCE_TELEMETRY_STATE_FILE:-/opt/forge/telemetry-state/state.json}
@@ -58,6 +58,10 @@ services:
       # Writable, persistent replay-state mount (directory-level so state.json + lock file
       # both live on writable storage). Entrypoint chowns to forge before the app starts.
       - telemetry-state:/opt/forge/telemetry-state/
+      # Read-only signed observation delivery. Activated only when INFERENCE_TELEMETRY_FILE
+      # is set to /opt/forge/telemetry/observation/observation.json (operator opt-in via .env).
+      # Observation data is kept separate from writable replay state (telemetry-state).
+      - telemetry-observation:/opt/forge/telemetry/observation:ro
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
     depends_on:
@@ -120,6 +124,10 @@ services:
       # Writable, persistent replay-state mount (directory-level so state.json + lock file
       # both live on writable storage). Entrypoint chowns to forge before the app starts.
       - telemetry-state:/opt/forge/telemetry-state/
+      # Read-only signed observation delivery. Activated only when INFERENCE_TELEMETRY_FILE
+      # is set to /opt/forge/telemetry/observation/observation.json (operator opt-in via .env).
+      # Observation data is kept separate from writable replay state (telemetry-state).
+      - telemetry-observation:/opt/forge/telemetry/observation:ro
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
@@ -215,3 +223,4 @@ volumes:
   comfy-input: {}
   comfy-output: {}
   telemetry-state: {}
+  telemetry-observation: {}
