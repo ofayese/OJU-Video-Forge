@@ -15,16 +15,20 @@ import json
 import logging
 import os
 import socket
+import tempfile
 import threading
 import time
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from redis import Redis
 from redis.exceptions import RedisError
+
+from .host_telemetry import HostTelemetryError, load_envelope
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +46,8 @@ DEFAULT_TTL_SECONDS = 300
 DEFAULT_WAIT_SECONDS = 30
 DEFAULT_RENEW_INTERVAL_SECONDS = 30
 MIN_HOST_RAM_RESERVE_BYTES = 4 * 1024 * 1024 * 1024
+DEFAULT_CLOCK_SKEW_SECONDS = 5
+DEFAULT_TELEMETRY_MAX_FILE_BYTES = 64 * 1024
 
 
 class InferenceCoordinationError(RuntimeError):
@@ -65,6 +71,7 @@ class TrustedTelemetry:
     max_age_seconds: int
     source_id: str
     integrity_verified: bool
+    sequence: int | None = None
 
 
 def _redis_client() -> Redis:
@@ -99,67 +106,219 @@ def _verify_telemetry_signature(payload: dict[str, Any], signature: str, key: by
     return hmac.compare_digest(expected, signature)
 
 
+def _telemetry_file_path() -> str | None:
+    raw = os.environ.get("INFERENCE_TELEMETRY_FILE")
+    return raw.strip() if raw and raw.strip() else None
+
+
+def _telemetry_state_file() -> str | None:
+    raw = os.environ.get("INFERENCE_TELEMETRY_STATE_FILE")
+    return raw.strip() if raw and raw.strip() else None
+
+
+def _allowed_telemetry_source_ids() -> set[str] | None:
+    raw = os.environ.get("INFERENCE_TELEMETRY_ALLOWED_SOURCE_IDS")
+    if not raw:
+        return None
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+class _ReplayStore:
+    """Durable per-source last-accepted sequence store for replay/rollback prevention.
+
+    Backed by a JSON file when INFERENCE_TELEMETRY_STATE_FILE is configured; an
+    in-memory store is used otherwise (process-local only, not durable across
+    restarts). A valid observation is accepted only when its sequence is strictly
+    greater than the last recorded sequence for its source, preventing an older
+    observation from being accepted as new across process restarts.
+    """
+
+    def __init__(self, path: str | None) -> None:
+        self._path = Path(path) if path else None
+        self._state: dict[str, int] = {}
+        self._loaded = False
+
+    def _load(self) -> None:
+        if self._path is None:
+            self._loaded = True
+            return
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError):
+            self._state = {}
+            self._loaded = True
+            return
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._state = {}
+            self._loaded = True
+            return
+        if isinstance(data, dict) and isinstance(data.get("sources"), dict):
+            self._state = {
+                str(key): int(value)
+                for key, value in data["sources"].items()
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            }
+        else:
+            self._state = {}
+        self._loaded = True
+
+    def last_sequence(self, source_id: str) -> int | None:
+        if not self._loaded:
+            self._load()
+        return self._state.get(source_id)
+
+    def record(self, source_id: str, sequence: int) -> None:
+        if not self._loaded:
+            self._load()
+        self._state[source_id] = int(sequence)
+        self._persist()
+
+    def _persist(self) -> None:
+        if self._path is None:
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {"sources": self._state}, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(self._path.parent), prefix=self._path.name + ".", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_name, self._path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
+
+def _build_trusted_telemetry(
+    payload: dict[str, Any],
+    now: float,
+    max_age_default: int,
+    allowed_clock_skew_seconds: int,
+    allowed_source_ids: set[str] | None,
+    replay_store: _ReplayStore,
+    source_label: str,
+) -> TrustedTelemetry:
+    try:
+        collected_at = float(payload["collected_at"])
+        max_age = int(payload.get("max_age_seconds", max_age_default))
+        source_id = str(payload["source_id"])
+        available_ram = int(payload["available_ram_bytes"])
+        raw_gpu_capacity_ok = payload["gpu_capacity_ok"]
+        if not isinstance(raw_gpu_capacity_ok, bool):
+            raise TypeError("gpu_capacity_ok must be bool")
+        gpu_capacity_ok = raw_gpu_capacity_ok
+        gpu_free = payload.get("gpu_free_bytes")
+        gpu_total = payload.get("gpu_total_bytes")
+        sequence = payload.get("sequence")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise InferenceCoordinationError("inference_telemetry_invalid") from exc
+
+    if max_age <= 0 or not source_id:
+        raise InferenceCoordinationError("inference_telemetry_invalid")
+    if collected_at - now > allowed_clock_skew_seconds:
+        raise InferenceCoordinationError("inference_telemetry_future")
+    if now - collected_at > max_age:
+        raise InferenceCoordinationError("inference_telemetry_stale")
+    gpu_free_int = int(gpu_free) if gpu_free is not None else None
+    gpu_total_int = int(gpu_total) if gpu_total is not None else None
+    if (gpu_free is not None and gpu_free_int is not None and gpu_free_int < 0) or (
+        gpu_total is not None and gpu_total_int is not None and gpu_total_int < 0
+    ):
+        raise InferenceCoordinationError("inference_telemetry_invalid")
+
+    # Source identity validation: only telemetry from authorized sources is admitted.
+    if allowed_source_ids is not None and source_id not in allowed_source_ids:
+        raise InferenceCoordinationError("inference_telemetry_unauthorized_source")
+
+    # Sequence / replay validation: reject rollback to an older observation.
+    if sequence is not None:
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+            raise InferenceCoordinationError("inference_telemetry_invalid")
+        last = replay_store.last_sequence(source_id)
+        if last is not None and sequence <= last:
+            raise InferenceCoordinationError("inference_telemetry_replay_or_rollback")
+        replay_store.record(source_id, sequence)
+
+    return TrustedTelemetry(
+        available_ram_bytes=available_ram,
+        gpu_free_bytes=gpu_free_int,
+        gpu_total_bytes=gpu_total_int,
+        gpu_capacity_ok=gpu_capacity_ok,
+        collected_at=collected_at,
+        max_age_seconds=max_age,
+        source_id=source_id,
+        integrity_verified=True,
+        sequence=sequence if isinstance(sequence, int) and not isinstance(sequence, bool) else None,
+    )
+
+
 def read_trusted_telemetry(now: float | None = None) -> TrustedTelemetry:
     """Read fresh trusted telemetry or fail closed.
 
-    Preferred source: signed JSON envelope in INFERENCE_TELEMETRY_JSON with
-    INFERENCE_TELEMETRY_HMAC_KEY for cross-boundary integrity validation.
-    For local/dev compatibility only, unsigned env measurements may be used when
-    INFERENCE_TELEMETRY_ALLOW_UNSIGNED=true; they are still treated as static
-    unless collected_at/max_age_seconds prove freshness.
+    Preferred source: a signed JSON envelope in the file pointed to by
+    INFERENCE_TELEMETRY_FILE, verified with INFERENCE_TELEMETRY_HMAC_KEY.
+    Falls back to the INFERENCE_TELEMETRY_JSON envelope for cross-boundary
+    integrity validation. For local/dev compatibility only, unsigned env
+    measurements may be used when INFERENCE_TELEMETRY_ALLOW_UNSIGNED=true; they
+    are still treated as static unless collected_at/max_age_seconds prove
+    freshness.
     """
     now = time.time() if now is None else now
     max_age_default = _telemetry_max_age_seconds()
-    allowed_clock_skew_seconds = max(0, _parse_int("INFERENCE_TELEMETRY_CLOCK_SKEW_SECONDS") or 5)
+    allowed_clock_skew_seconds = max(0, _parse_int("INFERENCE_TELEMETRY_CLOCK_SKEW_SECONDS") or DEFAULT_CLOCK_SKEW_SECONDS)
     key = _expected_telemetry_key()
-    envelope_raw = os.environ.get("INFERENCE_TELEMETRY_JSON")
-    if envelope_raw:
+    allowed_source_ids = _allowed_telemetry_source_ids()
+    replay_store = _ReplayStore(_telemetry_state_file())
+
+    file_path = _telemetry_file_path()
+    env_raw = os.environ.get("INFERENCE_TELEMETRY_JSON")
+    envelope: dict[str, Any] | None = None
+    source_label = ""
+
+    if file_path:
         try:
-            envelope = json.loads(envelope_raw)
+            loaded = load_envelope(file_path)
+        except HostTelemetryError as exc:
+            raise InferenceCoordinationError("inference_telemetry_file_unavailable") from exc
+        if not isinstance(loaded, dict):
+            raise InferenceCoordinationError("inference_telemetry_invalid")
+        envelope = loaded
+        source_label = f"file:{file_path}"
+    elif env_raw:
+        try:
+            parsed = json.loads(env_raw)
         except json.JSONDecodeError as exc:
             raise InferenceCoordinationError("inference_telemetry_invalid") from exc
-        if not isinstance(envelope, dict):
+        if not isinstance(parsed, dict):
             raise InferenceCoordinationError("inference_telemetry_invalid")
+        envelope = parsed
+        source_label = "env:INFERENCE_TELEMETRY_JSON"
+
+    if envelope is not None:
         signature = envelope.get("signature")
         payload = envelope.get("payload")
         if not isinstance(signature, str) or not isinstance(payload, dict):
             raise InferenceCoordinationError("inference_telemetry_invalid")
         if key is None or not _verify_telemetry_signature(payload, signature, key):
             raise InferenceCoordinationError("inference_telemetry_integrity_unverified")
-        try:
-            collected_at = float(payload["collected_at"])
-            max_age = int(payload.get("max_age_seconds", max_age_default))
-            source_id = str(payload["source_id"])
-            available_ram = int(payload["available_ram_bytes"])
-            raw_gpu_capacity_ok = payload["gpu_capacity_ok"]
-            if not isinstance(raw_gpu_capacity_ok, bool):
-                raise TypeError("gpu_capacity_ok must be bool")
-            gpu_capacity_ok = raw_gpu_capacity_ok
-            gpu_free = payload.get("gpu_free_bytes")
-            gpu_total = payload.get("gpu_total_bytes")
-        except (KeyError, TypeError, ValueError) as exc:
-            raise InferenceCoordinationError("inference_telemetry_invalid") from exc
-        if max_age <= 0 or not source_id:
-            raise InferenceCoordinationError("inference_telemetry_invalid")
-        if collected_at - now > allowed_clock_skew_seconds:
-            raise InferenceCoordinationError("inference_telemetry_future")
-        if now - collected_at > max_age:
-            raise InferenceCoordinationError("inference_telemetry_stale")
-        gpu_free_int = int(gpu_free) if gpu_free is not None else None
-        gpu_total_int = int(gpu_total) if gpu_total is not None else None
-        if (gpu_free is not None and gpu_free_int is not None and gpu_free_int < 0) or (
-            gpu_total is not None and gpu_total_int is not None and gpu_total_int < 0
-        ):
-            raise InferenceCoordinationError("inference_telemetry_invalid")
-        return TrustedTelemetry(
-            available_ram_bytes=available_ram,
-            gpu_free_bytes=gpu_free_int,
-            gpu_total_bytes=gpu_total_int,
-            gpu_capacity_ok=gpu_capacity_ok,
-            collected_at=collected_at,
-            max_age_seconds=max_age,
-            source_id=source_id,
-            integrity_verified=True,
+        return _build_trusted_telemetry(
+            payload,
+            now,
+            max_age_default,
+            allowed_clock_skew_seconds,
+            allowed_source_ids,
+            replay_store,
+            source_label,
         )
 
     allow_unsigned = os.environ.get("INFERENCE_TELEMETRY_ALLOW_UNSIGNED", "").lower() in {

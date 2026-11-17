@@ -85,27 +85,85 @@ readiness ambiguous, and risks silent fallback to an unapproved model.
   provenance. Frame IDs, timestamps, approvals, and actions are never invented.
 
 ## Unresolved runtime limitations
-- **No strict end-to-end exclusivity claim:** admission/boundary serialization is enforced at
-  wired OJU code paths, but a single external inference gateway/proxy is not implemented.
-  Lease expiry/renewal loss cannot interrupt an in-flight Ollama request and cannot prove
-  remote termination; expired/lost lease must not authorize conflicting model transitions,
-  but in-flight operations may continue until runtime/network boundaries complete or fail.
+- **No strict end-to-end exclusivity claim (BLOCKED):** admission/boundary serialization is
+  enforced at wired OJU code paths, but a single external inference gateway/proxy is not
+  implemented and is out of scope for this change. Lease expiry/renewal loss cannot interrupt
+  an in-flight Ollama request and cannot prove remote termination; an expired/lost Redis lease
+  by itself must not authorize a conflicting model transition, and in-flight operations may
+  continue until runtime/network boundaries complete or fail. A fresh telemetry observation
+  does not prove an earlier remote Ollama request has ended. Strict end-to-end exclusivity
+  requires a dedicated gateway; that design is separately reviewable and is not implemented
+  here. See "Lease safety and strict exclusivity" below.
 - **Crash recovery:** Redis TTL expiry allows bounded recovery after worker/process crash;
   no unsafe automatic lease takeover is performed while ownership/liveness cannot be proven.
-- **Telemetry publisher:** a Windows host-side publisher with fresh authenticated/signed
-  delivery for available physical RAM and NVIDIA free/total VRAM is not implemented or
-  deployed; static/test env injection is not a production telemetry source.
 - **Model/runtime acceptance:** real dual-model runtime acceptance, vision Stage A structured
   acceptance on live model, and deployment/runtime validation are not established by source
   tests.
 
-## Consequences
+## Telemetry publisher (ERE Windows host)
+A Windows host-side telemetry publisher is implemented at source level
+(`app/host_telemetry.py`, `scripts/collect-host-telemetry.ps1`). It is NOT deployed, installed
+as a persistent service, or registered as a scheduled task by this change; those require
+separate owner approval (see production activation steps below).
 
-- Operators must configure/pin approved models and provide trusted, fresh telemetry before
-  heavy inference admission can succeed in strict mode.
-- Vision and writing can be validated and diagnosed independently.
-- Coordination behavior is source-level and boundary-level; runtime guarantees depend on
-  complete caller coverage, Redis/telemetry health, and Ollama/runtime behavior.
+### Collector execution
+- Runs on the Windows ERE host via PowerShell (`pwsh`/`powershell`) using native WMI/CIM
+  (`Win32_OperatingSystem`) for available physical memory and `nvidia-smi` for aggregate NVIDIA
+  GPU total/free VRAM (capacity only; WDDM process attribution is deliberately not collected).
+- Emits one JSON observation per run: UTC `collected_at`, `max_age_seconds`, `source_id`
+  (`ere-host:<hostname>`), `available_ram_bytes`, `gpu_capacity_ok`, `gpu_free_bytes`,
+  `gpu_total_bytes`, `measurement_status`, `collector_version`, `host_id`, a monotonic
+  `sequence`, and `iso_timestamp`.
+- Rejects unavailable, malformed, or contradictory readings (zero/negative RAM, GPU free >
+  total, `gpu_capacity_ok=true` without a measured total, empty source id, bad sequence).
+- Never fabricates GPU capacity: if `nvidia-smi` is absent or reports a failure, GPU fields are
+  null and `gpu_capacity_ok=false` (measurement_status reflects the degradation).
+- A durable sequence store persists the last emitted sequence so a restarted collector never
+  reuses a sequence the consumer may already have accepted.
+
+### Authenticated publication
+- Each observation is serialized canonically
+  (`json.dumps(sort_keys=True, separators=(",", ":"))`) and signed HMAC-SHA256 over the canonical
+  payload, envelope `{"signature": ..., "payload": ...}`, matching the existing coordinator
+  scheme so `read_trusted_telemetry()` verifies it unchanged.
+- The signing key is supplied at publish time and is NEVER written to the telemetry file or to
+  any read-only data mount.
+- Publication is atomic: temp file → `fsync` → `os.replace` → least-privilege ACLs
+  (Administrators full control, owning account read). Max file size (64 KiB) and strict JSON
+  parsing are enforced on both write and read.
+
+### Observation lifecycle and replay enforcement
+- `read_trusted_telemetry()` reads the authorized file (`INFERENCE_TELEMETRY_FILE`) when
+  configured, falling back to `INFERENCE_TELEMETRY_JSON`; unsigned env injection remains a
+  test/dev-only path. HMAC, source identity (`INFERENCE_TELEMETRY_ALLOWED_SOURCE_IDS`),
+  timestamp freshness (`collected_at` vs clock skew and `max_age_seconds`), and sequence/replay
+  are validated before admission.
+- A durable replay store (`INFERENCE_TELEMETRY_STATE_FILE`) records the last accepted sequence
+  per source; an observation with `sequence <= last accepted` is rejected as
+  `inference_telemetry_replay_or_rollback`, preventing rollback to an older observation across
+  process restarts.
+- Limits: without a nonce/one-time cache, a valid signed observation remains replayable within
+  its freshness window until superseded by a higher sequence; file-based replay state is
+  least-privilege but not tamper-proof against host administrators.
+
+### Key provisioning
+- The verification key (`INFERENCE_TELEMETRY_HMAC_KEY`) must be provided to the OJU service
+  container through an approved secret mechanism, never as a committed Compose value. The
+  signing key stays on the Windows host.
+
+### Deployment prerequisites
+- Windows host: PowerShell, `nvidia-smi` (optional; degraded without it), WMI/CIM access.
+- OJU service containers (api, render-worker): read-only, least-privilege mount of the
+  telemetry file; verification key via secret; `INFERENCE_TELEMETRY_FILE`,
+  `INFERENCE_TELEMETRY_STATE_FILE`, `INFERENCE_TELEMETRY_ALLOWED_SOURCE_IDS`,
+  `INFERENCE_TELEMETRY_HMAC_KEY`, `INFERENCE_TELEMETRY_MAX_AGE_SECONDS`,
+  `INFERENCE_TELEMETRY_CLOCK_SKEW_SECONDS` configured externally.
+- CPU OCR, FFmpeg, and unrelated operations remain independent of GPU telemetry availability;
+  API startup does not depend on the telemetry file.
+
+### Rollback
+- Source-level: revert the commit. No containers/services are restarted, deployed, pushed, or
+  merged by this change.
 
 ## Validation, rollback, and deployment boundaries
 - Source validation includes unit/integration tests (mocked inference/Redis/telemetry where
