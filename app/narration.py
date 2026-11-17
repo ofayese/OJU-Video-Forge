@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 from collections.abc import Callable
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -229,6 +229,12 @@ def transcribe(source: Path, directory: Path, metadata: dict, check: Callable[[]
 
 
 def vision(frame: Path, check: Callable[[], None]) -> dict:
+    from .agents import AgentUnavailable, LocalOllamaAdapter
+    from .inference_coordination import (
+        InferenceCoordinationError,
+        require_active_inference_lease,
+    )
+
     endpoint = (os.environ.get("NARRATION_VISION_URL") or os.environ.get("AGENT_URL") or "").strip()
     model = (os.environ.get("NARRATION_VISION_MODEL") or os.environ.get("AGENT_MODEL") or "").strip()
     expected_digest = (
@@ -236,6 +242,7 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
         or os.environ.get("AGENT_MODEL_DIGEST")
         or ""
     ).strip().lower()
+    # Preserve narration-specific configuration validation and errors.
     parsed = urlparse(endpoint)
     host = parsed.hostname or ""
     try:
@@ -269,34 +276,32 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
             or not (canonical_ollama or allow_host_dev)):
         raise NarrationError("vision_unavailable; configure approved local OJU Ollama endpoint/model")
 
-    def verify_model(client: httpx.Client) -> bytes:
-        tags = client.get(f"{endpoint.rstrip('/')}/api/tags")
-        tags.raise_for_status()
-        try:
-            tags_body = tags.json()
-        except ValueError as exc:
-            raise NarrationError("vision_model_identity_unavailable_or_changed") from exc
-        models = tags_body.get("models") if isinstance(tags_body, dict) else None
+    check()
+    try:
+        # Heavy Ollama vision inference must execute under active coordination.
+        require_active_inference_lease()
+    except InferenceCoordinationError as exc:
+        raise NarrationError(str(exc)) from exc
+    try:
+        adapter = LocalOllamaAdapter(
+            endpoint, model, expected_digest, allow_host_endpoint=allow_host_dev
+        )
+        # Preserve prior request sequence: tags, show, chat, tags, show.
+        tags = adapter._request("GET", "/api/tags", check=check, timeout_seconds=min(15.0, adapter.stage_timeout_seconds))
+        models = tags.get("models") if isinstance(tags, dict) else None
         if not isinstance(models, list) or not any(
             isinstance(item, dict) and item.get("name") == model
             and item.get("digest") == expected_digest for item in models
         ):
             raise NarrationError("vision_model_identity_unavailable_or_changed")
-        info = client.post(f"{endpoint.rstrip('/')}/api/show", json={"model": model})
-        info.raise_for_status()
-        try:
-            model_info = info.json()
-        except ValueError as exc:
-            raise NarrationError("vision_model_incompatible") from exc
+        model_info = adapter._request(
+            "POST", "/api/show", {"model": model}, check,
+            timeout_seconds=min(15.0, adapter.stage_timeout_seconds),
+        )
         capabilities = model_info.get("capabilities") if isinstance(model_info, dict) else None
         if not isinstance(capabilities, list) or "vision" not in capabilities:
             raise NarrationError("vision_model_incompatible")
-        return info.content
-
-    check()
-    with httpx.Client(timeout=90, trust_env=False, follow_redirects=False) as client:
-        model_info = verify_model(client)
-        response = client.post(f"{endpoint.rstrip('/')}/api/chat", json={
+        response = adapter._request("POST", "/api/chat", {
             "model": model, "stream": False, "format": "json", "keep_alive": 0,
             "think": False,
             "messages": [{
@@ -308,37 +313,65 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
             }],
             "options": {"num_thread": 2, "num_ctx": 4096, "num_predict": 512,
                         "temperature": 0},
-        })
-        response.raise_for_status()
-        try:
-            body = response.json()
-        except ValueError as exc:
-            raise NarrationError("invalid_visual_observation") from exc
+        }, check)
+        # Validate chat response before post-generation re-verification (preserves prior behavior).
+        if not isinstance(response, dict):
+            raise NarrationError("invalid_visual_observation")
+        message = response.get("message")
+        if (response.get("done") is not True or response.get("done_reason") == "length"
+                or not isinstance(message, dict)):
+            raise NarrationError("invalid_visual_observation")
+        response_text = message.get("content")
+        if not isinstance(response_text, str):
+            raise NarrationError("invalid_visual_observation")
         check()
-        verify_model(client)
-    check()
-    if not isinstance(body, dict):
-        raise NarrationError("invalid_visual_observation")
-    message = body.get("message")
-    if (body.get("done") is not True or body.get("done_reason") == "length"
-            or not isinstance(message, dict)):
-        raise NarrationError("invalid_visual_observation")
-    response_text = message.get("content")
-    if not isinstance(response_text, str):
-        raise NarrationError("invalid_visual_observation")
+        tags2 = adapter._request("GET", "/api/tags", check=check, timeout_seconds=min(15.0, adapter.stage_timeout_seconds))
+        models2 = tags2.get("models") if isinstance(tags2, dict) else None
+        if not isinstance(models2, list) or not any(
+            isinstance(item, dict) and item.get("name") == model
+            and item.get("digest") == expected_digest for item in models2
+        ):
+            raise NarrationError("vision_model_identity_unavailable_or_changed")
+        info2 = adapter._request(
+            "POST", "/api/show", {"model": model}, check,
+            timeout_seconds=min(15.0, adapter.stage_timeout_seconds),
+        )
+        caps2 = info2.get("capabilities") if isinstance(info2, dict) else None
+        if not isinstance(caps2, list) or "vision" not in caps2:
+            raise NarrationError("vision_model_incompatible")
+    except AgentUnavailable as exc:
+        reason = str(exc)
+        if "agent_model_identity_unavailable_or_changed" in reason:
+            raise NarrationError("vision_model_identity_unavailable_or_changed") from exc
+        if "agent_model_incompatible" in reason or "agent_model_missing_completion_capability" in reason:
+            raise NarrationError("vision_model_incompatible") from exc
+        if "inference_coordination_required" in reason or "inference_lease" in reason:
+            raise NarrationError(reason) from exc
+        if "unavailable" in reason or "timeout" in reason:
+            raise NarrationError(f"vision_unavailable; {reason}") from exc
+        raise NarrationError("invalid_visual_observation") from exc
+    except InferenceCoordinationError as exc:
+        raise NarrationError(str(exc)) from exc
+    except NarrationError:
+        raise
+
     try:
         observation = json.loads(response_text)
     except json.JSONDecodeError as exc:
         raise NarrationError("invalid_visual_observation") from exc
     if not isinstance(observation, dict):
         raise NarrationError("invalid_visual_observation")
-    text = observation.get("observation")
-    if (not isinstance(text, str) or len(text) > 2000
+    text_value = observation.get("observation")
+    if (not isinstance(text_value, str) or len(text_value) > 2000
             or not isinstance(observation.get("uncertain"), bool)):
         raise NarrationError("invalid_visual_observation")
-    return {"text": text, "uncertain": True, "provider": model,
-            "model_digest": expected_digest,
-            "model_info_sha256": hashlib.sha256(model_info).hexdigest()}
+    return {
+        "text": text_value,
+        "uncertain": True,
+        "provider": model,
+        "model_digest": expected_digest,
+        "model_info_sha256": hashlib.sha256(json.dumps(model_info, separators=(",", ":")).encode()).hexdigest(),
+    }
 
 
 def jpeg_dimensions(image: bytes) -> tuple[int, int]:

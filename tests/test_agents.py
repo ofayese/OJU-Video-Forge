@@ -1,3 +1,4 @@
+import contextlib
 import gzip
 import json
 from types import SimpleNamespace
@@ -35,6 +36,28 @@ class FakeAgentAdapter:
     def propose(self, task, tools):
         self.calls.append((task, tools))
         return self.output
+
+
+@contextlib.contextmanager
+def _adapter_lease_context():
+    from app import inference_coordination as ic
+    lease = ic.InferenceLease(owner="test-agent-adapter")
+    token = ic._set_active_lease(lease)
+    try:
+        yield lease
+    finally:
+        ic._reset_active_lease(token)
+
+
+@pytest.fixture(autouse=True)
+def _allow_direct_adapter_inference(monkeypatch):
+    from app import inference_coordination as ic
+    monkeypatch.setattr(ic, "ensure_lease_owned", lambda *_a, **_k: None)
+    token = ic._set_active_lease(ic.InferenceLease(owner="test-agent-adapter"))
+    try:
+        yield
+    finally:
+        ic._reset_active_lease(token)
 
 
 @pytest.fixture
@@ -579,7 +602,7 @@ def test_proposals_are_project_scoped_validated_and_approval_gated(agent_api):
 
 
 def test_cross_project_and_agent_service_approval_are_denied(agent_api):
-    client, state, adapter, enqueued, test_sessions = agent_api
+    client, state, _adapter, enqueued, test_sessions = agent_api
     project_id = create_project(client)
     response = client.post(
         f"/v1/projects/{project_id}/agent/proposals",
@@ -626,7 +649,7 @@ def test_cross_project_and_agent_service_approval_are_denied(agent_api):
 
 
 def test_malformed_agent_output_is_not_persisted(agent_api, caplog):
-    client, state, adapter, _, test_sessions = agent_api
+    client, _state, adapter, _, test_sessions = agent_api
     project_id = create_project(client)
     adapter.output = {
         "tool_calls": [{"name": "shell", "arguments": {"command": "id"}}]
@@ -749,7 +772,7 @@ def test_approved_dispatch_pending_job_can_be_redispatched(agent_api, monkeypatc
 
 
 def test_authorized_rejection_is_audited_without_dispatch(agent_api):
-    client, state, adapter, enqueued, test_sessions = agent_api
+    client, state, _adapter, enqueued, test_sessions = agent_api
     project_id = create_project(client)
     proposal = client.post(
         f"/v1/projects/{project_id}/agent/proposals",
@@ -789,3 +812,30 @@ def test_agent_disabled_by_default_does_not_call_adapter(agent_api, monkeypatch)
     assert adapter.calls == []
     with test_sessions() as db:
         assert db.scalars(select(AgentProposal)).all() == []
+
+
+def test_direct_ollama_request_without_lease_fails_closed(monkeypatch):
+    from app import inference_coordination as ic
+
+    if ic._active_lease is not None:
+        ic._active_lease.set(None)
+    adapter = agents.LocalOllamaAdapter("http://ollama:11434", "qwen3-vl:4b", "a" * 64)
+    with pytest.raises(ic.InferenceCoordinationError, match="inference_coordination_required"):
+        adapter._request("GET", "/api/tags")
+
+
+def test_direct_ollama_request_with_lost_lease_fails_closed(monkeypatch):
+    from app import inference_coordination as ic
+
+    lease = ic.InferenceLease(owner="owner")
+    token = ic._set_active_lease(lease)
+    monkeypatch.setattr(
+        ic, "ensure_lease_owned",
+        lambda *_a, **_k: (_ for _ in ()).throw(ic.LeaseLostError("inference_lease_lost")),
+    )
+    try:
+        adapter = agents.LocalOllamaAdapter("http://ollama:11434", "qwen3-vl:4b", "a" * 64)
+        with pytest.raises(ic.LeaseLostError, match="inference_lease_lost|lease_lost"):
+            adapter._request("GET", "/api/tags")
+    finally:
+        ic._reset_active_lease(token)

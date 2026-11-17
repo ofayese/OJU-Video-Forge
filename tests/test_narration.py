@@ -851,6 +851,18 @@ def synthetic_jpeg(width=2, height=2):
     )
 
 
+@contextlib.contextmanager
+def _active_inference_lease_context(monkeypatch):
+    from app import inference_coordination as ic
+    lease = ic.InferenceLease(owner="test-owner")
+    monkeypatch.setattr(ic, "ensure_lease_owned", lambda *_a, **_k: None)
+    token = ic._set_active_lease(lease)
+    try:
+        yield lease
+    finally:
+        ic._reset_active_lease(token)
+
+
 def test_vision_pins_model_digest_and_allows_gpu_inference(monkeypatch, tmp_path):
     frame = tmp_path / "frame.jpg"
     frame.write_bytes(synthetic_jpeg())
@@ -887,7 +899,8 @@ def test_vision_pins_model_digest_and_allows_gpu_inference(monkeypatch, tmp_path
     monkeypatch.setenv("NARRATION_VISION_MODEL", model)
     monkeypatch.setenv("NARRATION_VISION_MODEL_DIGEST", expected_digest)
 
-    result = narration.vision(frame, lambda: None)
+    with _active_inference_lease_context(monkeypatch):
+        result = narration.vision(frame, lambda: None)
 
     assert paths == [
         "/api/tags", "/api/show", "/api/chat", "/api/tags", "/api/show",
@@ -923,7 +936,10 @@ def test_vision_rejects_token_truncated_chat_response(monkeypatch, tmp_path):
     monkeypatch.setenv("NARRATION_VISION_MODEL", "qwen3-vl:4b")
     monkeypatch.setenv("NARRATION_VISION_MODEL_DIGEST", expected_digest)
 
-    with pytest.raises(narration.NarrationError, match="invalid_visual_observation"):
+    with (
+        pytest.raises(narration.NarrationError, match="invalid_visual_observation"),
+        _active_inference_lease_context(monkeypatch),
+    ):
         narration.vision(frame, lambda: None)
 
 
@@ -945,7 +961,7 @@ def test_vision_rejects_mismatched_model_digest_before_generation(monkeypatch, t
 
     with pytest.raises(
         narration.NarrationError, match="vision_model_identity_unavailable_or_changed"
-    ):
+    ), _active_inference_lease_context(monkeypatch):
         narration.vision(frame, lambda: None)
 
     assert paths == ["/api/tags"]
@@ -981,7 +997,7 @@ def test_vision_rejects_identity_change_after_generation(monkeypatch, tmp_path):
 
     with pytest.raises(
         narration.NarrationError, match="vision_model_identity_unavailable_or_changed"
-    ):
+    ), _active_inference_lease_context(monkeypatch):
         narration.vision(frame, lambda: None)
 
 
@@ -1163,7 +1179,7 @@ def _test_h264_encoder():
         pytest.skip("FFmpeg/FFprobe are required for source-PTS acceptance")
     encoders = subprocess.run(
         ["ffmpeg", "-hide_banner", "-encoders"],
-        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        check=True, capture_output=True, text=True,
     ).stdout
     for candidate in ("libx264", "libopenh264", "h264_mf", "h264_nvenc", "h264_qsv", "h264_amf"):
         if re.search(rf"^\s*V\S*\s+{re.escape(candidate)}\b", encoders, re.MULTILINE):
@@ -1195,7 +1211,7 @@ def test_scenes_timestamp_matches_decoded_source_pts(tmp_path, kind):
     command.extend([
         "-threads", "1", "-g", "10", "-pix_fmt", "yuv420p", str(source),
     ])
-    subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(command, check=True, capture_output=True)
 
     def check():
         return None
@@ -1241,7 +1257,7 @@ def test_scenes_detects_real_transition_and_removes_duplicate_frame(tmp_path):
     elif encoder == "libopenh264":
         transition_cmd.extend(["-b:v", "2M"])
     transition_cmd.extend(["-threads", "1", "-g", "5", "-pix_fmt", "yuv420p", str(transition)])
-    subprocess.run(transition_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(transition_cmd, check=True, capture_output=True)
 
     duplicate = tmp_path / "duplicate.mp4"
     duplicate_cmd = [
@@ -1254,7 +1270,7 @@ def test_scenes_detects_real_transition_and_removes_duplicate_frame(tmp_path):
     elif encoder == "libopenh264":
         duplicate_cmd.extend(["-b:v", "2M"])
     duplicate_cmd.extend(["-threads", "1", "-g", "5", "-pix_fmt", "yuv420p", str(duplicate)])
-    subprocess.run(duplicate_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(duplicate_cmd, check=True, capture_output=True)
 
     def check():
         return None

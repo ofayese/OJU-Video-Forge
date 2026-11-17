@@ -28,6 +28,15 @@ from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
+try:
+    from contextvars import ContextVar
+except ImportError:  # pragma: no cover
+    ContextVar = None  # type: ignore[assignment]
+
+_active_lease = (
+    ContextVar("oju_inference_lease", default=None) if ContextVar else None
+)
+
 LEASE_KEY = "oju-video-forge:inference:lease"
 DEFAULT_TTL_SECONDS = 300
 DEFAULT_WAIT_SECONDS = 30
@@ -101,6 +110,7 @@ def read_trusted_telemetry(now: float | None = None) -> TrustedTelemetry:
     """
     now = time.time() if now is None else now
     max_age_default = _telemetry_max_age_seconds()
+    allowed_clock_skew_seconds = max(0, _parse_int("INFERENCE_TELEMETRY_CLOCK_SKEW_SECONDS") or 5)
     key = _expected_telemetry_key()
     envelope_raw = os.environ.get("INFERENCE_TELEMETRY_JSON")
     if envelope_raw:
@@ -121,19 +131,30 @@ def read_trusted_telemetry(now: float | None = None) -> TrustedTelemetry:
             max_age = int(payload.get("max_age_seconds", max_age_default))
             source_id = str(payload["source_id"])
             available_ram = int(payload["available_ram_bytes"])
-            gpu_capacity_ok = bool(payload["gpu_capacity_ok"])
+            raw_gpu_capacity_ok = payload["gpu_capacity_ok"]
+            if not isinstance(raw_gpu_capacity_ok, bool):
+                raise TypeError("gpu_capacity_ok must be bool")
+            gpu_capacity_ok = raw_gpu_capacity_ok
             gpu_free = payload.get("gpu_free_bytes")
             gpu_total = payload.get("gpu_total_bytes")
         except (KeyError, TypeError, ValueError) as exc:
             raise InferenceCoordinationError("inference_telemetry_invalid") from exc
         if max_age <= 0 or not source_id:
             raise InferenceCoordinationError("inference_telemetry_invalid")
+        if collected_at - now > allowed_clock_skew_seconds:
+            raise InferenceCoordinationError("inference_telemetry_future")
         if now - collected_at > max_age:
             raise InferenceCoordinationError("inference_telemetry_stale")
+        gpu_free_int = int(gpu_free) if gpu_free is not None else None
+        gpu_total_int = int(gpu_total) if gpu_total is not None else None
+        if (gpu_free is not None and gpu_free_int is not None and gpu_free_int < 0) or (
+            gpu_total is not None and gpu_total_int is not None and gpu_total_int < 0
+        ):
+            raise InferenceCoordinationError("inference_telemetry_invalid")
         return TrustedTelemetry(
             available_ram_bytes=available_ram,
-            gpu_free_bytes=int(gpu_free) if gpu_free is not None else None,
-            gpu_total_bytes=int(gpu_total) if gpu_total is not None else None,
+            gpu_free_bytes=gpu_free_int,
+            gpu_total_bytes=gpu_total_int,
             gpu_capacity_ok=gpu_capacity_ok,
             collected_at=collected_at,
             max_age_seconds=max_age,
@@ -156,6 +177,8 @@ def read_trusted_telemetry(now: float | None = None) -> TrustedTelemetry:
         collected_at = float(collected_at_raw)
     except ValueError as exc:
         raise InferenceCoordinationError("inference_telemetry_invalid") from exc
+    if collected_at - now > allowed_clock_skew_seconds:
+        raise InferenceCoordinationError("inference_telemetry_future")
     if now - collected_at > max_age_default:
         raise InferenceCoordinationError("inference_telemetry_stale")
     gpu_ok = gpu_ok_raw.strip().lower() in {"1", "true", "yes", "ok"}
@@ -172,12 +195,21 @@ def read_trusted_telemetry(now: float | None = None) -> TrustedTelemetry:
     )
 
 
-def preflight_heavy_inference(now: float | None = None) -> TrustedTelemetry:
+def preflight_heavy_inference(
+    now: float | None = None,
+    *,
+    required_gpu_free_bytes: int | None = None,
+) -> TrustedTelemetry:
     telemetry = read_trusted_telemetry(now=now)
     if telemetry.available_ram_bytes < MIN_HOST_RAM_RESERVE_BYTES:
         raise InferenceCoordinationError("inference_insufficient_host_ram")
     if not telemetry.gpu_capacity_ok:
         raise InferenceCoordinationError("inference_insufficient_gpu_capacity")
+    if required_gpu_free_bytes is not None:
+        if telemetry.gpu_free_bytes is None:
+            raise InferenceCoordinationError("inference_gpu_free_vram_unknown")
+        if telemetry.gpu_free_bytes < required_gpu_free_bytes:
+            raise InferenceCoordinationError("inference_insufficient_gpu_vram")
     return telemetry
 
 
@@ -266,7 +298,8 @@ def heavy_inference_lease(
                         _RENEW_IF_OWNER, 1, LEASE_KEY, owner, ttl_seconds * 1000
                     )
                 except RedisError as exc:
-                    renew_state["error"] = exc
+                    renew_state["error"] = LeaseLostError("inference_lease_lost")
+                    renew_state["error"].__cause__ = exc
                     return
                 if renewed != 1:
                     renew_state["error"] = LeaseLostError("inference_lease_lost")
@@ -278,10 +311,14 @@ def heavy_inference_lease(
         _assert_owned(client, lease)
         if renew_state["error"] is not None:
             raise renew_state["error"]
-        yield lease
-        if renew_state["error"] is not None:
-            raise renew_state["error"]
-        _assert_owned(client, lease)
+        token = _set_active_lease(lease)
+        try:
+            yield lease
+            if renew_state["error"] is not None:
+                raise renew_state["error"]
+            _assert_owned(client, lease)
+        finally:
+            _reset_active_lease(token)
     finally:
         stop.set()
         if renewer is not None:
@@ -315,6 +352,35 @@ def ensure_lease_owned(lease: InferenceLease, client: Redis | None = None) -> No
                 logger.warning("inference lease ownership-check client close failed", exc_info=True)
 
 
+def require_active_inference_lease() -> InferenceLease:
+    """Require that the current execution context holds an active inference lease.
+
+    This is a process-local guard for OJU code paths; it does not replace
+    cross-process Redis ownership and cannot prove remote runtime cancellation.
+    """
+    lease = _active_lease.get() if _active_lease is not None else None
+    if lease is None:
+        raise InferenceCoordinationError("inference_coordination_required")
+    # Best-effort ownership validation; fail closed if state cannot be confirmed.
+    ensure_lease_owned(lease)
+    return lease
+
+
+def _set_active_lease(lease: InferenceLease | None):
+    if _active_lease is None:
+        return None
+    return _active_lease.set(lease)
+
+
+def _reset_active_lease(token) -> None:
+    if _active_lease is None or token is None:
+        return
+    try:
+        _active_lease.reset(token)
+    except Exception:
+        logger.warning("failed to reset inference lease context", exc_info=True)
+
+
 __all__ = [
     "DEFAULT_TTL_SECONDS",
     "DEFAULT_WAIT_SECONDS",
@@ -328,4 +394,5 @@ __all__ = [
     "heavy_inference_lease",
     "preflight_heavy_inference",
     "read_trusted_telemetry",
+    "require_active_inference_lease",
 ]
