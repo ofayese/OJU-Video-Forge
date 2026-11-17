@@ -3,6 +3,7 @@ WORKDIR /opt/forge
 COPY requirements.lock.txt .
 RUN apk update && apk upgrade --no-cache \
  && apk add --no-cache ffmpeg=6.1.2-r2 font-dejavu=2.37-r6 gosu \
+ && rm -rf /usr/local/lib/python3.12/site-packages/setuptools* \
  && pip install --no-cache-dir --require-hashes -r requirements.lock.txt \
  && adduser -D -u 10001 forge \
  && mkdir -p /artifacts/projects && chown -R forge:forge /artifacts \

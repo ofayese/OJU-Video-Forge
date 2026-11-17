@@ -55,7 +55,6 @@ services:
     volumes:
       - artifacts:/artifacts
       - uploads:/artifacts/projects
-      - ${INFERENCE_TELEMETRY_FILE}:/opt/forge/telemetry/observation.json:ro
       # Writable, persistent replay-state mount (directory-level so state.json + lock file
       # both live on writable storage). Entrypoint chowns to forge before the app starts.
       - telemetry-state:/opt/forge/telemetry-state/
@@ -118,7 +117,6 @@ services:
       - artifacts:/artifacts
       - uploads:/artifacts/projects
       - ./config/workflows:/workflows:ro
-      - ${INFERENCE_TELEMETRY_FILE}:/opt/forge/telemetry/observation.json:ro
       # Writable, persistent replay-state mount (directory-level so state.json + lock file
       # both live on writable storage). Entrypoint chowns to forge before the app starts.
       - telemetry-state:/opt/forge/telemetry-state/

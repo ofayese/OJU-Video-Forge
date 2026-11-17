@@ -2,6 +2,7 @@ FROM python:3.12-alpine3.22@sha256:a190708a2dec1bd18b1decb539f8e8f5407abaa9bf39c
 WORKDIR /opt/forge
 RUN apk update && apk upgrade --no-cache \
  && apk add --no-cache ffmpeg=6.1.2-r2 ca-certificates font-dejavu=2.37-r6 gosu \
+ && rm -rf /usr/local/lib/python3.12/site-packages/setuptools* \
  && adduser -D -u 10001 forge \
  && mkdir -p /artifacts/projects && chown -R forge:forge /artifacts \
  && rm -rf /var/cache/apk/*
