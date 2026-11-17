@@ -234,11 +234,10 @@ class _ReplayStore:
             return
         try:
             data = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            # Corrupt state: fail closed rather than silently resetting.
-            self._state = {}
-            self._loaded = True
-            return
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # Corrupt state: fail closed rather than silently resetting to empty
+            # (which would admit any observation as the first-ever sequence).
+            raise HostTelemetryError(f"corrupt replay state {self._path}: {exc}") from exc
         if isinstance(data, dict) and isinstance(data.get("sources"), dict):
             loaded: dict[str, dict[str, Any]] = {}
             for key, value in data["sources"].items():

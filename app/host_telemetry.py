@@ -362,18 +362,21 @@ def apply_file_protection(path: Path | str) -> None:
     target = Path(path)
     folder = target.parent if target.parent.exists() else target
     owner = os.environ.get("USERNAME") or os.environ.get("USER") or "owner"
+    # Invoke icacls.exe directly (not via powershell -Command) so that the
+    # permission shorthand such as :(R) and :(F) is not mangled by PowerShell
+    # history expansion. Each command is run as a list so no shell parsing occurs.
     commands = [
-        f"icacls \"{folder}\" /inheritance:r",
-        f"icacls \"{folder}\" /grant \"{owner}\":(F)",
-        f"icacls \"{folder}\" /grant \"Administrators\":(F)",
-        f"icacls \"{target}\" /inheritance:r",
-        f"icacls \"{target}\" /grant \"{owner}\":(R)",
-        f"icacls \"{target}\" /grant \"Administrators\":(F)",
+        ["icacls", str(folder), "/inheritance:r"],
+        ["icacls", str(folder), "/grant", f"{owner}:(F)"],
+        ["icacls", str(folder), "/grant", "Administrators:(F)"],
+        ["icacls", str(target), "/inheritance:r"],
+        ["icacls", str(target), "/grant", f"{owner}:(R)"],
+        ["icacls", str(target), "/grant", "Administrators:(F)"],
     ]
     for command in commands:
         try:
             subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+                command,
                 capture_output=True,
                 text=True,
                 check=False,
