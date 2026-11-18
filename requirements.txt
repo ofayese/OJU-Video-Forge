@@ -1,8 +1,8 @@
-fastapi==0.162.2
+fastapi==0.163.1
 starlette==1.10.0
 uvicorn==0.54.0
 sqlalchemy==2.1.8
-psycopg[binary]==3.3.8
+psycopg[binary]==3.3.9
 tzdata==2026.6
 redis==8.1.0
 rq==3.0.0
