@@ -394,7 +394,10 @@ def _build_trusted_telemetry(
         if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
             raise InferenceCoordinationError("inference_telemetry_invalid")
         payload_hash = _canonical_payload_hash(payload)
-        accepted = replay_store.record_if_fresh(source_id, int(sequence), payload_hash)
+        try:
+            accepted = replay_store.record_if_fresh(source_id, int(sequence), payload_hash)
+        except HostTelemetryError as exc:
+            raise InferenceCoordinationError("inference_telemetry_replay_state_corrupt") from exc
         if not accepted:
             raise InferenceCoordinationError("inference_telemetry_replay_or_rollback")
 
