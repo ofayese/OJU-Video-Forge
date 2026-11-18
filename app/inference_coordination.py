@@ -447,7 +447,7 @@ def _iso_timestamp_to_unix(iso_timestamp: str) -> float:
 
 def _canonical_payload_hash(payload: dict[str, Any]) -> str:
     """SHA-256 of the canonical payload encoding for replay content binding."""
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def read_trusted_telemetry(now: float | None = None) -> TrustedTelemetry:

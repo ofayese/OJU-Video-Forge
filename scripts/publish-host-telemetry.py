@@ -180,6 +180,7 @@ def publish_once() -> int:
     # Set up environment for the coordinator (consumer-side verification)
     os.environ["INFERENCE_TELEMETRY_FILE"] = str(OUTPUT_FILE)
     os.environ["INFERENCE_TELEMETRY_STATE_FILE"] = str(CONSUMER_STATE_FILE)
+    os.environ["INFERENCE_TELEMETRY_HMAC_KEY_FILE"] = str(KEY_FILE)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     PUBLISHER_SEQ_FILE.parent.mkdir(parents=True, exist_ok=True)
