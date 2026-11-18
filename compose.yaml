@@ -37,6 +37,8 @@ x-training-text-env: &training-text-env
 services:
   api:
     <<: *common
+    security_opt: []
+    cap_add: [SETUID, SETGID]
     build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
     cpus: 1.0
     mem_limit: 512m
@@ -45,9 +47,10 @@ services:
       <<: [*app-env, *training-text-env]
       FORGE_OPENWEBUI_TOKEN: ${FORGE_OPENWEBUI_TOKEN:-}
       FORGE_CHATGPT_TOKEN: ${FORGE_CHATGPT_TOKEN:-}
-      # Trusted host telemetry for heavy-inference admission (read-only observation mount, key via secret).
+      # Trusted host telemetry for heavy-inference admission (read-only observation mount,
+      # HMAC verification key delivered via independent read-only secret mount).
       INFERENCE_TELEMETRY_FILE: ${INFERENCE_TELEMETRY_FILE:-}
-      INFERENCE_TELEMETRY_HMAC_KEY: ${INFERENCE_TELEMETRY_HMAC_KEY:-}
+      INFERENCE_TELEMETRY_HMAC_KEY_FILE: ${INFERENCE_TELEMETRY_HMAC_KEY_FILE:-}
       INFERENCE_TELEMETRY_STATE_FILE: ${INFERENCE_TELEMETRY_STATE_FILE:-/opt/forge/telemetry-state/state.json}
       INFERENCE_TELEMETRY_ALLOWED_SOURCE_IDS: ${INFERENCE_TELEMETRY_ALLOWED_SOURCE_IDS:-}
       INFERENCE_TELEMETRY_MAX_AGE_SECONDS: ${INFERENCE_TELEMETRY_MAX_AGE_SECONDS:-30}
@@ -61,7 +64,11 @@ services:
       # Read-only signed observation delivery. Activated only when INFERENCE_TELEMETRY_FILE
       # is set to /opt/forge/telemetry/observation/observation.json (operator opt-in via .env).
       # Observation data is kept separate from writable replay state (telemetry-state).
-      - telemetry-observation:/opt/forge/telemetry/observation:ro
+      # The HMAC signing key is NOT in this directory; it is mounted independently below.
+      - "C:/ProgramData/OJU Video Forge/telemetry:/opt/forge/telemetry/observation:ro"
+      # HMAC verification key: independently mounted read-only secret file. Consumers see
+      # only this single key file, never the publisher's key-storage directory.
+      - "C:/ProgramData/OJU Video Forge/secrets/hmac.key:/run/secrets/telemetry-hmac.key:ro"
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=256m"]
     depends_on:
@@ -77,6 +84,8 @@ services:
 
   migrate:
     <<: *common
+    security_opt: []
+    cap_drop: []
     build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
     command: ["python", "-m", "alembic", "upgrade", "head"]
     environment: *app-env
@@ -104,6 +113,8 @@ services:
 
   render-worker:
     <<: *common
+    security_opt: []
+    cap_add: [SETUID, SETGID]
     build: {context: ., dockerfile: services/worker/Dockerfile}
     cpus: 2.0
     mem_limit: 2g
@@ -127,7 +138,7 @@ services:
       # Read-only signed observation delivery. Activated only when INFERENCE_TELEMETRY_FILE
       # is set to /opt/forge/telemetry/observation/observation.json (operator opt-in via .env).
       # Observation data is kept separate from writable replay state (telemetry-state).
-      - telemetry-observation:/opt/forge/telemetry/observation:ro
+      - "C:/ProgramData/OJU Video Forge/telemetry:/opt/forge/telemetry/observation:ro"
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}

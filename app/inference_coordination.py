@@ -105,7 +105,25 @@ def _telemetry_max_age_seconds() -> int:
     return max(1, _parse_int("INFERENCE_TELEMETRY_MAX_AGE_SECONDS") or 30)
 
 
+def _telemetry_hmac_key_file() -> str | None:
+    raw = os.environ.get("INFERENCE_TELEMETRY_HMAC_KEY_FILE")
+    return raw.strip() if raw and raw.strip() else None
+
+
+def _read_telemetry_key_file() -> bytes | None:
+    key_file = _telemetry_hmac_key_file()
+    if not key_file:
+        return None
+    try:
+        return Path(key_file).read_bytes()
+    except OSError:
+        return None
+
+
 def _expected_telemetry_key() -> bytes | None:
+    key = _read_telemetry_key_file()
+    if key is not None:
+        return key
     raw = os.environ.get("INFERENCE_TELEMETRY_HMAC_KEY")
     if not raw:
         return None
