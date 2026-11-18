@@ -6,16 +6,18 @@
 
 ---
 
-## 1. Dedicated execution identity
+## 1. Execution identity
 
-The scheduled task runs under a dedicated, non-interactive service account:
+The scheduled task runs under the existing interactive development account:
 
-- **Account:** `ERE\ovf-telemetry` (new local account, created by the install script)
+- **Account:** `ERE\akoso` (existing local account, member of `BUILTIN\Administrators`)
 - **Logon type:** Batch (`BATCH_LOGON_TYPE`), not interactive — Task Scheduler uses batch logon, not service logon
-- **Group membership:** None beyond `Users`; removed from `Administrators`
-- **Privileges:** `SeBatchLogonRight` required for Task Scheduler batch logon; `SeServiceLogonRight` NOT required (no persistent Windows service)
-- **Password:** 32-character random, stored in Windows Credential Manager, rotated per key rotation schedule
-- **Justification:** Isolation from the interactive `akoso` account and from any other scheduled tasks; least-privilege execution
+- **Group membership:** `BUILTIN\Administrators` (existing membership, not changed)
+- **Privileges:** `SeBatchLogonRight` required for Task Scheduler batch logon; granted via Administrators membership
+- **Password:** Not stored in scripts, task definition, or repository files; Task Scheduler uses the account's existing logon credentials
+- **Justification:** Use the existing `ERE\akoso` account; no dedicated service account created; no additional Windows identities introduced
+
+**Do not** create an `ovf-telemetry` service account or any additional Windows identity solely for this development environment.
 
 ---
 
@@ -23,7 +25,7 @@ The scheduled task runs under a dedicated, non-interactive service account:
 
 **Current interactive user (`ERE\akoso`) is a member of `BUILTIN\Administrators`, but the default PowerShell process runs with a UAC-filtered token.**
 
-- `whoami /groups` confirms `BUILTIN\Administrators` membership (Group owner, Enabled by default)
+- `whoami /groups` confirms `BUILTIN\Administrators` membership
 - `[Security.Principal.WindowsPrincipal]::IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)` returns `False` in the current (filtered) process
 - The Administrators group is absent from the current process token (UAC filtering)
 
@@ -31,14 +33,23 @@ The scheduled task runs under a dedicated, non-interactive service account:
 
 **Do not** change Administrators membership — the user is already a member; only elevation is required.
 
+Verify elevation explicitly before any registration attempt:
+
+```powershell
+[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+```
+
+Must return `$true` before registering the task.
+
 ---
 
 ## 2. Protected HMAC signing key — separated from observation directory
 
-- **Key file:** `C:\ProgramData\OJU Video Forge\secrets\hmac.key` (32 random bytes)
+- **Key file:** `C:\ProgramData\OJU Video Forge\secrets\hmac.key` (32 random bytes, same key as current `telemetry\hmac.key`)
 - **Key directory:** `C:\ProgramData\OJU Video Forge\secrets\` — NOT the observation directory
-- **Key ACL:** `SYSTEM:(F)`, `ERE\ovf-telemetry:(R)`, `BUILTIN\Administrators:(F)`; inheritance disabled
-- **Observation directory ACL:** `C:\ProgramData\OJU Video Forge\telemetry\` — `ERE\ovf-telemetry:(RW)` for output only; key file NOT present here
+- **Key ACL:** `SYSTEM:(F)`, `ERE\akoso:(R)`, `BUILTIN\Administrators:(F)`; inheritance disabled
+- **Observation directory ACL:** `C:\ProgramData\OJU Video Forge\telemetry\` — `ERE\akoso:(RW)` for output only; key file NOT present here
+- **Old key location:** `C:\ProgramData\OJU Video Forge\telemetry\hmac.key` retained until consumer access to `secrets\hmac.key` is verified
 - **Encryption:** EFS-encrypted or DPAPI-protected at rest (machine-level)
 - **Delivery:** Out-of-band via secure channel; never in task definition, never in command-line arguments, never in environment variables
 - **Publisher reads key:** `INFERENCE_TELEMETRY_HMAC_KEY_FILE` environment variable set to the key file path
@@ -59,7 +70,7 @@ The scheduled task runs under a dedicated, non-interactive service account:
 
 ## 4. Overlap prevention
 
-- **Publisher lock:** `scripts/publish-host-telemetry.py` acquires an exclusive file lock on `<output_dir>/publisher.lock` before each publication cycle
+- **Publisher lock:** `scripts/publish-host-telemetry.py` acquires an exclusive file lock on `<state_dir>/publisher.lock` before each publication cycle
 - **Overlap behavior:** If another instance holds the lock, the new instance exits immediately (exit code 3) rather than waiting or queuing
 - **Lock lifetime:** Bound to the publisher process; released on exit or crash
 - **Daemon mode:** Single long-running process with internal 10-second sleep loop; no overlapping executions possible
@@ -83,21 +94,23 @@ The scheduled task runs under a dedicated, non-interactive service account:
 - **Start only if:** Network is available (to allow future remote endpoints, though current design is local-only)
 - **Wake to run:** Disabled (no wake timers)
 - **Hidden:** True (no UI)
+- **No dependence on an interactive terminal remaining open**
 
 ---
 
 ## 7. Minimum privileges
 
-- **Task rights:** `SeServiceLogonRight` for `ERE\ovf-telemetry` only
+- **Task rights:** `SeBatchLogonRight` for `ERE\akoso` (via Administrators membership); `SeServiceLogonRight` NOT required (no persistent Windows service)
 - **File system:**
-  - Collector script (`scripts/collect-host-telemetry.ps1`): `ERE\ovf-telemetry:(RX)`, `SYSTEM:(F)`, `BUILTIN\Administrators:(F)`
-  - Publisher script (`scripts/publish-host-telemetry.py`): `ERE\ovf-telemetry:(RX)`, `SYSTEM:(F)`, `BUILTIN\Administrators:(F)`
-  - Output directory (`C:\ProgramData\OJU Video Forge\telemetry\`): `ERE\ovf-telemetry:(RW)` (for observation.json, publisher sequence state, lock file), `SYSTEM:(F)`, `BUILTIN\Administrators:(F)`
-  - Secrets directory (`C:\ProgramData\OJU Video Forge\secrets\`): `ERE\ovf-telemetry:(R)` for key file only; consumers cannot browse this directory
-  - HMAC key: `ERE\ovf-telemetry:(R)` only
+  - Collector script (`scripts/collect-host-telemetry.ps1`): `ERE\akoso:(RX)`, `SYSTEM:(F)`, `BUILTIN\Administrators:(F)`
+  - Publisher script (`scripts/publish-host-telemetry.py`): `ERE\akoso:(RX)`, `SYSTEM:(F)`, `BUILTIN\Administrators:(F)`
+  - Output directory (`C:\ProgramData\OJU Video Forge\telemetry\`): `ERE\akoso:(RW)` (for observation.json, publisher sequence state, lock file), `SYSTEM:(F)`, `BUILTIN\Administrators:(F)`
+  - Secrets directory (`C:\ProgramData\OJU Video Forge\secrets\`): `ERE\akoso:(R)` for key file only; consumers cannot browse this directory
+  - HMAC key: `ERE\akoso:(R)` only
 - **Registry:** No write access required
-- **Network:** No outbound network required (local NMI/WMI/nvidia-smi calls only)
+- **Network:** No outbound network required (local WMI/nvidia-smi calls only)
 - **Elevation:** Does not require `SeDebugPrivilege` or `SeTcbPrivilege`
+- **No broad Users-group access** on any telemetry or secrets path
 
 ---
 
@@ -121,15 +134,15 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 
 | Path | Owner | ACL |
 |------|-------|-----|
-| `C:\ProgramData\OJU Video Forge\secrets\hmac.key` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(R)`, `BUILTIN\Administrators:(F)` |
-| `C:\ProgramData\OJU Video Forge\telemetry\observation.json` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RW)`, `BUILTIN\Administrators:(F)` |
-| `C:\ProgramData\OJU Video Forge\telemetry\.telemetry-sequence-state.json` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RW)`, `BUILTIN\Administrators:(F)` |
-| `C:\ProgramData\OJU Video Forge\telemetry\publisher.lock` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RW)`, `BUILTIN\Administrators:(F)` |
-| `C:\ProgramData\OJU Video Forge\telemetry-state\state.json` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RW)`, `BUILTIN\Administrators:(F)` |
-| `C:\ProgramData\OJU Video Forge\telemetry-state\*.lock` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RW)`, `BUILTIN\Administrators:(F)` |
-| `scripts/collect-host-telemetry.ps1` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RX)`, `BUILTIN\Administrators:(F)` |
-| `scripts/publish-host-telemetry.py` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RX)`, `BUILTIN\Administrators:(F)` |
-| `C:\ProgramData\OJU Video Forge\telemetry\audit.log` | SYSTEM | `SYSTEM:(F)`, `ERE\ovf-telemetry:(RW)`, `BUILTIN\Administrators:(R)` |
+| `C:\ProgramData\OJU Video Forge\secrets\hmac.key` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(R)`, `BUILTIN\Administrators:(F)` |
+| `C:\ProgramData\OJU Video Forge\telemetry\observation.json` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RW)`, `BUILTIN\Administrators:(F)` |
+| `C:\ProgramData\OJU Video Forge\telemetry\.telemetry-sequence-state.json` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RW)`, `BUILTIN\Administrators:(F)` |
+| `C:\ProgramData\OJU Video Forge\telemetry\publisher.lock` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RW)`, `BUILTIN\Administrators:(F)` |
+| `C:\ProgramData\OJU Video Forge\telemetry-state\state.json` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RW)`, `BUILTIN\Administrators:(F)` |
+| `C:\ProgramData\OJU Video Forge\telemetry-state\*.lock` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RW)`, `BUILTIN\Administrators:(F)` |
+| `scripts/collect-host-telemetry.ps1` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RX)`, `BUILTIN\Administrators:(F)` |
+| `scripts/publish-host-telemetry.py` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RX)`, `BUILTIN\Administrators:(F)` |
+| `C:\ProgramData\OJU Video Forge\telemetry\audit.log` | SYSTEM | `SYSTEM:(F)`, `ERE\akoso:(RW)`, `BUILTIN\Administrators:(R)` |
 
 ---
 
@@ -138,7 +151,7 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 - **Path:** `C:\ProgramData\OJU Video Forge\telemetry\audit.log`
 - **Content:** Each run records: timestamp, exit code, RAM bytes, GPU bytes, sequence number, HMAC key ID, errors
 - **Rotation:** Max 10 MB per file, max 5 rotated files
-- **ACL:** `SYSTEM:(F)`, `ERE\ovf-telemetry:(RW)`, `BUILTIN\Administrators:(R)`
+- **ACL:** `SYSTEM:(F)`, `ERE\akoso:(RW)`, `BUILTIN\Administrators:(R)`
 - **Event log:** Task Scheduler also records task start/completion/failure in the Windows Event Log (`Microsoft-Windows-TaskScheduler/Operational`)
 
 ---
@@ -160,10 +173,10 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 
 **Uninstall:**
 1. Delete the scheduled task (`OJU Host Telemetry Publisher`)
-2. Remove `ERE\ovf-telemetry` account
+2. **Do not** remove `ERE\akoso` account (existing account, not created for this purpose)
 3. Delete `C:\ProgramData\OJU Video Forge\telemetry\` directory (after backing up state.json)
 4. Delete `C:\ProgramData\OJU Video Forge\secrets\` directory (after key rotation backup)
-5. Remove `SeBatchLogonRight` from account (if account retained)
+5. **No** `SeBatchLogonRight` removal needed (inherited via Administrators membership)
 
 **Rollback:**
 1. Disable (not delete) the scheduled task
@@ -177,9 +190,9 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 
 ## 12A. Source-to-runtime drift (pre-activation corrections required)
 
-**The running API and worker containers are stale relative to commit `097bd3c` (Phase 10B).** The following drift must be resolved before telemetry activation:
+**The running API and worker containers are stale relative to commit `ee3ce52` (Phase 10D).** The following drift must be resolved before telemetry activation:
 
-| Area | Running (stale) | Required (Phase 10B) |
+| Area | Running (stale) | Required (Phase 10D) |
 |------|----------------|---------------------|
 | Image code | Pre-Phase-10B: no `_telemetry_hmac_key_file()` support | Post-Phase-10B: reads key from `INFERENCE_TELEMETRY_HMAC_KEY_FILE` |
 | HMAC config | `INFERENCE_TELEMETRY_HMAC_KEY=<set>` (key VALUE in env) | `INFERENCE_TELEMETRY_HMAC_KEY_FILE=/run/secrets/telemetry-hmac.key` (file path) |
@@ -188,10 +201,10 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 | Key location | `C:\ProgramData\OJU Video Forge\telemetry\hmac.key` | `C:\ProgramData\OJU Video Forge\secrets\hmac.key` |
 
 **Required actions before activation:**
-1. Redeploy API and worker images from commit `097bd3c` (new code + new env + new mounts)
-2. Move the HMAC key from `telemetry/hmac.key` to `secrets/hmac.key` (preserve the same 32-byte key — do not generate a new one)
-3. Create `C:\ProgramData\OJU Video Forge\secrets\` directory with ACL `SYSTEM:(F)`, `ERE\ovf-telemetry:(R)`, `BUILTIN\Administrators:(F)`
-4. Update compose.yaml to mount only the single key file (already in `compose.yaml` at commit `097bd3c`)
+1. Redeploy API and worker images from commit `ee3ce52` (new code + new env + new mounts)
+2. Move the HMAC key from `telemetry/hmac.key` to `secrets/hmac.key` (preserve the same 32-byte key — do not generate a new one) — **staged; old copy retained until verified**
+3. Create `C:\ProgramData\OJU Video Forge\secrets\` directory with ACL `SYSTEM:(F)`, `ERE\akoso:(R)`, `BUILTIN\Administrators:(F)` — **completed**
+4. Update compose.yaml to mount only the single key file (already in `compose.yaml` at commit `ee3ce52`)
 5. Preserve existing sequence states: publisher `{"last_sequence":8}`, consumer `{"ere-host":{"sequence":8}}` — do not reset
 
 ---
@@ -208,6 +221,7 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 
 ## 14. Explicitly NOT included (by design)
 
+- **No `ovf-telemetry` service account** — uses existing `ERE\akoso` account; no additional Windows identities introduced
 - **No persistent Windows service** — uses Task Scheduler, not a service (per constraint: no persistent Windows telemetry service without owner authorization)
 - **No remote telemetry transmission** — local file output only; consumers (API/worker) read the file via bind-mounted volume
 - **No GPU process attribution** — aggregate GPU capacity only via nvidia-smi; WDDM process attribution explicitly out of scope
@@ -220,9 +234,10 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 
 Before owner approval, confirm:
 
-- [ ] `ERE\ovf-telemetry` account created with correct privileges
-- [ ] HMAC key generated and placed in secrets directory with correct ACLs
-- [ ] Key file is outside the observation directory (no key in telemetry/ mount)
+- [ ] `ERE\akoso` confirmed as member of local `BUILTIN\Administrators` (no new account created)
+- [ ] HMAC key copied to `secrets\hmac.key` with correct ACLs (`SYSTEM:(F)`, `ERE\akoso:(R)`, `BUILTIN\Administrators:(F)`)
+- [ ] Key file is outside the observation directory (no key in `telemetry/` mount)
+- [ ] Old key copy retained at `telemetry\hmac.key` until consumer access verified
 - [ ] Task definition XML reviewed for absence of secrets
 - [ ] Task in **disabled** state after install
 - [ ] `collect-host-telemetry.ps1` verified on ERE host (exit 0, correct output)
@@ -231,13 +246,11 @@ Before owner approval, confirm:
 - [ ] `INFERENCE_TELEMETRY_CLOCK_SKEW_SECONDS=5` configured in candidate services
 - [ ] `INFERENCE_TELEMETRY_HMAC_KEY_FILE` configured in candidate services (key file path, not key value)
 - [ ] Rollback procedure tested
+- [ ] Elevation verified explicitly before registration attempt (`IsInRole(Administrator)` = `$true`)
 
 **Owner approval required for:** task creation, task enablement, key deployment, scheduled-task activation
 
 **Administrator action required:** Task registration requires an elevated administrator session (current `ERE\akoso` token is UAC-filtered; run `Start-Process powershell -Verb RunAs`). From the elevated session:
-1. Create the `ERE\ovf-telemetry` account (or confirm it exists)
-2. Assign `SeBatchLogonRight` to `ERE\ovf-telemetry` (Task Scheduler batch logon)
-3. Register the `OJU Host Telemetry Publisher` scheduled task
-4. Enable the task when ready for production
-
----
+1. Confirm `ERE\akoso` Administrators membership
+2. Register the `OJU Host Telemetry Publisher` scheduled task under `ERE\akoso`
+3. Enable the task when ready for production

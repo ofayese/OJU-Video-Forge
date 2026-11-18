@@ -6,6 +6,34 @@
 
 ---
 
+## 0. Configuration modes
+
+### ERE development configuration
+
+| Element | Value |
+|---------|-------|
+| Execution identity | `ERE\akoso` (existing account, local Administrators) |
+| HMAC key | Local protected file: `C:\ProgramData\OJU Video Forge\secrets\hmac.key` |
+| Task scheduler | Windows scheduled task (`OJU Host Telemetry Publisher`) |
+| Runtime | Local Docker Desktop |
+| Secret management | Local file ACLs (no remote secret store) |
+| Orchestration | Docker Compose on localhost |
+
+### Future production configuration
+
+| Element | Value |
+|---------|-------|
+| Execution identity | Deployment-specific identity (not `ERE\akoso`) |
+| HMAC key | Target-host secret management (not a local file) |
+| Task scheduler | Production workload orchestration (not Windows Task Scheduler) |
+| Runtime | Target-specific (not Docker Desktop) |
+| Secret management | Target-specific security and compliance controls |
+| Orchestration | Target-specific (not Docker Compose on localhost) |
+
+The final hosting platform is not prescribed by this document. The ERE development configuration uses only the existing `akoso` account and local infrastructure; migration to production requires re-keying identity, secret management, and orchestration without rewriting the core application.
+
+---
+
 ## 1. Preflight and job-idleness checks
 
 Before any deployment, verify:
@@ -27,15 +55,15 @@ Before any deployment, verify:
 
 | Service | Image | Tag | Digest |
 |---------|-------|-----|--------|
-| API | `oju-video-forge-api` | `candidate-telemetry` | `sha256:3aacae74118844bdfb8fcd1d62c69915433b55c37eebfe97249416552cbef1fa` |
-| Render worker | `oju-video-forge-render-worker` | `candidate-telemetry` | `sha256:e4b77b89c61fbf8251095c78acfccaee1553cad0c4eb359d49c7f50c13756700` |
+| API | `oju-video-forge/api` | `candidate-telemetry` | `sha256:66a33f0713d30b113e979323a6fd3a9e8b771f418068813b4a0d929b2d3b68d6` |
+| Render worker | `oju-video-forge/worker` | `candidate-telemetry` | `sha256:ca813cc4702c7c328227fb90277c40a0483daff6d33a09e7275b925623c55515` |
 
 **Preserved digests (rollback targets):**
 
 | Service | Image | Tag | Digest |
 |---------|-------|-----|--------|
-| API (current live) | `oju-video-forge-api` | `latest` | `sha256:6de7cf277fe6` |
-| Worker (current live) | `oju-video-forge-render-worker` | `latest` | `sha256:434a973073ec` |
+| API (current live) | `oju-video-forge-api` | `latest` | `sha256:cf05c5d5b27b` |
+| Worker (current live) | `oju-video-forge-render-worker` | `latest` | `sha256:5910206f5a76` |
 
 Images are immutable (digest-pinned); no tag mutation after promotion.
 
@@ -47,7 +75,7 @@ Images are immutable (digest-pinned); no tag mutation after promotion.
 
 | Secret | Source | Destination | Notes |
 |--------|--------|-------------|-------|
-| `INFERENCE_TELEMETRY_HMAC_KEY` | ERE host key file | Container env var (file path only) | Never the key value |
+| `INFERENCE_TELEMETRY_HMAC_KEY_FILE` | ERE host key file path | Container env var (file path only) | ERE dev: `C:\ProgramData\OJU Video Forge\secrets\hmac.key` → `/run/secrets/telemetry-hmac.key:ro`. Production: target-host secret management. Never the key value. |
 | `DB_PASSWORD` | `.env` | Container env var | Existing |
 | `FORGE_OPENWEBUI_TOKEN` | `.env` | Container env var | Existing |
 | `FORGE_CHATGPT_TOKEN` | `.env` | Container env var | Existing |
@@ -60,6 +88,7 @@ Images are immutable (digest-pinned); no tag mutation after promotion.
 | `artifacts` | Named volume | `/artifacts` | rw | Job artifacts |
 | `uploads` | Named volume | `/artifacts/projects` | rw | User uploads |
 | `config/workflows` | Bind mount | `/workflows` | ro | Worker workflow definitions |
+| `secrets/hmac.key` | Bind mount | `/run/secrets/telemetry-hmac.key` | ro | HMAC verification key (single file, not directory) |
 | `oju-video-forge_ollama-models` | Named volume | `/models` | ro | Ollama model storage (ollama container only) |
 
 ### Read-only rootfs
@@ -72,12 +101,15 @@ Both API and worker run with `read_only: true`; writable paths limited to `/tmp`
 
 **NOT activated by this runbook.** Telemetry publisher is a Windows scheduled task on ERE host (see `docs/operations/TELEMETRY-PUBLISHER-DEPLOYMENT-PLAN.md`).
 
+The task runs under the existing `ERE\akoso` account (no `ovf-telemetry` service account created).
+
 Deployment prerequisites for telemetry:
 
 - [ ] ERE host `observation.json` file exists at the path referenced by `INFERENCE_TELEMETRY_FILE`
-- [ ] HMAC key deployed to ERE host with correct ACLs
-- [ ] Candidate services configured with `INFERENCE_TELEMETRY_STATE_FILE`, `INFERENCE_TELEMETRY_HMAC_KEY`, `INFERENCE_TELEMETRY_MAX_AGE_SECONDS=30`, `INFERENCE_TELEMETRY_CLOCK_SKEW_SECONDS=5`
+- [ ] HMAC key deployed to ERE host at `C:\ProgramData\OJU Video Forge\secrets\hmac.key` with correct ACLs
+- [ ] Candidate services configured with `INFERENCE_TELEMETRY_STATE_FILE`, `INFERENCE_TELEMETRY_HMAC_KEY_FILE`, `INFERENCE_TELEMETRY_MAX_AGE_SECONDS=30`, `INFERENCE_TELEMETRY_CLOCK_SKEW_SECONDS=5`
 - [ ] `telemetry-state` named volume created and accessible
+- [ ] Publisher sequence state preserved (`{"last_sequence":8}`); consumer replay state preserved (`{"ere-host":{"sequence":8}}`)
 
 **Activation:** Requires separate owner approval (see Gate 4 plan, Section 14).
 
@@ -132,9 +164,9 @@ After both services are running:
 If any smoke check fails:
 
 1. **Stop candidate API:** `docker stop oju-video-forge-api-1 && docker rm oju-video-forge-api-1`
-2. **Start preserved API:** `docker run -d ... oju-video-forge-api:latest@sha256:6de7cf277fe6`
+2. **Start preserved API:** `docker run -d ... oju-video-forge-api:latest@sha256:cf05c5d5b27b`
 3. **Stop candidate worker:** `docker stop oju-video-forge-render-worker-1 && docker rm oju-video-forge-render-worker-1`
-4. **Start preserved worker:** `docker run -d ... oju-video-forge-render-worker:latest@sha256:434a973073ec`
+4. **Start preserved worker:** `docker run -d ... oju-video-forge-render-worker:latest@sha256:5910206f5a76`
 5. **Re-verify health:** All health checks pass with preserved images
 
 ---
@@ -175,10 +207,11 @@ After rollback:
 Before deployment:
 
 - [ ] Candidate image digests approved
-- [ ] Telemetry publisher scheduled task approved (Gate 4)
+- [ ] Telemetry publisher scheduled task approved under `ERE\akoso` (Gate 4)
 - [ ] Writing-model acquisition approved (qwen2.5:7b-instruct, digest pin, TRAINING_TEXT_* config)
 - [ ] Execution-gateway design approved (Gate 6 ADR-OVF-003)
 - [ ] Persistent telemetry task activation approved
 - [ ] Render-worker vulnerability remediation approved (if any unresolved findings)
+- [ ] No `ovf-telemetry` service account created or authorized
 
 **No deployment proceeds without all approvals.**
