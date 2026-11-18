@@ -11,11 +11,25 @@
 The scheduled task runs under a dedicated, non-interactive service account:
 
 - **Account:** `ERE\ovf-telemetry` (new local account, created by the install script)
-- **Logon type:** Service (`SERVICE_LOGON_TYPE`), not interactive
+- **Logon type:** Batch (`BATCH_LOGON_TYPE`), not interactive — Task Scheduler uses batch logon, not service logon
 - **Group membership:** None beyond `Users`; removed from `Administrators`
-- **Privileges:** `SeServiceLogonRight` only; `SeBatchLogonRight` revoked after task creation
+- **Privileges:** `SeBatchLogonRight` required for Task Scheduler batch logon; `SeServiceLogonRight` NOT required (no persistent Windows service)
 - **Password:** 32-character random, stored in Windows Credential Manager, rotated per key rotation schedule
 - **Justification:** Isolation from the interactive `akoso` account and from any other scheduled tasks; least-privilege execution
+
+---
+
+## 1A. Elevation and UAC requirements
+
+**Current interactive user (`ERE\akoso`) is a member of `BUILTIN\Administrators`, but the default PowerShell process runs with a UAC-filtered token.**
+
+- `whoami /groups` confirms `BUILTIN\Administrators` membership (Group owner, Enabled by default)
+- `[Security.Principal.WindowsPrincipal]::IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)` returns `False` in the current (filtered) process
+- The Administrators group is absent from the current process token (UAC filtering)
+
+**Consequence:** `Register-ScheduledTask` returns "Access is denied" when run from a non-elevated PowerShell session. Task registration **must** be performed from an elevated administrator session (`Start-Process powershell -Verb RunAs`).
+
+**Do not** change Administrators membership — the user is already a member; only elevation is required.
 
 ---
 
@@ -149,7 +163,7 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 2. Remove `ERE\ovf-telemetry` account
 3. Delete `C:\ProgramData\OJU Video Forge\telemetry\` directory (after backing up state.json)
 4. Delete `C:\ProgramData\OJU Video Forge\secrets\` directory (after key rotation backup)
-5. Remove `SeServiceLogonRight` from account (if account retained)
+5. Remove `SeBatchLogonRight` from account (if account retained)
 
 **Rollback:**
 1. Disable (not delete) the scheduled task
@@ -158,6 +172,27 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 4. Re-enable task when ready
 
 **Re-enablement:** Requires explicit owner approval; task remains disabled by default after install
+
+---
+
+## 12A. Source-to-runtime drift (pre-activation corrections required)
+
+**The running API and worker containers are stale relative to commit `097bd3c` (Phase 10B).** The following drift must be resolved before telemetry activation:
+
+| Area | Running (stale) | Required (Phase 10B) |
+|------|----------------|---------------------|
+| Image code | Pre-Phase-10B: no `_telemetry_hmac_key_file()` support | Post-Phase-10B: reads key from `INFERENCE_TELEMETRY_HMAC_KEY_FILE` |
+| HMAC config | `INFERENCE_TELEMETRY_HMAC_KEY=<set>` (key VALUE in env) | `INFERENCE_TELEMETRY_HMAC_KEY_FILE=/run/secrets/telemetry-hmac.key` (file path) |
+| Observation mount | `telemetry/` directory (includes `hmac.key` inside mount) | `telemetry/` observation subdirectory only (key excluded) |
+| Secret mount | None (key accessible via observation mount) | `secrets/hmac.key` → `/run/secrets/telemetry-hmac.key:ro` (single file) |
+| Key location | `C:\ProgramData\OJU Video Forge\telemetry\hmac.key` | `C:\ProgramData\OJU Video Forge\secrets\hmac.key` |
+
+**Required actions before activation:**
+1. Redeploy API and worker images from commit `097bd3c` (new code + new env + new mounts)
+2. Move the HMAC key from `telemetry/hmac.key` to `secrets/hmac.key` (preserve the same 32-byte key — do not generate a new one)
+3. Create `C:\ProgramData\OJU Video Forge\secrets\` directory with ACL `SYSTEM:(F)`, `ERE\ovf-telemetry:(R)`, `BUILTIN\Administrators:(F)`
+4. Update compose.yaml to mount only the single key file (already in `compose.yaml` at commit `097bd3c`)
+5. Preserve existing sequence states: publisher `{"last_sequence":8}`, consumer `{"ere-host":{"sequence":8}}` — do not reset
 
 ---
 
@@ -177,7 +212,7 @@ The `apply_file_protection` function in `app/host_telemetry.py` applies ACLs to 
 - **No remote telemetry transmission** — local file output only; consumers (API/worker) read the file via bind-mounted volume
 - **No GPU process attribution** — aggregate GPU capacity only via nvidia-smi; WDDM process attribution explicitly out of scope
 - **No automatic activation** — task is created in disabled state; owner must explicitly enable
-- **No task registration by non-administrator** — current interactive user (`akoso`) is not a member of Administrators; task registration requires an authorized administrator or deployment identity with `SeServiceLogonRight` assignment rights
+- **No task registration by non-elevated user** — `ERE\akoso` IS a member of `BUILTIN\Administrators` but the default PowerShell process runs with a UAC-filtered token (IsAdmin=False). Task registration requires an elevated administrator session (`Start-Process powershell -Verb RunAs`).
 
 ---
 
@@ -199,9 +234,9 @@ Before owner approval, confirm:
 
 **Owner approval required for:** task creation, task enablement, key deployment, scheduled-task activation
 
-**Administrator action required:** Task registration cannot be performed by the current interactive user (`akoso` is not a member of `BUILTIN\Administrators`). An authorized administrator or deployment identity must:
+**Administrator action required:** Task registration requires an elevated administrator session (current `ERE\akoso` token is UAC-filtered; run `Start-Process powershell -Verb RunAs`). From the elevated session:
 1. Create the `ERE\ovf-telemetry` account (or confirm it exists)
-2. Assign `SeServiceLogonRight` to `ERE\ovf-telemetry`
+2. Assign `SeBatchLogonRight` to `ERE\ovf-telemetry` (Task Scheduler batch logon)
 3. Register the `OJU Host Telemetry Publisher` scheduled task
 4. Enable the task when ready for production
 
