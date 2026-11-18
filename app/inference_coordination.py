@@ -131,7 +131,9 @@ def _expected_telemetry_key() -> bytes | None:
 
 
 def _verify_telemetry_signature(payload: dict[str, Any], signature: str, key: bytes) -> bool:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    # Canonical encoding must match the publisher's signing scheme exactly:
+    # app.host_telemetry.canonical_payload uses ensure_ascii=False.
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     expected = hmac.new(key, canonical, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
 

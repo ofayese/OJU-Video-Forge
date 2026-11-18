@@ -38,7 +38,7 @@ services:
   api:
     <<: *common
     security_opt: []
-    cap_add: [SETUID, SETGID]
+    cap_add: [SETUID, SETGID, CHOWN]
     build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
     cpus: 1.0
     mem_limit: 512m
@@ -114,7 +114,7 @@ services:
   render-worker:
     <<: *common
     security_opt: []
-    cap_add: [SETUID, SETGID]
+    cap_add: [SETUID, SETGID, CHOWN]
     build: {context: ., dockerfile: services/worker/Dockerfile}
     cpus: 2.0
     mem_limit: 2g
