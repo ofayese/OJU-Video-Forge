@@ -14,7 +14,6 @@ problem. Does not restart or recreate any running services.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path

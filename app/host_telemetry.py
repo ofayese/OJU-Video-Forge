@@ -38,11 +38,11 @@ class HostTelemetryError(RuntimeError):
     """Raised when host telemetry collection or publishing cannot proceed."""
 
 
-class CollectorUnavailable(HostTelemetryError):
+class CollectorUnavailableError(HostTelemetryError):
     """Raised when the host collector cannot be invoked or produces no output."""
 
 
-class MeasurementInvalid(HostTelemetryError):
+class MeasurementInvalidError(HostTelemetryError):
     """Raised when a collected measurement is unavailable, malformed, or contradictory."""
 
 
@@ -110,7 +110,7 @@ def _resolve_powershell() -> str:
             continue
         if result.returncode == 0 and result.stdout.strip():
             return name
-    raise CollectorUnavailable("no PowerShell interpreter found on PATH")
+    raise CollectorUnavailableError("no PowerShell interpreter found on PATH")
 
 
 def _collector_script_path() -> Path:
@@ -126,7 +126,7 @@ def _run_collector(
     """Invoke the PowerShell collector and return the parsed measurement JSON."""
     script = _collector_script_path()
     if not script.is_file():
-        raise CollectorUnavailable(f"collector script not found: {script}")
+        raise CollectorUnavailableError(f"collector script not found: {script}")
     powershell = _resolve_powershell()
     try:
         completed = subprocess.run(
@@ -151,35 +151,35 @@ def _run_collector(
             check=False,
         )
     except FileNotFoundError as exc:
-        raise CollectorUnavailable("PowerShell interpreter disappeared during invocation") from exc
+        raise CollectorUnavailableError("PowerShell interpreter disappeared during invocation") from exc
     except subprocess.TimeoutExpired as exc:
-        raise CollectorUnavailable(f"collector timed out after {timeout_seconds}s") from exc
+        raise CollectorUnavailableError(f"collector timed out after {timeout_seconds}s") from exc
 
     raw = (completed.stdout or "").strip()
     if not raw:
         stderr = (completed.stderr or "").strip()
-        raise CollectorUnavailable(
+        raise CollectorUnavailableError(
             f"collector produced no output (exit {completed.returncode}): {stderr}"
         )
     try:
         measurement = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise CollectorUnavailable(f"collector output is not valid JSON: {exc}") from exc
+        raise CollectorUnavailableError(f"collector output is not valid JSON: {exc}") from exc
     if not isinstance(measurement, dict):
-        raise CollectorUnavailable("collector output is not a JSON object")
+        raise CollectorUnavailableError("collector output is not a JSON object")
     return measurement
 
 
 def _require_int(value: Any, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise MeasurementInvalid(f"{field} must be an integer")
+        raise MeasurementInvalidError(f"{field} must be an integer")
     return value
 
 
 def _require_non_negative_int(value: Any, field: str) -> int:
     result = _require_int(value, field)
     if result < 0:
-        raise MeasurementInvalid(f"{field} must not be negative")
+        raise MeasurementInvalidError(f"{field} must not be negative")
     return result
 
 
@@ -191,55 +191,55 @@ def validate_measurement(measurement: dict[str, Any]) -> TelemetryObservation:
     gpu_capacity_ok=false.
     """
     if not isinstance(measurement, dict):
-        raise MeasurementInvalid("measurement is not an object")
+        raise MeasurementInvalidError("measurement is not an object")
 
     status = measurement.get("measurement_status")
     if not isinstance(status, str):
-        raise MeasurementInvalid("measurement_status is missing or not a string")
+        raise MeasurementInvalidError("measurement_status is missing or not a string")
 
     source_id = measurement.get("source_id")
     if not isinstance(source_id, str) or not source_id:
-        raise MeasurementInvalid("source_id is missing or empty")
+        raise MeasurementInvalidError("source_id is missing or empty")
 
     host_id = measurement.get("host_id")
     if not isinstance(host_id, str) or not host_id:
-        raise MeasurementInvalid("host_id is missing or empty")
+        raise MeasurementInvalidError("host_id is missing or empty")
 
     collector_version = measurement.get("collector_version")
     if not isinstance(collector_version, str) or not collector_version:
-        raise MeasurementInvalid("collector_version is missing or empty")
+        raise MeasurementInvalidError("collector_version is missing or empty")
 
     sequence = measurement.get("sequence")
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
-        raise MeasurementInvalid("sequence is missing or not a non-negative integer")
+        raise MeasurementInvalidError("sequence is missing or not a non-negative integer")
 
     iso_timestamp = measurement.get("iso_timestamp")
     if not isinstance(iso_timestamp, str) or not iso_timestamp:
-        raise MeasurementInvalid("iso_timestamp is missing or empty")
+        raise MeasurementInvalidError("iso_timestamp is missing or empty")
 
     collected_at_raw = measurement.get("collected_at")
     try:
         collected_at = float(collected_at_raw)
     except (TypeError, ValueError) as exc:
-        raise MeasurementInvalid("collected_at is missing or not a number") from exc
+        raise MeasurementInvalidError("collected_at is missing or not a number") from exc
     if math.isnan(collected_at) or collected_at in (float("inf"), float("-inf")):
-        raise MeasurementInvalid("collected_at is not a finite number")
+        raise MeasurementInvalidError("collected_at is not a finite number")
 
     max_age_raw = measurement.get("max_age_seconds", DEFAULT_MAX_AGE_SECONDS)
     try:
         max_age_seconds = int(max_age_raw)
     except (TypeError, ValueError) as exc:
-        raise MeasurementInvalid("max_age_seconds is not an integer") from exc
+        raise MeasurementInvalidError("max_age_seconds is not an integer") from exc
     if max_age_seconds <= 0:
-        raise MeasurementInvalid("max_age_seconds must be positive")
+        raise MeasurementInvalidError("max_age_seconds must be positive")
 
     available_ram = _require_non_negative_int(measurement.get("available_ram_bytes"), "available_ram_bytes")
     if available_ram == 0:
-        raise MeasurementInvalid("available_ram_bytes is zero; cannot confirm usable RAM")
+        raise MeasurementInvalidError("available_ram_bytes is zero; cannot confirm usable RAM")
 
     gpu_capacity_ok = measurement.get("gpu_capacity_ok")
     if not isinstance(gpu_capacity_ok, bool):
-        raise MeasurementInvalid("gpu_capacity_ok must be a boolean")
+        raise MeasurementInvalidError("gpu_capacity_ok must be a boolean")
 
     gpu_free = measurement.get("gpu_free_bytes")
     gpu_total = measurement.get("gpu_total_bytes")
@@ -250,9 +250,9 @@ def validate_measurement(measurement: dict[str, Any]) -> TelemetryObservation:
     if gpu_total is not None:
         gpu_total_int = _require_non_negative_int(gpu_total, "gpu_total_bytes")
     if gpu_free_int is not None and gpu_total_int is not None and gpu_free_int > gpu_total_int:
-        raise MeasurementInvalid("gpu_free_bytes exceeds gpu_total_bytes")
+        raise MeasurementInvalidError("gpu_free_bytes exceeds gpu_total_bytes")
     if gpu_capacity_ok and gpu_total_int is None:
-        raise MeasurementInvalid("gpu_capacity_ok is true but gpu_total_bytes is not measured")
+        raise MeasurementInvalidError("gpu_capacity_ok is true but gpu_total_bytes is not measured")
 
     return TelemetryObservation(
         collected_at=collected_at,

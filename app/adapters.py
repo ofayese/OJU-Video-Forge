@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from .agents import AgentUnavailable, LocalOllamaAdapter
+from .agents import AgentUnavailableError, LocalOllamaAdapter
 from .config import get_settings
 from .training import TrainingGeneration
 
@@ -64,13 +64,13 @@ class RoleConfig:
 
     def validate(self, *, allow_host_endpoint: bool) -> None:
         if self.provider != "ollama":
-            raise AgentUnavailable(f"{self.role}_provider_unconfigured")
+            raise AgentUnavailableError(f"{self.role}_provider_unconfigured")
         if not self.model or not _DIGEST_RE.fullmatch(self.model_digest or ""):
-            raise AgentUnavailable(f"{self.role}_configuration_invalid")
+            raise AgentUnavailableError(f"{self.role}_configuration_invalid")
         if canonical_ollama_endpoint(self.url):
             return
         if not allow_host_endpoint:
-            raise AgentUnavailable(f"{self.role}_endpoint_not_canonical")
+            raise AgentUnavailableError(f"{self.role}_endpoint_not_canonical")
         try:
             parsed = urlparse(self.url)
             host = parsed.hostname or ""
@@ -91,7 +91,7 @@ class RoleConfig:
             ):
                 raise ValueError
         except (ValueError, TypeError):
-            raise AgentUnavailable(f"{self.role}_endpoint_not_canonical") from None
+            raise AgentUnavailableError(f"{self.role}_endpoint_not_canonical") from None
 
     def provenance(self) -> dict[str, Any]:
         return {
@@ -171,7 +171,7 @@ def _build_adapter(config: RoleConfig) -> SharedOllamaTransport:
 def get_vision_adapter() -> VisionInferenceAdapter:
     settings = get_settings()
     if not settings.agents_enabled:
-        raise AgentUnavailable("vision_adapter_disabled")
+        raise AgentUnavailableError("vision_adapter_disabled")
     adapter = _build_adapter(vision_role_config())
     assert isinstance(adapter, VisionInferenceAdapter)
     return adapter
@@ -180,10 +180,10 @@ def get_vision_adapter() -> VisionInferenceAdapter:
 def get_training_text_adapter() -> TrainingTextAdapter:
     settings = get_settings()
     if not settings.agents_enabled:
-        raise AgentUnavailable("training_text_disabled")
+        raise AgentUnavailableError("training_text_disabled")
     config = training_text_role_config()
     if not config.complete:
-        raise AgentUnavailable("training_text_unconfigured")
+        raise AgentUnavailableError("training_text_unconfigured")
     adapter = _build_adapter(config)
     assert isinstance(adapter, TrainingTextAdapter)
     return adapter
@@ -212,7 +212,7 @@ def training_text_status(existing_provider: dict | None = None) -> dict[str, Any
         }
     try:
         adapter = get_training_text_adapter()
-    except AgentUnavailable as exc:
+    except AgentUnavailableError as exc:
         reason = str(exc)
         status = "unavailable" if "unavailable" in reason else "unconfigured"
         return {
@@ -224,7 +224,7 @@ def training_text_status(existing_provider: dict | None = None) -> dict[str, Any
         }
     try:
         result = adapter.status(existing_provider)
-    except AgentUnavailable as exc:
+    except AgentUnavailableError as exc:
         return {
             "status": "unavailable",
             "reason": str(exc),

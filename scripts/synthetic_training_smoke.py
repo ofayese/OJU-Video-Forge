@@ -10,7 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import agents, api, narration as media, narration_jobs
+from app import agents, api, narration_jobs
+from app import narration as media
 from app.auth import Actor, get_current_actor
 from app.config import Settings
 from app.core import Base, Job, MediaAsset, Project, ProjectMembership, User

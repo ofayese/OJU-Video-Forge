@@ -183,15 +183,15 @@ def test_default_adapter_is_disabled():
 
 def test_enabled_agent_requires_explicit_pinned_local_configuration(monkeypatch):
     monkeypatch.setattr(agents, "get_settings", lambda: Settings(agents_enabled=True))
-    with pytest.raises(agents.AgentUnavailable, match="unconfigured"):
+    with pytest.raises(agents.AgentUnavailableError, match="unconfigured"):
         agents.get_agent_adapter()
-    with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
+    with pytest.raises(agents.AgentUnavailableError, match="configuration_invalid"):
         agents.LocalOllamaAdapter("https://public.example", "model", "a" * 64)
-    with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
+    with pytest.raises(agents.AgentUnavailableError, match="configuration_invalid"):
         agents.LocalOllamaAdapter(
             "http://localhost:11434", "model", "latest", allow_host_endpoint=True
         )
-    with pytest.raises(agents.AgentUnavailable, match="configuration_invalid"):
+    with pytest.raises(agents.AgentUnavailableError, match="configuration_invalid"):
         agents.LocalOllamaAdapter("http://localhost:not-a-port", "model", "a" * 64)
 
 
@@ -502,7 +502,7 @@ def test_training_stage_failures_capture_safe_structured_diagnostics(
         "request": {},
     }
 
-    with pytest.raises(agents.AgentUnavailable, match=error) as failure:
+    with pytest.raises(agents.AgentUnavailableError, match=error) as failure:
         adapter.generate_training(evidence, lambda: None)
 
     diagnostic = failure.value.diagnostics[0]
@@ -564,7 +564,7 @@ def test_local_adapter_rejects_token_truncated_chat_response(monkeypatch):
     adapter = agents.LocalOllamaAdapter(
         "http://localhost:11434", "model", digest, allow_host_endpoint=True
     )
-    with pytest.raises(agents.AgentUnavailable, match="generation_incomplete"):
+    with pytest.raises(agents.AgentUnavailableError, match="generation_incomplete"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
 
@@ -586,7 +586,7 @@ def test_local_adapter_rejects_mismatched_model_without_generation(monkeypatch):
     adapter = agents.LocalOllamaAdapter(
         "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
     )
-    with pytest.raises(agents.AgentUnavailable, match="identity"):
+    with pytest.raises(agents.AgentUnavailableError, match="identity"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
     assert paths == ["/api/tags"]
 
@@ -630,7 +630,7 @@ def test_local_adapter_rejects_identity_change_after_generation(monkeypatch):
     adapter = agents.LocalOllamaAdapter(
         "http://localhost:11434", "model", digest, allow_host_endpoint=True
     )
-    with pytest.raises(agents.AgentUnavailable, match="identity"):
+    with pytest.raises(agents.AgentUnavailableError, match="identity"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
 
@@ -657,7 +657,7 @@ def test_local_adapter_bounds_provider_responses(monkeypatch, response):
     adapter = agents.LocalOllamaAdapter(
         "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
     )
-    with pytest.raises(agents.AgentUnavailable, match="response"):
+    with pytest.raises(agents.AgentUnavailableError, match="response"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
 
@@ -683,7 +683,7 @@ def test_local_adapter_checks_deadline_on_small_stream_chunks(monkeypatch):
     adapter = agents.LocalOllamaAdapter(
         "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
     )
-    with pytest.raises(agents.AgentUnavailable, match="timeout"):
+    with pytest.raises(agents.AgentUnavailableError, match="timeout"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
 
@@ -700,7 +700,7 @@ def test_local_adapter_reports_provider_timeout_and_preserves_cancellation(monke
     adapter = agents.LocalOllamaAdapter(
         "http://localhost:11434", "model", "a" * 64, allow_host_endpoint=True
     )
-    with pytest.raises(agents.AgentUnavailable, match="agent_provider_timeout"):
+    with pytest.raises(agents.AgentUnavailableError, match="agent_provider_timeout"):
         adapter.propose("synthetic", agents.ALLOWED_TOOLS)
 
     def cancel():

@@ -45,7 +45,7 @@ from . import narration as narration_media
 from .adapters import training_text_status
 from .agents import (
     ALLOWED_TOOLS,
-    AgentUnavailable,
+    AgentUnavailableError,
     get_agent_adapter,
     validate_agent_output,
 )
@@ -2306,7 +2306,7 @@ def create_agent_proposal(
             raw_output = get_agent_adapter().propose(payload.task, ALLOWED_TOOLS)
     except InferenceCoordinationError as exc:
         raise HTTPException(503, str(exc)) from None
-    except AgentUnavailable:
+    except AgentUnavailableError:
         raise HTTPException(503, "Agent adapter is unavailable") from None
     except Exception:
         raise HTTPException(502, "Agent proposal failed") from None

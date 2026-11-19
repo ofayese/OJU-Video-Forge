@@ -233,7 +233,7 @@ def transcribe(source: Path, directory: Path, metadata: dict, check: Callable[[]
 
 
 def vision(frame: Path, check: Callable[[], None]) -> dict:
-    from .agents import AgentUnavailable, LocalOllamaAdapter
+    from .agents import AgentUnavailableError, LocalOllamaAdapter
     from .inference_coordination import (
         InferenceCoordinationError,
         require_active_inference_lease,
@@ -343,7 +343,7 @@ def vision(frame: Path, check: Callable[[], None]) -> dict:
         caps2 = info2.get("capabilities") if isinstance(info2, dict) else None
         if not isinstance(caps2, list) or "vision" not in caps2:
             raise NarrationError("vision_model_incompatible")
-    except AgentUnavailable as exc:
+    except AgentUnavailableError as exc:
         reason = str(exc)
         if "agent_model_identity_unavailable_or_changed" in reason:
             raise NarrationError("vision_model_identity_unavailable_or_changed") from exc

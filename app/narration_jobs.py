@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 
 from . import narration as media
 from .adapters import get_training_text_adapter, training_text_status
-from .agents import AgentUnavailable
+from .agents import AgentUnavailableError
 from .core import (
     ARTIFACT_ROOT,
     Audit,
@@ -353,7 +353,7 @@ def execute(db, job, check):
                 if (row.revision != source_revision or row.source_sha256 != source_sha256
                         or current_identity != procedure_identity):
                     raise media.NarrationError("training_generation_source_stale")
-            except AgentUnavailable as exc:
+            except AgentUnavailableError as exc:
                 if exc.diagnostics:
                     db.refresh(row)
                     if (row.revision == job.spec["revision"]
