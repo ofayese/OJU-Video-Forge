@@ -7,7 +7,6 @@ import re
 import uuid
 from pathlib import Path
 
-
 _KEY = re.compile(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 
 

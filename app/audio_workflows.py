@@ -8,7 +8,6 @@ import json
 import re
 import wave
 
-
 WORKFLOW_VERSION = 1
 MAX_AUDIO_BYTES = 64 * 1024 * 1024
 MAX_AUDIO_DURATION_MS = 2 * 60 * 60 * 1000

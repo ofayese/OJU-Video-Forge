@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -102,7 +102,7 @@ class FakeAdapter:
                 workflow_sha256="a" * 64,
                 prompt_id="prompt-1",
                 comfyui_base_url="http://comfyui:8188",
-                retrieved_at=datetime.now(timezone.utc),
+                retrieved_at=datetime.now(UTC),
                 media_probe=probe,
             )
         ]

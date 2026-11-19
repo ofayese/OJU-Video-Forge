@@ -152,7 +152,7 @@ def test_model_steps_fail_explicitly_and_can_be_retried(workflow_app):
     )
     assert submitted.status_code == 202
     job_id = submitted.json()["id"]
-    with pytest.raises(worker.ModelProviderUnavailable):
+    with pytest.raises(worker.ModelProviderUnavailableError):
         worker.execute(job_id)
     failed = client.get(f"/v1/projects/{project_id}/workflows/{job_id}").json()
     assert failed["status"] == "failed"
@@ -168,14 +168,14 @@ def test_model_steps_fail_explicitly_and_can_be_retried(workflow_app):
         assert job.retry_of_id == job_id
         assert job.spec["attempt"] == 2
     assert client.post(f"/v1/projects/{project_id}/workflows/{retry_id}/retry").status_code == 409
-    with pytest.raises(worker.ModelProviderUnavailable):
+    with pytest.raises(worker.ModelProviderUnavailableError):
         worker.execute(retry_id)
     retry2 = client.post(f"/v1/projects/{project_id}/workflows/{retry_id}/retry")
     assert retry2.status_code == 202
     retry2_id = retry2.json()["id"]
     with sessions() as db:
         assert db.get(Job, retry2_id).spec["attempt"] == 3
-    with pytest.raises(worker.ModelProviderUnavailable):
+    with pytest.raises(worker.ModelProviderUnavailableError):
         worker.execute(retry2_id)
     assert client.post(f"/v1/projects/{project_id}/workflows/{retry2_id}/retry").status_code == 409
 
@@ -217,7 +217,7 @@ def test_narration_step_is_versioned_and_marks_missing_provider(workflow_app):
         assert job.spec["input_manifest"][0]["kind"] == "narration_text"
         assert job.spec["input_manifest"][0]["sha256"] == hashlib.sha256(
             b"Synthetic narration").hexdigest()
-    with pytest.raises(worker.ModelProviderUnavailable):
+    with pytest.raises(worker.ModelProviderUnavailableError):
         worker.execute(job_id)
     result = client.get(f"/v1/projects/{project_id}/workflows/{job_id}").json()
     assert result["status"] == "failed"

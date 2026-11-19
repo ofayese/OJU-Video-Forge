@@ -6,7 +6,7 @@ import pytest
 
 from app.comfyui import (
     ComfyUIAdapter,
-    ComfyUIMalformedResponse,
+    ComfyUIMalformedResponseError,
     WorkflowRegistry,
 )
 
@@ -91,7 +91,7 @@ def test_adapter_rejects_public_comfyui_hosts_and_unsafe_output(tmp_path):
     with pytest.raises(ValueError, match="private"):
         ComfyUIAdapter("https://example.com", registry(), tmp_path)
 
-    with pytest.raises(ComfyUIMalformedResponse, match="unsafe"):
+    with pytest.raises(ComfyUIMalformedResponseError, match="unsafe"):
         ComfyUIAdapter._output_descriptors(
             {"1": {"videos": [{"filename": "../outside.mp4", "type": "output"}]}}
         )

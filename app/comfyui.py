@@ -19,7 +19,7 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -33,7 +33,7 @@ class ComfyUIError(RuntimeError):
     """Base error for adapter failures."""
 
 
-class WorkflowNotAllowed(ComfyUIError):
+class WorkflowNotAllowedError(ComfyUIError):
     """The requested workflow ID or input is not registered."""
 
 
@@ -41,23 +41,23 @@ class ComfyUIRequestError(ComfyUIError):
     """ComfyUI could not complete an HTTP request."""
 
 
-class ComfyUIMalformedResponse(ComfyUIError):
+class ComfyUIMalformedResponseError(ComfyUIError):
     """ComfyUI returned data that does not match the expected API shape."""
 
 
-class ComfyUIMissingOutput(ComfyUIError):
+class ComfyUIMissingOutputError(ComfyUIError):
     """The completed workflow did not expose a retrievable output."""
 
 
-class ComfyUITimeout(ComfyUIError):
+class ComfyUITimeoutError(ComfyUIError):
     """The workflow did not complete before the configured deadline."""
 
 
-class ComfyUIJobFailed(ComfyUIError):
+class ComfyUIJobFailedError(ComfyUIError):
     """ComfyUI reported a failed workflow execution."""
 
 
-class OutputLimitExceeded(ComfyUIError):
+class OutputLimitExceededError(ComfyUIError):
     """An output exceeded an adapter byte or file-count limit."""
 
 
@@ -204,7 +204,7 @@ class WorkflowRegistry:
         try:
             return self._workflows[workflow_id]
         except (KeyError, TypeError) as exc:
-            raise WorkflowNotAllowed(f"workflow ID is not registered: {workflow_id!r}") from exc
+            raise WorkflowNotAllowedError(f"workflow ID is not registered: {workflow_id!r}") from exc
 
 
 @dataclass(frozen=True)
@@ -329,7 +329,7 @@ class ComfyUIAdapter:
         if self._owns_client:
             self._client.close()
 
-    def __enter__(self) -> "ComfyUIAdapter":
+    def __enter__(self) -> ComfyUIAdapter:
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -340,22 +340,22 @@ class ComfyUIAdapter:
         provided = dict(inputs or {})
         unknown = set(provided) - registration.input_bindings.keys()
         if unknown:
-            raise WorkflowNotAllowed(f"workflow input is not registered: {sorted(map(str, unknown))!r}")
+            raise WorkflowNotAllowedError(f"workflow input is not registered: {sorted(map(str, unknown))!r}")
 
         graph = json.loads(registration.graph_json)
         for public_name, value in provided.items():
             if not isinstance(value, (str, int, float, bool, type(None))):
-                raise WorkflowNotAllowed(f"workflow input {public_name!r} must be a JSON scalar")
+                raise WorkflowNotAllowedError(f"workflow input {public_name!r} must be a JSON scalar")
             if isinstance(value, float) and not math.isfinite(value):
-                raise WorkflowNotAllowed(f"workflow input {public_name!r} must be finite")
+                raise WorkflowNotAllowedError(f"workflow input {public_name!r} must be finite")
             node_id, input_name = registration.input_bindings[public_name]
             graph[node_id]["inputs"][input_name] = value
         try:
             graph_bytes = json.dumps(graph, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         except (TypeError, ValueError) as exc:
-            raise WorkflowNotAllowed("workflow input could not be encoded as JSON") from exc
+            raise WorkflowNotAllowedError("workflow input could not be encoded as JSON") from exc
         if len(graph_bytes) > self.max_workflow_bytes:
-            raise OutputLimitExceeded("registered workflow exceeds the configured request-size limit")
+            raise OutputLimitExceededError("registered workflow exceeds the configured request-size limit")
 
         response_data = self._request_json(
             "POST",
@@ -365,7 +365,7 @@ class ComfyUIAdapter:
         )
         prompt_id = response_data.get("prompt_id")
         if not isinstance(prompt_id, str) or not _PROMPT_ID.fullmatch(prompt_id):
-            raise ComfyUIMalformedResponse("ComfyUI submission response has no valid prompt_id")
+            raise ComfyUIMalformedResponseError("ComfyUI submission response has no valid prompt_id")
         return Submission(
             prompt_id=prompt_id,
             workflow_id=workflow_id,
@@ -380,18 +380,18 @@ class ComfyUIAdapter:
             timeout=_timeout or self.request_timeout,
         )
         if not isinstance(data, dict):
-            raise ComfyUIMalformedResponse("ComfyUI history response must be an object")
+            raise ComfyUIMalformedResponseError("ComfyUI history response must be an object")
         if prompt_id not in data:
             return JobStatus(prompt_id=prompt_id, state="pending")
         record = data[prompt_id]
         if not isinstance(record, dict):
-            raise ComfyUIMalformedResponse("ComfyUI history record must be an object")
+            raise ComfyUIMalformedResponseError("ComfyUI history record must be an object")
         status = record.get("status", {})
         if not isinstance(status, dict):
-            raise ComfyUIMalformedResponse("ComfyUI history status must be an object")
+            raise ComfyUIMalformedResponseError("ComfyUI history status must be an object")
         status_name = status.get("status_str", "")
         if status_name is not None and not isinstance(status_name, str):
-            raise ComfyUIMalformedResponse("ComfyUI status_str must be text")
+            raise ComfyUIMalformedResponseError("ComfyUI status_str must be text")
         detail = self._status_detail(status)
         if (status_name or "").lower() in {"error", "failed", "interrupted"}:
             return JobStatus(prompt_id, "failed", detail)
@@ -405,12 +405,12 @@ class ComfyUIAdapter:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise ComfyUITimeout(f"ComfyUI prompt {prompt_id!r} did not complete before timeout")
+                raise ComfyUITimeoutError(f"ComfyUI prompt {prompt_id!r} did not complete before timeout")
             status = self.get_status(prompt_id, _timeout=min(self.request_timeout, remaining))
             if status.state == "succeeded":
                 return status
             if status.state == "failed":
-                raise ComfyUIJobFailed(
+                raise ComfyUIJobFailedError(
                     f"ComfyUI prompt {prompt_id!r} failed"
                     + (f": {status.detail}" if status.detail else "")
                 )
@@ -432,27 +432,27 @@ class ComfyUIAdapter:
             timeout=self.request_timeout,
         )
         if not isinstance(history, dict):
-            raise ComfyUIMalformedResponse("ComfyUI history response must be an object")
+            raise ComfyUIMalformedResponseError("ComfyUI history response must be an object")
         record = history.get(submission.prompt_id)
         if not isinstance(record, dict):
-            raise ComfyUIMissingOutput("ComfyUI has no history record for the submitted prompt")
+            raise ComfyUIMissingOutputError("ComfyUI has no history record for the submitted prompt")
         status = record.get("status", {})
         if not isinstance(status, dict):
-            raise ComfyUIMalformedResponse("ComfyUI history status must be an object")
+            raise ComfyUIMalformedResponseError("ComfyUI history status must be an object")
         status_name = str(status.get("status_str", "")).lower()
         if status_name in {"error", "failed", "interrupted"}:
-            raise ComfyUIJobFailed(
+            raise ComfyUIJobFailedError(
                 f"ComfyUI prompt {submission.prompt_id!r} failed"
                 + (f": {self._status_detail(status)}" if self._status_detail(status) else "")
             )
         if status.get("completed") is not True and status_name not in {"success", "succeeded"}:
-            raise ComfyUIMissingOutput("ComfyUI prompt has not completed successfully")
+            raise ComfyUIMissingOutputError("ComfyUI prompt has not completed successfully")
 
         descriptors = self._output_descriptors(record.get("outputs"))
         if not descriptors:
-            raise ComfyUIMissingOutput("ComfyUI history contains no supported output files")
+            raise ComfyUIMissingOutputError("ComfyUI history contains no supported output files")
         if len(descriptors) > self.max_output_count:
-            raise OutputLimitExceeded("ComfyUI output file count exceeds the configured limit")
+            raise OutputLimitExceededError("ComfyUI output file count exceeds the configured limit")
 
         self.output_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
         results: list[RetrievedOutput] = []
@@ -495,7 +495,7 @@ class ComfyUIAdapter:
         except (httpx.HTTPError, ValueError) as exc:
             raise ComfyUIRequestError(f"ComfyUI {method} {path} request failed") from exc
         if not isinstance(data, dict):
-            raise ComfyUIMalformedResponse("ComfyUI JSON response must be an object")
+            raise ComfyUIMalformedResponseError("ComfyUI JSON response must be an object")
         return data
 
     @staticmethod
@@ -521,19 +521,19 @@ class ComfyUIAdapter:
     @staticmethod
     def _output_descriptors(outputs: Any) -> list[dict[str, str]]:
         if not isinstance(outputs, dict):
-            raise ComfyUIMalformedResponse("ComfyUI history outputs must be an object")
+            raise ComfyUIMalformedResponseError("ComfyUI history outputs must be an object")
         descriptors: list[dict[str, str]] = []
         for node_id in sorted(outputs, key=str):
             node_output = outputs[node_id]
             if not isinstance(node_output, dict):
-                raise ComfyUIMalformedResponse("ComfyUI node output must be an object")
+                raise ComfyUIMalformedResponseError("ComfyUI node output must be an object")
             for output_key in sorted(_OUTPUT_KEYS.intersection(node_output)):
                 files = node_output[output_key]
                 if not isinstance(files, list):
-                    raise ComfyUIMalformedResponse(f"ComfyUI {output_key} output must be a list")
+                    raise ComfyUIMalformedResponseError(f"ComfyUI {output_key} output must be a list")
                 for item in files:
                     if not isinstance(item, dict):
-                        raise ComfyUIMalformedResponse("ComfyUI output descriptor must be an object")
+                        raise ComfyUIMalformedResponseError("ComfyUI output descriptor must be an object")
                     filename = item.get("filename")
                     subfolder = item.get("subfolder", "")
                     file_type = item.get("type", "output")
@@ -552,14 +552,14 @@ class ComfyUIAdapter:
                         or not isinstance(file_type, str)
                         or file_type != "output"
                     ):
-                        raise ComfyUIMalformedResponse("ComfyUI output descriptor contains unsafe fields")
+                        raise ComfyUIMalformedResponseError("ComfyUI output descriptor contains unsafe fields")
                     path_parts = subfolder.split("/") if subfolder else []
                     if any(part in {"", ".", ".."} or ":" in part for part in path_parts):
-                        raise ComfyUIMalformedResponse("ComfyUI output subfolder is unsafe")
+                        raise ComfyUIMalformedResponseError("ComfyUI output subfolder is unsafe")
                     if PureWindowsPath(filename).name != filename:
-                        raise ComfyUIMalformedResponse("ComfyUI output filename is unsafe")
+                        raise ComfyUIMalformedResponseError("ComfyUI output filename is unsafe")
                     if Path(filename).suffix.lower() not in _MEDIA_SUFFIXES:
-                        raise ComfyUIMalformedResponse("ComfyUI output has an unsupported media extension")
+                        raise ComfyUIMalformedResponseError("ComfyUI output has an unsupported media extension")
                     descriptors.append(
                         {"filename": filename, "subfolder": subfolder, "type": file_type}
                     )
@@ -599,13 +599,13 @@ class ComfyUIAdapter:
                     try:
                         announced_size = int(content_length)
                     except ValueError as exc:
-                        raise ComfyUIMalformedResponse("ComfyUI returned an invalid Content-Length") from exc
+                        raise ComfyUIMalformedResponseError("ComfyUI returned an invalid Content-Length") from exc
                     if announced_size < 0:
-                        raise ComfyUIMalformedResponse("ComfyUI returned an invalid Content-Length")
+                        raise ComfyUIMalformedResponseError("ComfyUI returned an invalid Content-Length")
                     if announced_size > self.max_output_bytes:
-                        raise OutputLimitExceeded("ComfyUI output exceeds the per-file byte limit")
+                        raise OutputLimitExceededError("ComfyUI output exceeds the per-file byte limit")
                     if bytes_already_retrieved + announced_size > self.max_total_output_bytes:
-                        raise OutputLimitExceeded("ComfyUI outputs exceed the total byte limit")
+                        raise OutputLimitExceededError("ComfyUI outputs exceed the total byte limit")
 
                 file_descriptor, temp_name = tempfile.mkstemp(prefix=".comfyui-", suffix=".part", dir=self.output_dir)
                 temporary_path = Path(temp_name)
@@ -615,13 +615,13 @@ class ComfyUIAdapter:
                             continue
                         size += len(chunk)
                         if size > self.max_output_bytes:
-                            raise OutputLimitExceeded("ComfyUI output exceeds the per-file byte limit")
+                            raise OutputLimitExceededError("ComfyUI output exceeds the per-file byte limit")
                         if bytes_already_retrieved + size > self.max_total_output_bytes:
-                            raise OutputLimitExceeded("ComfyUI outputs exceed the total byte limit")
+                            raise OutputLimitExceededError("ComfyUI outputs exceed the total byte limit")
                         digest.update(chunk)
                         target.write(chunk)
             if size == 0:
-                raise ComfyUIMalformedResponse("ComfyUI returned an empty output file")
+                raise ComfyUIMalformedResponseError("ComfyUI returned an empty output file")
             # A UUID prevents accidental replacement of another retrieved output;
             # os.replace keeps the final path from exposing a partial download.
             os.replace(temporary_path, destination)
@@ -638,7 +638,7 @@ class ComfyUIAdapter:
                     workflow_sha256=submission.workflow_sha256,
                     prompt_id=submission.prompt_id,
                     comfyui_base_url=self.base_url,
-                    retrieved_at=datetime.now(timezone.utc),
+                    retrieved_at=datetime.now(UTC),
                     media_probe=media_probe,
                 ),
                 bytes_already_retrieved + size,

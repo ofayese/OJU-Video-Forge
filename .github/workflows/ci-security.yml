@@ -131,13 +131,13 @@ jobs:
           aquasec/trivy:0.76.2
           image --input /scan/ovf-narration.tar --format json --output /scan/ovf-narration.trivy.json
           --exit-code 0 --severity HIGH,CRITICAL
-      - name: Fail on fixable narration image vulnerabilities
+      - name: Fail on narration image vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-
           docker run --rm
           -v "$RUNNER_TEMP:/scan:ro"
           aquasec/trivy:0.76.2
-          image --input /scan/ovf-narration.tar --ignore-unfixed --exit-code 1 --severity HIGH,CRITICAL
+          image --input /scan/ovf-narration.tar --exit-code 1 --severity HIGH,CRITICAL
       - name: Scan Docling image for vulnerabilities
         if: ${{ always() && steps.build-images.outcome == 'success' }}
         run: >-

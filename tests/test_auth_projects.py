@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +13,15 @@ from app import auth
 from app.api import app
 from app.auth import hash_session_token
 from app.config import Settings
-from app.core import AuthSession, Base, Job, ProjectMembership, SecurityEvent, User, get_db
+from app.core import (
+    AuthSession,
+    Base,
+    Job,
+    ProjectMembership,
+    SecurityEvent,
+    User,
+    get_db,
+)
 
 
 @pytest.fixture
@@ -98,7 +106,7 @@ def test_local_session_authentication_hashes_secrets_and_revokes(
                 AuthSession.token_hash == hash_session_token(expired_token)
             )
         )
-        expired_session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        expired_session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         db.commit()
     assert client.get(
         "/v1/auth/session",

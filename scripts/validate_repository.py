@@ -4,8 +4,8 @@ import os
 import re
 import sys
 from pathlib import Path
-from unittest.mock import patch
 from typing import Any
+from unittest.mock import patch
 
 import yaml
 
