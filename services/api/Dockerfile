@@ -2,7 +2,7 @@ FROM python:3.12-alpine3.22@sha256:a190708a2dec1bd18b1decb539f8e8f5407abaa9bf39c
 WORKDIR /opt/forge
 COPY requirements.lock.txt .
 RUN apk update && apk upgrade --no-cache \
- && apk add --no-cache ffmpeg=6.1.2-r2 font-dejavu=2.37-r6 gosu \
+ && apk add --no-cache ffmpeg=6.1.2-r2 font-dejavu=2.37-r6 gosu espeak-ng=1.52.0-r0 \
  && rm -rf /usr/local/lib/python3.12/site-packages/setuptools* \
  && pip install --no-cache-dir --require-hashes -r requirements.lock.txt \
  && adduser -D -u 10001 forge \
