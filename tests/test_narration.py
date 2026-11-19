@@ -1441,3 +1441,154 @@ def test_scenes_does_not_swallow_cancellation_after_provider_failure(monkeypatch
             tmp_path / "source.mp4", frames_dir, {"format": {"duration": "1"}},
             narration.NarrationOptions(analysis_mode="manual"), check,
         )
+
+
+def test_narration_job_identity_mismatch_rejected(tmp_path):
+    """A job whose narration row.job_id does not match is rejected."""
+    engine = create_engine(
+        "sqlite+pysqlite://", connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine, expire_on_commit=False)
+
+    actor = Actor(name="test-owner", user_id="user-1",
+                  roles=["viewer", "producer", "reviewer", "administrator"],
+                  session_id="session-1")
+
+    with sessions() as db:
+        project = Project(id="proj-1", name="Test Project", owner=actor.name)
+        db.add(project)
+        membership = ProjectMembership(
+            project_id="proj-1", user_id=actor.user_id, role="owner",
+        )
+        db.add(membership)
+        user = User(id=actor.user_id, username="owner", password_hash="x")
+        db.add(user)
+        asset = MediaAsset(
+            id="media-1", project_id="proj-1", filename="test.mp4",
+            media_type="video/mp4", size_bytes=1000, sha256="abc123",
+            storage_key="source/video.mp4",
+        )
+        db.add(asset)
+        db.flush()
+        # Create both jobs first (job_id is NOT NULL on narrations)
+        job_a = Job(
+            id="job-a", owner=actor.name, owner_principal_kind="user",
+            owner_principal_id=actor.user_id, project_id="proj-1",
+            media_id="media-1", operation="narrate_existing_video",
+            status="dispatch_pending",
+            spec={"narration_id": "narr-1", "phase": "analysis", "revision": 1,
+                  "attempt": 0},
+        )
+        db.add(job_a)
+        job_b = Job(
+            id="job-b", owner=actor.name, owner_principal_kind="user",
+            owner_principal_id=actor.user_id, project_id="proj-1",
+            media_id="media-1", operation="narrate_existing_video",
+            status="dispatch_pending",
+            spec={"narration_id": "narr-1", "phase": "render", "revision": 1,
+                  "attempt": 0},
+        )
+        db.add(job_b)
+        db.flush()
+        # Narration's job_id points to job_a
+        row = Narration(
+            id="narr-1", project_id="proj-1", media_id="media-1",
+            source_sha256="digest-of-source", stage="queued", revision=1,
+            job_id="job-a",
+            options={"workflow": "silent_training"},
+        )
+        db.add(row)
+        db.commit()
+
+    # Job B (id=job-b) tries to execute, but row.job_id=job-a → mismatch
+    with sessions() as db:
+        with pytest.raises(narration.NarrationError,
+                          match="narration_job_identity_mismatch"):
+            narration_jobs.execute(db, db.get(Job, "job-b"), lambda: None)
+
+    engine.dispose()
+
+
+def test_narration_job_identity_valid_advances(tmp_path, monkeypatch):
+    """A job whose narration row.job_id matches advances correctly."""
+    engine = create_engine(
+        "sqlite+pysqlite://", connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine, expire_on_commit=False)
+
+    actor = Actor(name="test-owner", user_id="user-1",
+                  roles=["viewer", "producer", "reviewer", "administrator"],
+                  session_id="session-1")
+
+    with sessions() as db:
+        project = Project(id="proj-1", name="Test Project", owner=actor.name)
+        db.add(project)
+        membership = ProjectMembership(
+            project_id="proj-1", user_id=actor.user_id, role="owner",
+        )
+        db.add(membership)
+        user = User(id=actor.user_id, username="owner", password_hash="x")
+        db.add(user)
+        asset = MediaAsset(
+            id="media-1", project_id="proj-1", filename="test.mp4",
+            media_type="video/mp4", size_bytes=1000, sha256="abc123",
+            storage_key="source/video.mp4",
+        )
+        db.add(asset)
+        db.flush()
+        job = Job(
+            id="job-1", owner=actor.name, owner_principal_kind="user",
+            owner_principal_id=actor.user_id, project_id="proj-1",
+            media_id="media-1", operation="narrate_existing_video",
+            status="dispatch_pending",
+            spec={"narration_id": "narr-1", "phase": "analysis", "revision": 1,
+                  "attempt": 0},
+        )
+        db.add(job)
+        db.flush()
+        source_bytes = b"synthetic-video-bytes"
+        source_digest = hashlib.sha256(source_bytes).hexdigest()
+        # Narration's job_id matches the job
+        row = Narration(
+            id="narr-1", project_id="proj-1", media_id="media-1",
+            source_sha256=source_digest, stage="queued", revision=1,
+            job_id="job-1",
+            options={"workflow": "silent_training"},
+        )
+        db.add(row)
+        db.commit()
+
+    monkeypatch.setattr(narration_jobs, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(narration, "probe", lambda *_args: {
+        "format": {"duration": "90"}, "streams": [{"codec_type": "video"}],
+    })
+    def synthetic_scenes(_source, directory, _m, _o, _c):
+        frame_path = directory / "frame-0.jpg"
+        frame_path.write_bytes(synthetic_jpeg())
+        frame_digest = hashlib.sha256(frame_path.read_bytes()).hexdigest()
+        return [{"id": "frame-0", "timestamp_ms": 0,
+                 "frame_sha256": frame_digest,
+                 "ocr_status": "complete",
+                 "vision_status": "not_requested", "ocr": "Menu"}]
+    monkeypatch.setattr(narration, "scenes", synthetic_scenes)
+    monkeypatch.setattr(narration, "transcribe", lambda *_args: (
+        AssertionError("Silent training must not run Whisper")
+    ))
+
+    with sessions() as db:
+        asset = db.get(MediaAsset, "media-1")
+        source_bytes = b"synthetic-video-bytes"
+        source_digest = hashlib.sha256(source_bytes).hexdigest()
+        asset.sha256 = source_digest
+        asset.size_bytes = len(source_bytes)
+        narration_jobs.write_private_file(tmp_path, "source/video.mp4",
+                                          source_bytes)
+        db.commit()
+        # Valid job: row.job_id == job.id → should not raise identity mismatch
+        narration_jobs.execute(db, db.get(Job, "job-1"), lambda: None)
+
+    engine.dispose()

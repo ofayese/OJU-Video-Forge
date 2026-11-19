@@ -65,3 +65,22 @@ The ERE development baseline preserves all Phase 13 capabilities:
 ## Rollback References
 
 Previous image identities preserved (see docs/image-provenance-register.md).
+
+---
+
+## Evidence Archive
+
+Acceptance evidence is preserved outside the repository and outside `%TEMP%` at:
+
+`C:\Users\akoso\Documents\OJU Evidence/`
+
+This archive contains:
+
+- `phase13/` — Phase 13 narrated video, narration audio, render provenance (3 files)
+- `phase12/` — Phase 12 diagnostics, synthetic fixtures, request/response captures (41 files)
+- `scans/` — Trivy SBOMs, compose effective config, runtime inspection artifacts (13 files)
+- `CHECKSUM-MANIFEST.md` — SHA256 checksum manifest for all archived artifacts
+
+Phase 13 narrated video SHA256: `bc02763411a2e200c60b64a132bccb281563cbb48d13f9f2bab05269b7043da2`
+
+No secrets, bearer tokens, or private keys are included in the archive.
