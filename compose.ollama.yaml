@@ -7,7 +7,7 @@ services:
       NARRATION_VISION_MODEL_DIGEST: ${NARRATION_VISION_MODEL_DIGEST:-}
 
   render-worker:
-    networks: [control, inference, narration-ocr, agent-inference]
+    networks: [control, inference, agent-inference]
 
   ollama:
     image: ollama/ollama:0.40.16@sha256:a372a1c0d1e15b68e9521189785c3ca17795c26c2356f8b1b10122cfb59ed0d7

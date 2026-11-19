@@ -10,7 +10,7 @@ set -e
 STATE_DIR="/opt/forge/telemetry-state"
 
 if [ -d "$STATE_DIR" ]; then
-    chown forge:forge "$STATE_DIR" 2>/dev/null || true
+    chown forge:forge "$STATE_DIR" 2>/dev/null || chmod a+rwX "$STATE_DIR" 2>/dev/null || true
 fi
 
 exec gosu forge "$@"

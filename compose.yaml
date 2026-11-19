@@ -74,7 +74,7 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
-    networks: [backend, control]
+    networks: [backend, control, agent-inference]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4)"]
@@ -145,7 +145,7 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
-    networks: [control, inference]
+    networks: [control, inference, agent-inference]
     restart: unless-stopped
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
@@ -227,6 +227,7 @@ networks:
   backend: {}
   control: {internal: true}
   inference: {internal: true}
+  agent-inference: {internal: true}
 
 volumes:
   pgdata: {}

@@ -15,5 +15,4 @@ services:
     environment:
       APP_ENV: test
   frontend:
-    ports:
-      - "127.0.0.1:5175:8080"
+    ports: !override ["127.0.0.1:5175:8080"]

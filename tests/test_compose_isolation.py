@@ -104,3 +104,57 @@ def test_synthetic_smoke_refuses_application_database(monkeypatch):
     monkeypatch.setenv("FORGE_TEST_PROJECT", "oju-video-forge")
     with pytest.raises(RuntimeError, match="isolated test environment"):
         docker_render_smoke.run("http://api:8000", False, False)
+
+
+def test_no_undefined_network_references():
+    """Every service network reference must match a defined network."""
+    base = yaml.safe_load((ROOT / "compose.yaml").read_text())
+    defined_networks = set(base.get("networks", {}).keys())
+    for svc_name, svc in base["services"].items():
+        for net in svc.get("networks", []):
+            assert net in defined_networks, (
+                f"Service {svc_name} references undefined network {net}"
+            )
+    # Same check for each overlay
+    for env_file in ("compose.acceptance.yaml", "compose.integration.yaml", "compose.narration.yaml", "compose.ollama.yaml"):
+        overlay_path = ROOT / env_file
+        if not overlay_path.exists():
+            continue
+        overlay = yaml.load(overlay_path.read_text(), Loader=ComposeLoader)
+        overlay_networks = set(overlay.get("networks", {}).keys())
+        for svc_name, svc in overlay.get("services", {}).items():
+            for net in svc.get("networks", []):
+                assert net in defined_networks or net in overlay_networks, (
+                    f"{env_file}: Service {svc_name} references undefined network {net}"
+                )
+
+
+def test_no_unintended_service_dependencies():
+    """Overlay services must not add depends_on to infrastructure services."""
+    for env_file in ("compose.acceptance.yaml", "compose.integration.yaml"):
+        overlay = yaml.load((ROOT / env_file).read_text(), Loader=ComposeLoader)
+        for svc_name in ("postgres", "redis", "ollama", "comfyui", "docling-ocr"):
+            svc = overlay.get("services", {}).get(svc_name, {})
+            assert "depends_on" not in svc, (
+                f"{env_file}: {svc_name} should not have depends_on in overlay"
+            )
+        # Frontend should not depend on backend services in test overlays
+        frontend = overlay.get("services", {}).get("frontend", {})
+        assert "depends_on" not in frontend, (
+            f"{env_file}: frontend should not have depends_on in overlay"
+        )
+
+
+def test_overlay_volumes_and_networks_are_isolated():
+    """Overlay volumes and networks must use environment-specific names."""
+    for env, prefix in (("acceptance", "oju-video-forge-acceptance"), ("integration", "oju-video-forge-integration")):
+        overlay = yaml.load((ROOT / f"compose.{env}.yaml").read_text(), Loader=ComposeLoader)
+        assert overlay["name"] == prefix
+        for vol_name, vol_def in overlay.get("volumes", {}).items():
+            assert vol_def.get("name", "").startswith(prefix), (
+                f"compose.{env}.yaml: volume {vol_name} not isolated with prefix {prefix}"
+            )
+        for net_name, net_def in overlay.get("networks", {}).items():
+            assert net_def.get("name", "").startswith(prefix), (
+                f"compose.{env}.yaml: network {net_name} not isolated with prefix {prefix}"
+            )
