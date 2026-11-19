@@ -58,8 +58,12 @@ def _validate_generation_stage_provenance(
             or any(char not in "0123456789abcdef" for char in provider["model_digest"])):
         raise ValueError("training_generation_stage_provenance_invalid")
     expected = ["outline"]
-    for _ in range((step_count + 3) // 4):
-        expected.extend(("procedure", "narration"))
+    remaining = step_count
+    while remaining > 0:
+        batch_size = min(4, remaining)
+        expected.append("procedure")
+        expected.extend(["narration"] * batch_size)
+        remaining -= batch_size
     expected.append("activities")
     if [item.get("stage") for item in stages] != expected:
         raise ValueError("training_generation_stages_incomplete")
@@ -148,11 +152,7 @@ def execute(db, job, check):
             stage(db, row, "analyzing_scenes", check)
             scene_error = None
             try:
-                if options.vision:
-                    with heavy_inference_context("vision:scene_analysis", check):
-                        observations = media.scenes(source, directory, metadata, options, check)
-                else:
-                    observations = media.scenes(source, directory, metadata, options, check)
+                observations = media.scenes(source, directory, metadata, options, check)
             except InferenceCoordinationError as exc:
                 raise media.NarrationError(str(exc)) from exc
             except (media.NarrationError, httpx.HTTPError, json.JSONDecodeError) as exc:
@@ -314,8 +314,7 @@ def execute(db, job, check):
                     "approved_steps": accepted,
                 })
                 try:
-                    with heavy_inference_context("training_text:draft", check):
-                        generation = adapter.generate_training(evidence, check)
+                    generation = adapter.generate_training(evidence, check)
                 except InferenceCoordinationError as exc:
                     raise media.NarrationError(str(exc)) from exc
                 draft = validate_training_draft(
