@@ -42,8 +42,14 @@ class CollectorUnavailableError(HostTelemetryError):
     """Raised when the host collector cannot be invoked or produces no output."""
 
 
+CollectorUnavailable = CollectorUnavailableError
+
+
 class MeasurementInvalidError(HostTelemetryError):
     """Raised when a collected measurement is unavailable, malformed, or contradictory."""
+
+
+MeasurementInvalid = MeasurementInvalidError
 
 
 @dataclass(frozen=True)

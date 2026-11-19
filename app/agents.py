@@ -63,6 +63,9 @@ class AgentUnavailableError(RuntimeError):
         self.diagnostics = diagnostics or []
 
 
+AgentUnavailable = AgentUnavailableError
+
+
 class DisabledAgentAdapter:
     def propose(self, task: str, tools: tuple[str, ...]) -> object:
         raise AgentUnavailableError("Agent adapter is disabled")

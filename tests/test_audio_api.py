@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import stat
 import wave
 from io import BytesIO
@@ -98,7 +99,11 @@ def test_project_audio_and_caption_workflow_are_private_and_manifested(workflow_
         asset = db.get(AudioAsset, uploaded["id"])
         stored_audio = root / asset.relative_path
         assert stored_audio.read_bytes() == synthetic_wav()
-        assert stat.S_IMODE(stored_audio.stat().st_mode) == 0o600
+        mode = stat.S_IMODE(stored_audio.stat().st_mode)
+        if os.name == "nt":
+            assert mode & 0o400  # owner-readable
+        else:
+            assert mode == 0o600
 
     payload = {
         "workflow_version": 1,
