@@ -112,7 +112,7 @@ def check_image_versions() -> None:
         parts = line.split("\t")
         if len(parts) < 3:
             continue
-        name, image, cid = parts[0], parts[1], parts[2]
+        name, image, _ = parts[0], parts[1], parts[2]
         if name.endswith("-api-1"):
             check(image == "oju-video-forge-api", f"API image is oju-video-forge-api (got {image})")
         elif name.endswith("-render-worker-1"):
