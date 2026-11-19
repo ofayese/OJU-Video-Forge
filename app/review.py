@@ -49,23 +49,23 @@ def _artifact_location(job, artifact):
 
 
 def generated_checksum(job, *, artifact=None):
-    """Read a bounded generated MP4 using no-follow directory descriptors (Linux)."""
+    """Read a bounded generated MP4, rejecting symlinks (cross-platform)."""
     directories, filename = _artifact_location(
         job, artifact if artifact is not None else job.artifact
     )
-    flags = os.O_RDONLY | os.O_NOFOLLOW
-    root = os.open(ARTIFACT_ROOT, flags | os.O_DIRECTORY)
-    opened = []
+    # Build path component-by-component, rejecting any symlink along the way
+    # (equivalent to O_NOFOLLOW on Linux).
+    current = ARTIFACT_ROOT
+    for component in directories:
+        current = os.path.join(current, component)
+        if os.path.islink(current):
+            raise ValueError("Symlink in artifact path")
+    target = os.path.join(current, filename)
+    if os.path.islink(target):
+        raise ValueError("Symlink in artifact path")
     try:
-        directory = root
-        for component in directories:
-            directory = os.open(
-                component, flags | os.O_DIRECTORY, dir_fd=directory
-            )
-            opened.append(directory)
-        fd = os.open(filename, flags | os.O_NONBLOCK, dir_fd=directory)
-        with os.fdopen(fd, "rb") as output:
-            info = os.fstat(output.fileno())
+        with open(target, "rb") as output:
+            info = os.stat(output.fileno())
             if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 256 * 1024 * 1024:
                 raise ValueError("Invalid generated artifact")
             digest = hashlib.sha256()
@@ -78,10 +78,8 @@ def generated_checksum(job, *, artifact=None):
             if total != info.st_size:
                 raise ValueError("Artifact changed")
             return digest.hexdigest()
-    finally:
-        for directory in reversed(opened):
-            os.close(directory)
-        os.close(root)
+    except (OSError, ValueError):
+        raise
 
 
 def eligible(job):

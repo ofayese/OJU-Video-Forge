@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="Bash is required to exercise the lifecycle helper")
+@pytest.mark.skipif(os.name == "nt", reason="bash not available on Windows")
 @pytest.mark.parametrize(("environment", "narration", "expected"), [
     ("application", False, 0),
     ("application", True, 0),
@@ -91,7 +92,11 @@ def test_acceptance_validation_accepts_relative_register_path(monkeypatch, capsy
     )
 
     assert validate_acceptance_register.main() == 0
-    assert "PASS: docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml matches" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    expected = "PASS: docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml matches"
+    if os.name == "nt":
+        expected = expected.replace("/", "\\")
+    assert expected in output
 
 
 def test_action_pin_validation_matches_nested_list_actions(tmp_path, monkeypatch):

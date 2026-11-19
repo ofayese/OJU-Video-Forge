@@ -37,6 +37,10 @@ click==8.5.1 \
     # via
     #   -c requirements.lock.txt
     #   huggingface-hub
+colorama==0.4.6 ; sys_platform == "win32" \
+    --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
+    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+    # via tqdm
 ctranslate2==4.8.5 \
     --hash=sha256:0413ce473dcc9ff6c69ea9320b06e5192a81992e89e4e3b54241f914594f78f5 \
     --hash=sha256:058d0fb7345b333eaa88bc6b223cd59d6ff7a3722cb6266f94cc909f4e367787 \

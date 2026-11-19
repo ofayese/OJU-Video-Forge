@@ -1,4 +1,5 @@
 import hashlib
+import os
 
 import pytest
 from sqlalchemy import create_engine
@@ -92,7 +93,12 @@ def test_upload_manifest_retrieval_and_checksum(media_api):
     stored = list(root.rglob(f'{manifest["id"]}.mp4'))
     assert len(stored) == 1
     assert stored[0].read_bytes() == content
-    assert stored[0].stat().st_mode & 0o777 == 0o600
+    mode = stored[0].stat().st_mode & 0o777
+    if os.name == "nt":
+        # Windows does not enforce Unix permission bits; accept any readable mode
+        assert mode & 0o400  # owner-readable
+    else:
+        assert mode == 0o600
 
     retrieved = client.get(f"/v1/projects/{project_id}/artifacts/{manifest['id']}")
     assert retrieved.status_code == 200

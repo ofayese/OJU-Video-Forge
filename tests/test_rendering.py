@@ -12,6 +12,17 @@ import pytest
 from app import rendering as r
 
 
+def _h264_encoder():
+    """Return an H.264 encoder available on this ffmpeg build."""
+    result = subprocess.run(
+        ["ffmpeg", "-encoders"], capture_output=True, text=True, check=True
+    )
+    for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
+        if f" {name} " in result.stdout or f" {name}\n" in result.stdout:
+            return name
+    raise RuntimeError("No H.264 encoder available")
+
+
 def timeline(**changes):
     spec = {"version": 1, "clips": [
         {"path": "clip.mp4", "in_ms": 0, "out_ms": 1000}],
@@ -268,7 +279,7 @@ def test_tool_and_timeout_policy(tmp_path):
 def test_real_fixture_render_is_repeatable(tmp_path):
     ffmpeg = str(Path(shutil.which("ffmpeg")).resolve())
     r._run([ffmpeg, "-nostdin", "-n", "-v", "error", "-f", "lavfi", "-i",
-            "testsrc2=size=640x360:rate=24", "-t", "2", "-an", "-c:v", "libx264",
+            "testsrc2=size=640x360:rate=24", "-t", "2", "-an", "-c:v", _h264_encoder(),
             "-threads", "1", "-pix_fmt", "yuv420p", "clip.mp4"], tmp_path, 30)
     r._run([ffmpeg, "-nostdin", "-n", "-v", "error", "-f", "lavfi", "-i",
             "sine=frequency=440:sample_rate=48000", "-t", "2", "audio.wav"], tmp_path, 30)

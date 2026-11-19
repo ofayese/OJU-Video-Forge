@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 
 import pytest
 
@@ -10,6 +11,17 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _h264_encoder():
+    """Return an H.264 encoder available on this ffmpeg build."""
+    result = subprocess.run(
+        ["ffmpeg", "-encoders"], capture_output=True, text=True, check=True
+    )
+    for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
+        if f" {name} " in result.stdout or f" {name}\n" in result.stdout:
+            return name
+    raise RuntimeError("No H.264 encoder available")
+
+
 @pytest.mark.parametrize("mode", ["replace", "mix", "preserve"])
 def test_mux_preserves_visuals_duration_and_deliberate_audio_mode(tmp_path, mode):
     source = tmp_path / "source.mp4"
@@ -18,7 +30,7 @@ def test_mux_preserves_visuals_duration_and_deliberate_audio_mode(tmp_path, mode
         return None
     narration.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
                    "color=c=blue:s=160x90:r=12", "-f", "lavfi", "-i", "sine=frequency=440",
-                   "-t", "1", "-c:v", "libx264", "-threads", "1", "-c:a", "aac",
+                   "-t", "1", "-c:v", _h264_encoder(), "-threads", "1", "-c:a", "aac",
                    str(source)], check)
     narration.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
                    "sine=frequency=880", "-t", "1", str(audio)], check)

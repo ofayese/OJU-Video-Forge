@@ -1,5 +1,6 @@
 import json
 import shutil
+import subprocess
 import uuid
 from types import SimpleNamespace
 
@@ -9,6 +10,17 @@ from sqlalchemy.orm import sessionmaker
 
 from app import rendering, worker
 from app.core import Audit, Base, Job
+
+
+def _h264_encoder():
+    """Return an H.264 encoder available on this ffmpeg build."""
+    result = subprocess.run(
+        ["ffmpeg", "-encoders"], capture_output=True, text=True, check=True
+    )
+    for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
+        if f" {name} " in result.stdout or f" {name}\n" in result.stdout:
+            return name
+    raise RuntimeError("No H.264 encoder available")
 
 
 @pytest.fixture
@@ -177,7 +189,7 @@ def test_real_worker_render_records_provenance(staged_job):
     sessions, job_id, inputs = staged_job
     rendering._run([shutil.which("ffmpeg"), "-nostdin", "-n", "-v", "error",
                     "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24",
-                    "-t", "1", "-an", "-c:v", "libx264", "-threads", "1",
+                    "-t", "1", "-an", "-c:v", _h264_encoder(), "-threads", "1",
                     "-pix_fmt", "yuv420p", "clip.mp4"], inputs, 30)
     worker.execute(job_id)
     with sessions() as db:

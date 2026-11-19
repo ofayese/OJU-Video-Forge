@@ -7,6 +7,32 @@ from difflib import unified_diff
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# pip and setuptools are packaging tools the base image already provides (and the
+# runtime images deliberately delete setuptools). Pinning them in the locks breaks
+# `pip install --require-hashes` (pip uninstalls setuptools mid-transaction and its
+# self-upgrade to pip 26 makes `pip check` fail on the adjacent setuptools metadata)
+# and reintroduces CVE-2025-47273; the layers are also never scanned before the
+# unsafe copy lands, so the pins cannot be remediated in-image.
+UNSAFE_EXCLUSIONS = {
+    "requirements.lock.txt": ("pip", "setuptools"),
+    "requirements-narration.lock.txt": ("pip", "setuptools"),
+    "requirements-dev.lock.txt": (
+        "pip",
+        "setuptools",
+        "wheel",
+        "autocommand",
+        "backports.tarfile",
+        "importlib-metadata",
+        "importlib-resources",
+        "inflect",
+        "jaraco.context",
+        "jaraco.functools",
+        "jaraco.text",
+        "more-itertools",
+        "typeguard",
+        "zipp",
+    ),
+}
 LOCKS = (
     (ROOT / "requirements.txt", ROOT / "requirements.lock.txt"),
     (ROOT / "requirements-dev.txt", ROOT / "requirements-dev.lock.txt"),
@@ -26,21 +52,21 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="ovf-lock-check-") as temp_dir:
         for source, committed in LOCKS:
             generated = Path(temp_dir) / committed.name
+            command = [
+                sys.executable,
+                "-m",
+                "piptools",
+                "compile",
+                "--quiet",
+                "--generate-hashes",
+                "--allow-unsafe",
+                "--constraint",
+                str(committed),
+            ]
+            for package in UNSAFE_EXCLUSIONS.get(committed.name, ()):
+                command += ["--unsafe-package", package]
             result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "piptools",
-                    "compile",
-                    "--quiet",
-                    "--generate-hashes",
-                    "--allow-unsafe",
-                    "--constraint",
-                    str(committed),
-                    "--output-file",
-                    str(generated),
-                    str(source),
-                ],
+                command + ["--output-file", str(generated), str(source)],
                 cwd=ROOT,
                 check=False,
                 text=True,

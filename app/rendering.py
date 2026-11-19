@@ -230,7 +230,8 @@ class RenderEngine:
 
     def __init__(self, media_root: Path, *, ffmpeg: str = "ffmpeg",
                  ffprobe: str = "ffprobe", font: str | None = None,
-                 timeout_seconds: int = 180, cancel=None):
+                 timeout_seconds: int = 180, cancel=None,
+                 h264_encoder: str | None = None):
         self.root = Path(media_root).resolve(strict=True)
         if not self.root.is_dir() or str(self.root).startswith(("\\\\", "//")):
             raise RenderError("Media root must be a local directory")
@@ -239,6 +240,7 @@ class RenderEngine:
         self.ffprobe = self._tool(ffprobe)
         self.font = self._media(font, (".ttf", ".otf")) if font is not None else None
         self.cancel = cancel
+        self.h264_encoder = h264_encoder or self._detect_h264_encoder()
 
     def _execute(self, args, cwd, timeout):
         if self.cancel is None:
@@ -254,6 +256,19 @@ class RenderEngine:
         if str(path).startswith(("\\\\", "//")):
             raise RenderError("Remote executables are forbidden")
         return str(path)
+
+    def _detect_h264_encoder(self) -> str:
+        """Return the first available H.264 encoder on this ffmpeg build."""
+        try:
+            result = subprocess.run(
+                [self.ffmpeg, "-encoders"], capture_output=True, text=True, timeout=15
+            )
+            for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
+                if f" {name} " in result.stdout or f" {name}\n" in result.stdout:
+                    return name
+        except (OSError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            pass
+        return "libx264"
 
     def _media(self, value, suffixes):
         relative = _path_string(value)
@@ -367,7 +382,7 @@ class RenderEngine:
         else:
             args += ["-an"]
         args += ["-map_metadata", "-1", "-map_chapters", "-1",
-                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                 "-c:v", self.h264_encoder, "-preset", "medium", "-crf", "23",
                  "-pix_fmt", "yuv420p", "-threads", "1",
                  "-g", str(fps * 2), "-sc_threshold", "0",
                  "-fflags", "+bitexact", "-flags:v", "+bitexact",
