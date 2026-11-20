@@ -245,3 +245,86 @@ def test_approved_procedure_revision_requires_review_history():
     }) == 7
     with pytest.raises(ValueError, match="unavailable"):
         approved_procedure_revision({"status": "approved", "review_history": []})
+
+
+def test_decision_requires_branch_targets():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "d1", "step_type": "decision", "start_ms": 0, "end_ms": 5000,
+         "description": "Choose path", "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "condition": "User clicks", "branch_targets": []},
+    ]
+    with pytest.raises(ValueError):
+        validate_procedure(steps, {"f1"}, 10000, approved=True)
+
+
+def test_branch_requires_parent_decision():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "a1", "step_type": "branch", "start_ms": 5000, "end_ms": 10000,
+         "description": "Path A", "evidence": ["f2"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "parent_decision": "nonexistent"},
+    ]
+    with pytest.raises(ValueError, match="branch_parent_decision_not_found"):
+        validate_procedure(steps, {"f2"}, 10000, approved=True)
+
+
+def test_branch_not_in_parent_targets():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "d1", "step_type": "decision", "start_ms": 0, "end_ms": 5000,
+         "description": "Choose path", "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "condition": "User clicks", "branch_targets": ["a1"]},
+        {"id": "b1", "step_type": "branch", "start_ms": 5000, "end_ms": 10000,
+         "description": "Path B", "evidence": ["f2"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "parent_decision": "d1"},
+    ]
+    with pytest.raises(ValueError, match="decision_target_not_found"):
+        validate_procedure(steps, {"f1", "f2"}, 10000, approved=True)
+
+
+def test_join_requires_parent_decision():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "j1", "step_type": "join", "start_ms": 10000, "end_ms": 15000,
+         "description": "Rejoin", "evidence": ["f3"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "parent_decision": "nonexistent"},
+    ]
+    with pytest.raises(ValueError):
+        validate_procedure(steps, {"f3"}, 15000, approved=True)
+
+
+def test_duplicate_step_ids_rejected():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "s1", "step_type": "linear", "start_ms": 0, "end_ms": 5000,
+         "description": "Step one", "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high"},
+        {"id": "s1", "step_type": "linear", "start_ms": 5000, "end_ms": 10000,
+         "description": "Step one again", "evidence": ["f2"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high"},
+    ]
+    with pytest.raises(ValueError):
+        validate_procedure(steps, {"f1", "f2"}, 10000, approved=True)
+
+
+def test_linear_backward_compatible_with_all_fields_optional():
+    from app.training import validate_procedure
+    # Old-style linear steps without new branching fields should still work
+    steps = [
+        {"id": "s1", "start_ms": 0, "end_ms": 5000, "description": "Step one",
+         "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high"},
+        {"id": "s2", "start_ms": 5000, "end_ms": 10000, "description": "Step two",
+         "evidence": ["f2"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high"},
+    ]
+    result = validate_procedure(steps, {"f1", "f2"}, 10000, approved=True)
+    assert len(result) == 2
+    assert result[0]["step_type"] == "linear"
+    assert result[1]["step_type"] == "linear"
