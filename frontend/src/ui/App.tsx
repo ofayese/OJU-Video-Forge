@@ -14,6 +14,7 @@ import type {
 } from "../api/types";
 import { AuthenticatedReview, ReviewPanel } from "./ReviewPanel";
 import { NarrationWorkspace } from "./NarrationWorkspace";
+import { ReviewQueue } from "./ReviewQueue";
 
 const ACTIVE = new Set(["queued", "dispatch_pending", "running", "verifying"]);
 const errorText = (error: unknown) => error instanceof Error ? error.message : "Request failed.";
@@ -445,6 +446,7 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
     <NarrationWorkspace key={narrationSession} projectId={projectId} token={token} media={media} onActivate={() => {
       jobGeneration.current++; setJob(null); releaseArtifact();
     }} />
+    <ReviewQueue projectId={projectId} token={token} />
     <section className="panel" aria-labelledby="ai-generation-heading">
       <h2 id="ai-generation-heading">AI video generation</h2>
       <p>Operation: wan22_t2v. Creates a new video from text, not narration of an upload.

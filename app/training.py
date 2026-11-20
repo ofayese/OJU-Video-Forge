@@ -103,6 +103,7 @@ class ProcedureStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,40}$")
+    step_type: Literal["linear", "decision", "branch", "join"] = "linear"
     start_ms: int = Field(strict=True, ge=0)
     end_ms: int = Field(strict=True, gt=0)
     description: str = Field(max_length=1000)
@@ -115,6 +116,10 @@ class ProcedureStep(BaseModel):
     ] = "unverified"
     confidence: Literal["unassessed", "low", "medium", "high"] = "unassessed"
     decision: Literal["pending", "accepted", "rejected"] = "pending"
+    condition: str | None = Field(default=None, max_length=500)
+    branch_targets: list[str] = Field(default_factory=list, max_length=8)
+    default_target: str | None = Field(default=None, max_length=40)
+    parent_decision: str | None = Field(default=None, max_length=40)
 
 
 class TrainingClaim(BaseModel):
@@ -755,28 +760,57 @@ def validate_procedure(
         raise ValueError("procedure_requires_1_to_200_steps")
     result = []
     ids = set()
-    previous_end = 0
+    step_types: dict[str, str] = {}
+    decision_nodes: dict[str, dict] = {}
+    previous_linear_end = 0
     for raw in steps:
         step = ProcedureStep.model_validate(raw)
         if (
             step.id in ids
-            or step.start_ms < previous_end
             or not step.start_ms < step.end_ms <= duration_ms
             or not set(step.evidence).issubset(evidence_ids)
             or any(not c.isprintable() and c not in "\n\t" for c in step.description)
+            or (step.step_type == "linear" and step.start_ms < previous_linear_end)
             or (step.decision == "accepted" and not step.description.strip())
             or (step.decision == "accepted" and step.evidence_category == "missing")
-            or (
-                approved
-                and step.decision == "accepted"
-                and step.confidence == "unassessed"
-            )
-            or (approved and step.decision == "pending")
+            or (step.step_type == "decision" and not step.condition)
+            or (step.step_type == "decision" and not step.branch_targets)
+            or (step.step_type in {"branch", "join"} and not step.parent_decision)
         ):
             raise ValueError("invalid_or_unreviewed_procedure_step")
+        if step.step_type == "decision":
+            decision_nodes[step.id] = {
+                "condition": step.condition,
+                "targets": list(step.branch_targets),
+                "default": step.default_target,
+            }
+            for target in step.branch_targets:
+                if target not in ids and target not in {s["id"] for s in steps}:
+                    raise ValueError("decision_target_not_found")
+        elif step.step_type == "branch":
+            if step.parent_decision not in decision_nodes:
+                raise ValueError("branch_parent_decision_not_found")
+            if step.id not in decision_nodes[step.parent_decision]["targets"]:
+                raise ValueError("branch_not_in_parent_targets")
         ids.add(step.id)
-        previous_end = step.end_ms
+        step_types[step.id] = step.step_type
+        if step.step_type == "linear":
+            previous_linear_end = step.end_ms
         result.append(step.model_dump())
-    if approved and not any(step["decision"] == "accepted" for step in result):
-        raise ValueError("procedure_requires_accepted_step")
+    if approved:
+        if any(s["decision"] == "pending" for s in result):
+            raise ValueError("invalid_or_unreviewed_procedure_step")
+        accepted_ids = {s["id"] for s in result if s["decision"] == "accepted"}
+        if not accepted_ids:
+            raise ValueError("procedure_requires_accepted_step")
+        for step_id in accepted_ids:
+            step = next(s for s in result if s["id"] == step_id)
+            if step["decision"] == "accepted" and step["confidence"] == "unassessed":
+                raise ValueError("invalid_or_unreviewed_procedure_step")
+            if step["step_type"] == "decision" and step["decision"] == "accepted":
+                if not step["condition"] or not step["condition"].strip():
+                    raise ValueError("invalid_or_unreviewed_procedure_step")
+            if step["step_type"] in {"decision", "join"}:
+                if step["parent_decision"] and step["parent_decision"] not in decision_nodes:
+                    raise ValueError("invalid_or_unreviewed_procedure_step")
     return result

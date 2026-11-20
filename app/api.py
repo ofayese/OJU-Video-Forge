@@ -1922,6 +1922,30 @@ def start_narration(
     return _narration_result(db, row)
 
 
+@app.get("/v1/projects/{project_id}/narrations")
+def list_narrations(
+    project_id: str,
+    actor: Actor = Depends(require_roles(*READ_ROLES)), db: Session = Depends(db_session),
+):
+    _owned_project(db, project_id, actor)
+    rows = db.scalars(select(Narration).where(
+        Narration.project_id == project_id,
+    )).all()
+    result = []
+    for row in rows:
+        media = db.get(MediaAsset, row.media_id) if row.media_id else None
+        result.append({
+            "id": row.id, "media_id": row.media_id,
+            "media_filename": media.filename if media else None,
+            "job_id": row.job_id, "stage": row.stage, "error": row.error,
+            "revision": row.revision, "approved_revision": row.approved_revision,
+            "workflow": (row.options or {}).get("workflow", "narration"),
+            "render_profile": (row.options or {}).get("render_profile", "source_passthrough"),
+            "has_approved_script": bool(row.approved_revision and row.approved_revision == row.revision),
+        })
+    return result
+
+
 @app.get("/v1/projects/{project_id}/narrations/{narration_id}")
 def get_narration(
     project_id: str, narration_id: str,

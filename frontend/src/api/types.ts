@@ -139,6 +139,7 @@ export interface NarrationSegment {
 
 export interface TrainingProcedureStep {
   id: string;
+  step_type: "linear" | "decision" | "branch" | "join";
   start_ms: number;
   end_ms: number;
   description: string;
@@ -147,6 +148,10 @@ export interface TrainingProcedureStep {
   evidence_category: "direct_observation" | "supported_inference" | "unverified" | "missing";
   confidence: "unassessed" | "low" | "medium" | "high";
   decision: "pending" | "accepted" | "rejected";
+  condition?: string;
+  branch_targets?: string[];
+  default_target?: string;
+  parent_decision?: string;
 }
 
 export interface TrainingClaim {
@@ -242,6 +247,7 @@ export interface NarrationSettings {
   original_volume: number;
   narration_gain: number;
   render_annotations: boolean;
+  render_profile: "source_passthrough" | "h264_aac";
 }
 
 export interface NarrationOcrProvenance {
@@ -251,6 +257,20 @@ export interface NarrationOcrProvenance {
   engine_version: string;
   runtime: string;
   model_sha256: Record<string, string>;
+}
+
+export interface NarrationListing {
+  id: string;
+  media_id: string | null;
+  media_filename: string | null;
+  job_id: string | null;
+  stage: string;
+  error: string | null;
+  revision: number;
+  approved_revision: number | null;
+  workflow: string;
+  render_profile: string;
+  has_approved_script: boolean;
 }
 
 export interface NarrationResult {

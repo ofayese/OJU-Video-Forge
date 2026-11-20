@@ -22,6 +22,7 @@ from app.training import (
 def step(**updates):
     return {
         "id": "step-1",
+        "step_type": "linear",
         "start_ms": 0,
         "end_ms": 5000,
         "description": "Open the visible menu",
@@ -30,6 +31,10 @@ def step(**updates):
         "evidence_category": "unverified",
         "confidence": "unassessed",
         "decision": "pending",
+        "condition": None,
+        "branch_targets": [],
+        "default_target": None,
+        "parent_decision": None,
         **updates,
     }
 

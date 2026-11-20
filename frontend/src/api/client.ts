@@ -14,7 +14,7 @@ import type {
   ReviewDecision,
   NarrationResult,
   NarrationSegment,
-  NarrationSettings,
+  NarrationListing,
   TrainingProcedureStep,
   TrainingAgentStatus,
 } from "./types";
@@ -236,6 +236,11 @@ export class ApiClient {
       throw new ApiError("Narration response identity mismatch.", 409);
     }
     return result;
+  }
+
+  async listNarrations(projectId: string, token: string): Promise<NarrationListing[]> {
+    return this.request<NarrationListing[]>(
+      `/v1/projects/${encodeURIComponent(projectId)}/narrations`, {}, token);
   }
 
   async editNarration(projectId: string, id: string, revision: number,

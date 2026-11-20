@@ -1634,3 +1634,108 @@ def test_narration_job_identity_valid_advances(tmp_path, monkeypatch):
         narration_jobs.execute(db, db.get(Job, "job-1"), lambda: None)
 
     engine.dispose()
+
+
+def test_list_narrations_returns_project_narrations(context):
+    client, sessions, _ = context
+    with sessions() as db:
+        project = Project(id="proj-list", owner="editor", name="List test")
+        db.add(project)
+        membership = ProjectMembership(
+            project_id="proj-list", user_id="editor", role="owner",
+        )
+        db.add(membership)
+        media = MediaAsset(
+            id="media-list", project_id="proj-list", filename="test.mp4",
+            media_type="video/mp4", sha256="abc", size_bytes=100,
+            storage_key="media-list/video.mp4",
+        )
+        db.add(media)
+        narration = Narration(
+            id="narr-list", project_id="proj-list", media_id="media-list",
+            source_sha256="abc", stage="script_approved", revision=1,
+            approved_revision=1, job_id="job-list",
+            options={"workflow": "silent_training", "render_profile": "h264_aac"},
+        )
+        db.add(narration)
+        db.commit()
+    response = client.get("/v1/projects/proj-list/narrations")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == "narr-list"
+    assert data[0]["stage"] == "script_approved"
+    assert data[0]["render_profile"] == "h264_aac"
+    assert data[0]["has_approved_script"] is True
+    assert data[0]["media_filename"] == "test.mp4"
+
+
+def test_validate_procedure_branching_backward_compatible():
+    from app.training import validate_procedure
+    # Linear procedure still works without branching fields
+    steps = [
+        {"id": "s1", "start_ms": 0, "end_ms": 5000, "description": "Step one",
+         "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high"},
+    ]
+    result = validate_procedure(steps, {"f1"}, 10000, approved=True)
+    assert result[0]["step_type"] == "linear"
+    assert result[0]["decision"] == "accepted"
+
+
+def test_validate_procedure_decision_node():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "d1", "step_type": "decision", "start_ms": 0, "end_ms": 5000,
+         "description": "Choose path", "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "condition": "User clicks the button", "branch_targets": ["a1", "b1"],
+         "default_target": "a1"},
+        {"id": "a1", "step_type": "branch", "start_ms": 5000, "end_ms": 10000,
+         "description": "Path A", "evidence": ["f2"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "parent_decision": "d1"},
+        {"id": "b1", "step_type": "branch", "start_ms": 5000, "end_ms": 10000,
+         "description": "Path B", "evidence": ["f3"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "parent_decision": "d1"},
+    ]
+    result = validate_procedure(steps, {"f1", "f2", "f3"}, 10000, approved=True)
+    assert len(result) == 3
+    assert result[0]["step_type"] == "decision"
+    assert result[0]["branch_targets"] == ["a1", "b1"]
+
+
+def test_validate_procedure_rejects_dangling_branch_target():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "d1", "step_type": "decision", "start_ms": 0, "end_ms": 5000,
+         "description": "Choose path", "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "condition": "User clicks", "branch_targets": ["nonexistent"]},
+    ]
+    with pytest.raises(ValueError, match="decision_target_not_found"):
+        validate_procedure(steps, {"f1"}, 10000, approved=True)
+
+
+def test_validate_procedure_rejects_decision_without_condition():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "d1", "step_type": "decision", "start_ms": 0, "end_ms": 5000,
+         "description": "Choose path", "evidence": ["f1"], "decision": "accepted",
+         "evidence_category": "direct_observation", "confidence": "high",
+         "branch_targets": ["a1"]},
+    ]
+    with pytest.raises(ValueError, match="invalid_or_unreviewed_procedure_step"):
+        validate_procedure(steps, {"f1"}, 10000, approved=True)
+
+
+def test_validate_procedure_rejects_pending_for_approval():
+    from app.training import validate_procedure
+    steps = [
+        {"id": "s1", "start_ms": 0, "end_ms": 5000, "description": "Step one",
+         "evidence": ["f1"], "decision": "pending",
+         "evidence_category": "direct_observation", "confidence": "high"},
+    ]
+    with pytest.raises(ValueError, match="unreviewed"):
+        validate_procedure(steps, {"f1"}, 10000, approved=True)

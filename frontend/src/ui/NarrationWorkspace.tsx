@@ -61,6 +61,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
   const [settings, setSettings] = useState<NarrationSettings>({
     voice: "en-us", rate: 160, audio_mode: "replace", original_volume: 20, narration_gain: 100,
     render_annotations: false,
+    render_profile: "source_passthrough",
   });
   const epoch = useRef(0);
   const locked = useRef(false);
@@ -477,6 +478,11 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
             onChange={(event) => setSettings({ ...settings, render_annotations: event.target.checked })} />
           Burn reviewed annotations into the derived video (re-encodes visuals; original is preserved)
         </label>}
+        <label>Render profile<select value={settings.render_profile} onChange={(event) =>
+          setSettings({ ...settings, render_profile: event.target.value as NarrationSettings["render_profile"] })}>
+          <option value="source_passthrough">Source passthrough (fast, preserves source codec)</option>
+          <option value="h264_aac">H.264/AAC (re-encodes to H.264; wider compatibility)</option>
+        </select></label>
         <button disabled={dirty || row.stage !== "script_approved" || row.approved_revision !== row.revision}
           onClick={() => void action(() => api.renderNarration(projectId, row.id, row.revision, settings, token))}>
           Generate approved narrated MP4</button>
