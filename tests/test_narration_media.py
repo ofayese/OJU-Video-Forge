@@ -46,3 +46,18 @@ def test_mux_preserves_visuals_duration_and_deliberate_audio_mode(tmp_path, mode
         assert narration.audio_hash(source, check) == narration.audio_hash(output, check)
     else:
         assert narration.audio_hash(source, check) != narration.audio_hash(output, check)
+
+
+def test_mux_missing_audio_raises_when_audio_required(tmp_path):
+    source = tmp_path / "source.mp4"
+    def check():
+        return None
+    narration.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                   "color=c=blue:s=160x90:r=12", "-f", "lavfi", "-i", "sine=frequency=440",
+                   "-t", "1", "-c:v", _h264_encoder(), "-threads", "1", "-c:a", "aac",
+                   str(source)], check)
+    output = tmp_path / "derived.mp4"
+    with pytest.raises(narration.NarrationError, match="media_command_failed"):
+        narration.mux(source, None, output,
+                       narration.probe(source, check),
+                       narration.NarrationOptions(audio_mode="replace"), check)

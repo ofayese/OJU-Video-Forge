@@ -1,3 +1,4 @@
+import csv
 import json
 
 with open('docs/reviews/evidence/2026-11-10-narration-remediation/trivy_baseline.json', 'r') as f:
@@ -59,7 +60,6 @@ for pkg, info in sorted_packages:
         print(f'    URL: {d["url"]}')
 
 # Save detailed CSV
-import csv
 with open('docs/reviews/evidence/2026-11-10-narration-remediation/vuln_inventory.csv', 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(['Package', 'InstalledVersion', 'FixedVersion', 'CVE', 'Severity', 'Title', 'PrimaryURL'])

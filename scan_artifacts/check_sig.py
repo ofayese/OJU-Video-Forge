@@ -1,7 +1,8 @@
-import hmac
 import hashlib
+import hmac
 import json
 import sys
+
 sys.path.insert(0, "/opt/forge")
 
 raw = open("/opt/forge/telemetry/observation/observation.json", "rb").read()
