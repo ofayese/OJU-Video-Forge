@@ -81,6 +81,7 @@ class NarrationOptions(BaseModel):
     original_volume: int = Field(default=20, strict=True, ge=0, le=100)
     narration_gain: int = Field(default=100, strict=True, ge=0, le=150)
     render_annotations: bool = False
+    render_profile: Literal["source_passthrough", "h264_aac"] = "source_passthrough"
 
 
 def digest(path: Path) -> str:
@@ -89,6 +90,16 @@ def digest(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             value.update(chunk)
     return value.hexdigest()
+
+
+def h264_encoder() -> str:
+    """Return an H.264 encoder available on this ffmpeg build."""
+    result = run(["ffmpeg", "-encoders"], lambda: None)
+    encoders = result.decode()
+    for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
+        if f" {name} " in encoders or f" {name}\n" in encoders:
+            return name
+    raise NarrationError("no_h264_encoder_available")
 
 
 def run(
@@ -846,6 +857,13 @@ def mux(source: Path, audio: Path | None, output: Path, metadata: dict,
     if audio:
         args += ["-i", str(audio)]
     args += ["-map", "0:v:0"]
+    if options.render_profile == "h264_aac":
+        encoder = h264_encoder()
+        video_codec_args = ["-c:v", encoder, "-preset", "veryfast", "-crf", "20",
+                            "-pix_fmt", "yuv420p"]
+    else:
+        video_codec_args = ["-c:v", "copy"]
+
     if options.render_annotations:
         if not annotations or len(annotations) > 20:
             raise NarrationError("annotations_require_1_to_20_reviewed_items")
@@ -862,10 +880,13 @@ def mux(source: Path, audio: Path | None, output: Path, metadata: dict,
                 f"box=1:boxcolor=black@0.75:boxborderw=8:x=10:y=10:"
                 f"enable='between(t,{item.start_ms / 1000},{item.end_ms / 1000})'"
             )
-        args += ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast",
-                 "-crf", "20", "-pix_fmt", "yuv420p"]
+        if options.render_profile == "source_passthrough":
+            encoder = h264_encoder()
+            video_codec_args = ["-c:v", encoder, "-preset", "veryfast", "-crf", "20",
+                                "-pix_fmt", "yuv420p"]
+        args += ["-vf", ",".join(filters)] + video_codec_args
     else:
-        args += ["-c:v", "copy"]
+        args += video_codec_args
     if options.audio_mode == "preserve":
         args += ["-map", "0:a:0?"]
     elif options.audio_mode == "mix" and has_audio:

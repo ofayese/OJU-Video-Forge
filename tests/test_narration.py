@@ -613,6 +613,48 @@ def test_silent_training_requires_evidence_review_before_script_or_audio(context
     assert client.post(f"{base}/render", json={"expected_revision": 3}).status_code == 409
 
 
+def test_render_profile_default_source_passthrough(context):
+    client, sessions, _ = context
+    narration_id = start(client)
+    seed_draft(sessions, narration_id)
+    base = f"/v1/projects/project/narrations/{narration_id}"
+    assert client.post(f"{base}/approval", json={
+        "expected_revision": 1, "decision": "approved",
+    }).status_code == 200
+    response = client.post(f"{base}/render", json={
+        "expected_revision": 1, "render_profile": "source_passthrough",
+    })
+    assert response.status_code == 202, response.text
+
+
+def test_render_profile_explicit_h264_aac(context):
+    client, sessions, _ = context
+    narration_id = start(client)
+    seed_draft(sessions, narration_id)
+    base = f"/v1/projects/project/narrations/{narration_id}"
+    assert client.post(f"{base}/approval", json={
+        "expected_revision": 1, "decision": "approved",
+    }).status_code == 200
+    response = client.post(f"{base}/render", json={
+        "expected_revision": 1, "render_profile": "h264_aac",
+    })
+    assert response.status_code == 202, response.text
+
+
+def test_render_profile_invalid_rejected(context):
+    client, sessions, _ = context
+    narration_id = start(client)
+    seed_draft(sessions, narration_id)
+    base = f"/v1/projects/project/narrations/{narration_id}"
+    assert client.post(f"{base}/approval", json={
+        "expected_revision": 1, "decision": "approved",
+    }).status_code == 200
+    response = client.post(f"{base}/render", json={
+        "expected_revision": 1, "render_profile": "invalid_profile",
+    })
+    assert response.status_code == 422, response.text
+
+
 def test_generation_stage_provenance_rejects_missing_or_mismatched_stages():
     provider = {
         "provider": "ollama", "model": "qwen3-vl:4b",

@@ -61,3 +61,45 @@ def test_mux_missing_audio_raises_when_audio_required(tmp_path):
         narration.mux(source, None, output,
                        narration.probe(source, check),
                        narration.NarrationOptions(audio_mode="replace"), check)
+
+
+def test_mux_default_profile_preserves_source_codec(tmp_path):
+    source = tmp_path / "source.mp4"
+    def check():
+        return None
+    narration.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                   "color=c=blue:s=160x90:r=12", "-f", "lavfi", "-i", "sine=frequency=440",
+                   "-t", "1", "-c:v", _h264_encoder(), "-threads", "1", "-c:a", "aac",
+                   str(source)], check)
+    source_probe = narration.probe(source, check)
+    source_codec = next(s for s in source_probe["streams"]
+                        if s.get("codec_type") == "video")["codec_name"]
+    output = tmp_path / "derived.mp4"
+    result = narration.mux(source, None, output, source_probe,
+                           narration.NarrationOptions(audio_mode="preserve"), check)
+    derived_codec = next(s for s in result["streams"]
+                         if s.get("codec_type") == "video")["codec_name"]
+    assert derived_codec == source_codec
+
+
+def test_mux_h264_aac_profile_reencodes_to_h264(tmp_path):
+    source = tmp_path / "source.mp4"
+    def check():
+        return None
+    narration.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                   "color=c=blue:s=160x90:r=12", "-f", "lavfi", "-i", "sine=frequency=440",
+                   "-t", "1", "-c:v", _h264_encoder(), "-threads", "1", "-c:a", "aac",
+                   str(source)], check)
+    source_probe = narration.probe(source, check)
+    output = tmp_path / "derived.mp4"
+    result = narration.mux(source, None, output, source_probe,
+                           narration.NarrationOptions(audio_mode="preserve",
+                                                      render_profile="h264_aac"), check)
+    derived_codec = next(s for s in result["streams"]
+                         if s.get("codec_type") == "video")["codec_name"]
+    assert derived_codec == "h264"
+
+
+def test_mux_invalid_render_profile_rejected():
+    with pytest.raises(ValueError, match="render_profile"):
+        narration.NarrationOptions(render_profile="invalid_profile")

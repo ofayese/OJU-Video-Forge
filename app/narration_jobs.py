@@ -489,6 +489,12 @@ def execute(db, job, check):
             "ffprobe": result, "source_media": metadata,
             "visual_stream_sha256": media.video_hash(output, check),
             "visual_transform": "reviewed_annotations" if options.render_annotations else "none",
+            "render_profile": options.render_profile,
+            "render_codec": next(
+                (s for s in result.get("streams", [])
+                 if s.get("codec_type") == "video"),
+                {},
+            ).get("codec_name", "unknown"),
             "output_sha256": media.digest(output), "output_bytes": output.stat().st_size,
         }
         video_id, video_key = register(db, row, job, "video.mp4", output.read_bytes(), "video/mp4")

@@ -326,6 +326,7 @@ class NarrationOptionsInput(BaseModel):
     original_volume: int = Field(default=20, strict=True, ge=0, le=100)
     narration_gain: int = Field(default=100, strict=True, ge=0, le=150)
     render_annotations: bool = False
+    render_profile: Literal["source_passthrough", "h264_aac"] = "source_passthrough"
 
 
 class ReviewResult(BaseModel):
