@@ -1,3 +1,5 @@
+> **Status:** Historical milestone document (superseded by docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml and docs/ere-development-baseline-register.md). Do not treat as current implementation truth.
+
 # First vertical slice: secure deterministic project rendering
 
 ## Outcome and boundaries
@@ -116,3 +118,4 @@ not block that core slice.
 The issues contain acceptance criteria, test/evidence expectations, milestones, and
 dependency links. Never include private environment details or real user media in
 the public backlog.
+
