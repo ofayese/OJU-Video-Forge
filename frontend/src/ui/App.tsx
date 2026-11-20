@@ -175,6 +175,7 @@ function Workspace({ token, user, onLogout }: { token: string; user: User; onLog
           <select id="active-project" value={selected} disabled={busy} onChange={(e) => setSelected(e.target.value)}>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
+          <p role="status" id="active-project-name">Active: {projects.find((p) => p.id === selected)?.name ?? "none"}</p>
           <ul>{projects.map((project) => <li key={project.id}>{project.name}</li>)}</ul>
         </>}
       </section>
@@ -233,6 +234,7 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
   const [job, setJob] = useState<VideoJob | null>(null);
   const [jobError, setJobError] = useState("");
   const [narrationSession, setNarrationSession] = useState(0);
+  const [selectedNarrationId, setSelectedNarrationId] = useState("");
   const [artifactUrl, setArtifactUrl] = useState("");
   const [models, setModels] = useState<VideoModel[]>([]);
   const [modelError, setModelError] = useState("");
@@ -415,7 +417,7 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
     if (!job || !artifactReady(job.status) || locked.current) return;
     locked.current = true; setBusy(true); setJobError(""); releaseArtifact();
     try {
-      const projectArtifact = job.operation === "wan22_t2v" && job.project_artifact_id
+      const projectArtifact = (job.operation === "wan22_t2v" || job.operation === "narrate_existing_video") && job.project_artifact_id
         ? { projectId, artifactId: job.project_artifact_id }
         : undefined;
       const result = await artifact.load(job.id, token, projectArtifact);
@@ -443,10 +445,10 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
           setClips((items) => [...items, { media_id: asset.id, in_ms: 0, out_ms: 5000 }])}>Add {asset.filename} to timeline</button>}
       </li>)}</ul>
     </section>
-    <NarrationWorkspace key={narrationSession} projectId={projectId} token={token} media={media} onActivate={() => {
-      jobGeneration.current++; setJob(null); releaseArtifact();
+    <NarrationWorkspace key={narrationSession} projectId={projectId} token={token} media={media} narrationId={selectedNarrationId} onActivate={() => {
+      jobGeneration.current++; setJob(null); releaseArtifact(); setSelectedNarrationId("");
     }} />
-    <ReviewQueue projectId={projectId} token={token} />
+    <ReviewQueue projectId={projectId} token={token} onSelectNarration={setSelectedNarrationId} />
     <section className="panel" aria-labelledby="ai-generation-heading">
       <h2 id="ai-generation-heading">AI video generation</h2>
       <p>Operation: wan22_t2v. Creates a new video from text, not narration of an upload.
@@ -524,7 +526,7 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
         {ACTIVE.has(job.status) && <p role="status">Checking status every 3 seconds…</p>}
         <button disabled={busy} onClick={() => void check()}>Check status</button>
         {job.artifact && artifactReady(job.status) &&
-          ["wan22_t2v", "render_timeline_v1", "render_test"].includes(job.operation ?? "") &&
+          ["wan22_t2v", "render_timeline_v1", "render_test", "narrate_existing_video"].includes(job.operation ?? "") &&
           <button disabled={busy} onClick={() => void preview()}>Load authorized preview/download</button>}
         {artifactUrl && <>
           <video controls preload="metadata" src={artifactUrl} aria-label="Rendered video preview" style={{ maxWidth: "100%" }} />
@@ -539,16 +541,24 @@ export function ProjectWorkspace({ projectId, token }: { projectId: string; toke
 
 export function JobOutputDescription({ job, media }: { job: VideoJob; media: MediaAsset[] }) {
   const source = media.find((asset) => asset.id === job.media_id);
+  const isNarration = job.operation === "narrate_existing_video";
   const output = job.operation === "wan22_t2v" ? "AI-generated video (not narration)"
     : job.operation === "render_timeline_v1" ? "Timeline-rendered video"
     : job.operation === "render_test" ? "Synthetic test video"
+    : isNarration ? "Narrated source video"
     : "No verified narrated video";
-  const videoOperation = ["wan22_t2v", "render_timeline_v1", "render_test"].includes(job.operation ?? "");
+  const videoOperation = ["wan22_t2v", "render_timeline_v1", "render_test", "narrate_existing_video"].includes(job.operation ?? "");
   return <>
     <p>Operation: {job.operation ?? "unknown"} · Output: {output}</p>
     <p>Source video: {source?.filename ?? (job.media_id ? job.media_id
       : job.operation === "render_timeline_v1" ? "Selected timeline clips" : "None")}</p>
+    {isNarration && job.project_artifact_id && job.review_artifact && <>
+      <p>Artifact ID: {job.project_artifact_id}</p>
+      <p>Artifact SHA-256: {job.review_artifact.sha256}</p>
+    </>}
     {job.status === "awaiting_review" && videoOperation &&
       <p role="status">{output} complete; awaiting review. This does not verify narration.</p>}
+    {isNarration && job.status === "approved" &&
+      <p role="status">Narrated video rendered and approved. Artifact preserved for review.</p>}
   </>;
 }

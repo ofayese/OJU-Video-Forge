@@ -218,6 +218,16 @@ describe("review presentation (server-rendered without DOM dependencies)", () =>
     expect(html).toContain("not independent human signoff");
   });
 
+  it("shows completed decision info when review is read-only", () => {
+    const completedJob = { ...job, status: "approved", can_review: false, review_version: 5 };
+    const history = [{ ...evidence, decision: "approved", version: 5 }];
+    const html = render({ job: completedJob, history, busy: false, error: "" });
+    expect(html).toContain("Review complete — decision already recorded.");
+    expect(html).toContain("approved by owner");
+    expect(html).toContain("This review is read-only");
+    expect(html.match(/disabled=""/g)).toHaveLength(2);
+  });
+
   describe("account and timeline presentation", () => {
     it("exposes real account registration, accessible credentials and no storage", () => {
       const html = renderToStaticMarkup(createElement(LoginScreen, {

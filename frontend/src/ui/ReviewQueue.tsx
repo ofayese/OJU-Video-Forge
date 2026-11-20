@@ -37,7 +37,7 @@ function needsAction(listing: NarrationListing): boolean {
     || stage === "failed";
 }
 
-export function ReviewQueue({ projectId, token }: { projectId: string; token: string }) {
+export function ReviewQueue({ projectId, token, onSelectNarration }: { projectId: string; token: string; onSelectNarration?: (id: string) => void }) {
   const [listings, setListings] = useState<NarrationListing[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -84,10 +84,15 @@ export function ReviewQueue({ projectId, token }: { projectId: string; token: st
           <td>{listing.has_approved_script ? "Yes" : "—"}</td>
           <td>{listing.render_profile}</td>
           <td>
-            {needsAction(listing) && <button className="primary" onClick={() => {}}>
+            {needsAction(listing) && <button className="primary" onClick={() => void onSelectNarration?.(listing.id)}>
               {REVIEW_ACTION_LABELS[listing.stage] ?? "Review"}
             </button>}
             {!needsAction(listing) && <span style={{ color: "#666" }}>—</span>}
+            {listing.stage === "awaiting_review" && listing.job_id && onSelectNarration && (
+              <button className="secondary" onClick={() => void onSelectNarration(listing.id)}>
+                Preview artifact
+              </button>
+            )}
           </td>
         </tr>)}
       </tbody>

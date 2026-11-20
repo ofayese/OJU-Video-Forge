@@ -10,13 +10,20 @@ export function ReviewEvidence({ state, onDecision, onAcknowledge }: {
 }) {
   const { job, history, busy, error } = state;
   const disabled = busy || state.needsConfirmation || !job?.review_enabled || !job.can_review || !job.review_artifact;
+  const latestDecision = history.length > 0 ? history[history.length - 1] : null;
   return <>
     {busy && <p role="status">Loading review…</p>}
     {error && <p role="alert">{error}</p>}
     {job && <>
       <p>Job {job.id}: {job.status} · Review version {job.review_version}</p>
       {!job.review_enabled && <p role="status">Review disabled. History remains available.</p>}
-      {job.review_enabled && !job.can_review && <p>Read-only: this job or actor is not eligible for decisions.</p>}
+      {job.review_enabled && !job.can_review && latestDecision && <>
+        <p role="status">Review complete — decision already recorded.</p>
+        <p>Decision: {latestDecision.decision} by {latestDecision.actor} at <time dateTime={latestDecision.at}>{latestDecision.at}</time></p>
+        <p>Artifact {latestDecision.artifact_id}<br />SHA-256: {latestDecision.artifact_sha256}</p>
+        <p>This review is read-only. No further approval or rejection can be recorded.</p>
+      </>}
+      {job.review_enabled && !job.can_review && !latestDecision && <p>Read-only: this job or actor is not eligible for decisions.</p>}
       {job.review_artifact && <p>Artifact {job.review_artifact.id}<br />SHA-256: {job.review_artifact.sha256}</p>}
       <p>No media preview in this bridge. Verify output through authorized local operations before deciding.</p>
       {state.needsConfirmation && <button disabled={busy} onClick={onAcknowledge}>

@@ -15,6 +15,7 @@ import type {
   NarrationResult,
   NarrationSegment,
   NarrationListing,
+  NarrationSettings,
   TrainingProcedureStep,
   TrainingAgentStatus,
 } from "./types";

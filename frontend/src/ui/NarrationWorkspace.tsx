@@ -31,8 +31,9 @@ export function narrationVideo(row: NarrationResult) {
     : undefined;
 }
 
-export function NarrationWorkspace({ projectId, token, media, onActivate }: {
+export function NarrationWorkspace({ projectId, token, media, onActivate, narrationId }: {
   projectId: string; token: string; media: MediaAsset[]; onActivate: () => void;
+  narrationId?: string;
 }) {
   const [sourceId, setSourceId] = useState("");
   const [mode, setMode] = useState("transcript");
@@ -124,6 +125,19 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
     }, 3000);
     return () => { active = false; clearInterval(timer); };
   }, [row?.id, row?.stage, projectId, token]);
+  useEffect(() => {
+    if (!narrationId) return;
+    let active = true;
+    const ticket = ++epoch.current;
+    setError("");
+    clearUrls(); setRow(null); setScript([]); setProcedure([]);
+    void api.getNarration(projectId, narrationId, token).then((result) => {
+      if (active && ticket === epoch.current) accept(result);
+    }).catch((reason) => {
+      if (active && ticket === epoch.current) setError(reason instanceof Error ? reason.message : "Failed to load narration.");
+    });
+    return () => { active = false; };
+  }, [narrationId, projectId, token]);
   const trustedOrigin = typeof globalThis.location === "undefined"
     ? undefined
     : globalThis.location.origin;
@@ -159,7 +173,7 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
       ASR needs an approved local Whisper model. Vision and OCR are optional enhancements;
       transcript-based and manually authored scripts do not require them.</p>
     {error && <p role="alert">{error}</p>}
-    <fieldset disabled={busy || !!processing}>
+    {!narrationId && <fieldset disabled={busy || !!processing}>
       <label>Source video<select value={sourceId} onChange={(event) => {
         epoch.current++; clearUrls(); setSourceId(event.target.value); setRow(null);
         pendingStart.current = null; setScript([]); setProcedure([]); setProcedureComment("");
@@ -209,7 +223,8 @@ export function NarrationWorkspace({ projectId, token, media, onActivate }: {
         });
       }}>Start narration analysis</button>
       <button disabled={!sourceId} onClick={() => void download(sourceId, "source")}>Preview authorized source</button>
-    </fieldset>
+    </fieldset>}
+    {narrationId && row && <button onClick={() => onActivate()}>Start a new narration</button>}
     {sourceUrl && <video controls src={sourceUrl} aria-label="Original source video" style={{ maxWidth: "100%" }} />}
     {row && <>
       <p aria-live="polite">Operation: narrate_existing_video · Source: {media.find((item) => item.id === row.media_id)?.filename}
