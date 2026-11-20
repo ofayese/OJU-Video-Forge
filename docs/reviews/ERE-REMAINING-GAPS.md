@@ -1,5 +1,11 @@
 # ERE Remaining Gaps
 
+> **Status:** Historical snapshot (item 5 is as of 2026-11-05). Items 3–6 describe the
+> state before local auth/projects, narration, training generation, human review, and
+> durable dispatch were implemented; they are not current evidence. Gate status lives in
+> [`ERE-ACCEPTANCE-REGISTER.yaml`](./ERE-ACCEPTANCE-REGISTER.yaml); see
+> [`AGENTS.md`](../../AGENTS.md) section 2 for the evidence hierarchy.
+
 **Status:** Partial additions exist; implementation and integration are blocked.
 
 1. **Baseline preservation:** The requested archive was not created because permission was denied; no retry or alternate archive was attempted. Repository files were untracked and no initial commit existed at baseline.

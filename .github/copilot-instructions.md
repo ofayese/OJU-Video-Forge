@@ -4,6 +4,13 @@ These are project-wide requirements. Consult the linked architecture decisions a
 development policies for detail; do not infer deployment, security, or acceptance
 status from configuration alone.
 
+> **Canonical agent instructions:** [AGENTS.md](../AGENTS.md) at the repository root is
+the authoritative source for project identity, implementation status, the evidence
+hierarchy, module navigation, and security boundaries. Read it before asserting that
+any capability is absent — historical plans (for example the vertical-slice plan) are
+not current implementation evidence. This file adds Copilot-scoped detail only; it
+does not restate or override `AGENTS.md`.
+
 ## Architecture and operating boundary
 
 - Keep development, tests, and the supported local workflow local-first. Azure and
@@ -64,4 +71,7 @@ status from configuration alone.
 - Security and evidence handling: [public-repository security](../docs/governance/PUBLIC-REPOSITORY-SECURITY.md),
   [evidence classification](../docs/governance/EVIDENCE-CLASSIFICATION.md), and
   [evidence retention](../docs/governance/EVIDENCE-RETENTION.md).
-- First integrated application milestone: [vertical-slice plan](../docs/implementation/VERTICAL-SLICE-PLAN.md).
+- First integrated application milestone: [vertical-slice plan](../docs/implementation/VERTICAL-SLICE-PLAN.md)
+  (historical milestone; current acceptance status lives in
+  [the acceptance register](../docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml) and
+  [development baseline register](../docs/ere-development-baseline-register.md)).

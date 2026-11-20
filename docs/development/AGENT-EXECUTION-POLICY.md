@@ -1,8 +1,10 @@
 # Agent execution policy
 
 Repository Copilot customizations are scoped helpers, not authorization grants.
-Agents must follow `.github/copilot-instructions.md`, the issue/PR scope, and the
-same approval boundaries as human contributors.
+Agents must follow [the root `AGENTS.md`](../../AGENTS.md) (canonical: project
+identity, evidence hierarchy, module navigation, security boundaries),
+`.github/copilot-instructions.md`, the issue/PR scope, and the same approval
+boundaries as human contributors.
 
 - Architecture review is read-only and recommends; it cannot approve ADRs.
 - Implementation agents change only the approved task scope, preserve unrelated

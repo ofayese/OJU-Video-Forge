@@ -1,5 +1,11 @@
 # OJU Video Forge — Implementation Plan v0.2
 
+> **Status:** Historical planning draft (2026-11-05). Kept for context only; it is not
+> current implementation or acceptance evidence. For current status use
+> [`docs/reviews/ERE-ACCEPTANCE-REGISTER.yaml`](reviews/ERE-ACCEPTANCE-REGISTER.yaml),
+> [`docs/ere-development-baseline-register.md`](ere-development-baseline-register.md), and
+> [`AGENTS.md`](../AGENTS.md).
+
 **Date:** 2026-11-05  
 **Status:** Planning draft; implementation and architectural approval remain pending
 

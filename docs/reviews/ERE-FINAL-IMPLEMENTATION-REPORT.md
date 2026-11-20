@@ -5,6 +5,10 @@
 **Scope:** Read-only repository and local-host baseline. No ARABA, AKOLE, AD, or other remote infrastructure was accessed.
 **Classification:** Historical snapshot before the merged security-remediation PRs; machine-specific host details have been sanitized. See [current security validation](./ERE-SECURITY-VALIDATION.md).
 
+> **Status:** Historical (2026-11-05). The "no initial commit", "auth source edits were
+> denied", and "frontend dependencies missing" statements describe that snapshot only.
+> They are not current evidence; see [`AGENTS.md`](../../AGENTS.md) §2.
+
 ## Summary
 
 At this historical snapshot, the repository had limited API/job/auth components and partial renderer, ComfyUI adapter, and React/TypeScript frontend files. The local Windows/Docker environment's organizational assignment was not independently verified. ComfyUI and GPU execution were not verified.

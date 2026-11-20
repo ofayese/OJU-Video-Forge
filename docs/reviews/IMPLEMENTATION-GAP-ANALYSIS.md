@@ -1,5 +1,10 @@
 # Implementation Gap Analysis
 
+> **Status:** Historical snapshot (2026-11-05), recorded before local auth, projects,
+> media, narration, training generation, and review were implemented. Statements such as
+> "Missing" describe that snapshot only and must not be used as current evidence; see
+> [`AGENTS.md`](../../AGENTS.md) §2 for the evidence hierarchy.
+
 **Observed:** 2026-11-05  
 **Scope:** Repository evidence and read-only local host discovery. “Implemented” does not imply runtime validation.
 
