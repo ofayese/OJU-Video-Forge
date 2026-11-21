@@ -16,6 +16,7 @@ import json
 import logging
 import math
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -32,6 +33,17 @@ DEFAULT_MAX_AGE_SECONDS = 30
 MAX_TELEMETRY_FILE_BYTES = 64 * 1024
 SEQUENCE_STATE_FILENAME = ".telemetry-sequence-state.json"
 DEFAULT_CLOCK_SKEW_SECONDS = 5
+
+# Local machine trustees by well-known SID. icacls accepts a permission *symbol*
+# such as ``(F)`` but rejects a raw SDDL rights string such as ``FA`` (exit code 87),
+# and account names are localised, so a SID is mapped back to its symbol before it is
+# re-granted. Only non-shared principals are listed: SYSTEM, the local
+# Administrators group and the owning account. Everyone / Users / Authenticated
+# Users are intentionally absent so folder hardening can never re-grant them.
+_LOCAL_TRUSTEE_SYMBOLS = {
+    "S-1-5-18": "SYSTEM",
+    "S-1-5-32-544": "Administrators",
+}
 
 
 class HostTelemetryError(RuntimeError):
@@ -110,6 +122,8 @@ def _resolve_powershell() -> str:
                 ["where", name],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
         except FileNotFoundError:
@@ -153,6 +167,8 @@ def _run_collector(
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_seconds,
             check=False,
         )
@@ -356,28 +372,227 @@ def _default_sequence_state(output_path: Path | str) -> Path:
     return Path(output_path).with_name(SEQUENCE_STATE_FILENAME)
 
 
+def _is_canonical_sequence_state(path: Path) -> bool:
+    """True only if ``path`` carries the canonical sequence-state payload.
+
+    A telemetry directory may also hold operator-authored files that end in
+    ``.json`` (for example a legacy ``sequence.json`` written by an older
+    publisher). Those files were never created by ``SequenceStore`` and must not be
+    granted the observation's least-privilege ACL, because the publisher does not own
+    their replacement: revoking inheritance on them can lock the operator out.
+    Only ``{"last_sequence": <int>}`` is recognised; any read or parse failure is
+    treated as "not canonical" so the file is simply left untouched (fail closed).
+    """
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return False
+    return (
+        isinstance(data, dict)
+        and set(data) == {"last_sequence"}
+        and isinstance(data["last_sequence"], int)
+        and not isinstance(data["last_sequence"], bool)
+    )
+
+
+def _is_telemetry_directory(path: Path) -> bool:
+    """True only for a directory dedicated to telemetry output.
+
+    Revoking ACL inheritance on a shared directory (temp roots, user profiles,
+    project roots) breaks the owner's own access to unrelated files, so folder
+    hardening is applied only to a directory that exists solely to hold telemetry.
+
+    Enumeration failure is treated as "not a telemetry directory" (fail closed):
+    an inaccessible path must never be granted hardening that assumes ownership.
+    """
+    try:
+        entries = list(path.iterdir())
+    except OSError as exc:
+        logger.debug("telemetry directory probe denied for %s (%s)", path, type(exc).__name__)
+        return False
+    return bool(entries) and all(
+        entry.is_file() and (entry.name.startswith("telemetry") or entry.name.endswith(".json"))
+        for entry in entries
+    )
+
+
+def _acl_entries(path: Path) -> list[tuple[str, str]]:
+    """Return ``(sid, rights)`` for every ACE currently on ``path``.
+
+    icacls prints the ACL in SDDL when asked to ``/save`` it, and SDDL always names
+    trustees by SID - so this is independent of the UI language and never guesses
+    account names. Unparseable output yields an empty list so the caller falls back
+    to leaving the path unhardened rather than hardening blindly.
+    """
+    handle, temp_name = tempfile.mkstemp(prefix="aclsave", suffix=".txt")
+    os.close(handle)
+    try:
+        result = subprocess.run(
+            ["icacls", str(path), "/save", temp_name, "/L"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+        # icacls writes the /save listing as UTF-16LE regardless of the console code
+        # page; decoding it as utf-8 yields interleaved NULs and no ACEs at all.
+        raw = Path(temp_name).read_bytes()
+        try:
+            text = raw.decode("utf-16")
+        except UnicodeError:
+            text = raw.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+    except (OSError, subprocess.TimeoutExpired, UnicodeError):
+        return []
+    finally:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+    if len(lines) < 2:
+        return []
+    sddl = lines[1].strip()
+    if sddl.startswith("D:"):
+        sddl = sddl[2:]
+    entries: list[tuple[str, str]] = []
+    for ace in re.findall(r"\(([^()]*)\)", sddl):
+        fields = ace.split(";")
+        if len(fields) < 6 or fields[0].startswith("D"):
+            continue
+        sid = fields[5]
+        rights = fields[2]
+        if sid.startswith("S-") and rights:
+            entries.append((sid, rights))
+    return entries
+
+
+def _protect_windows_directory(folder: Path, owner: str) -> bool:
+    """Least-privilege ACL on a dedicated telemetry folder, applied with ``/grant``.
+
+    ``icacls <dir> /inheritance:r`` cannot be used here: without ``/T`` it rewrites
+    only the folder, so every child keeps ACEs flagged ``(I)`` for an inheritance
+    that no longer exists - including the ``(IO)`` *inherit-only* entries, which
+    grant nothing to the child itself. A child that had no explicit ACE of its own
+    (the sequence state created privately by ``SequenceStore``) then ends up with no
+    effective rights at all, and the publisher's next ``os.replace`` fails with
+    WinError 5.
+
+    Instead the folder's current trustees (as SIDs, from SDDL) plus the owner and
+    Administrators are granted explicitly to every child, and then to the folder
+    recursively, which rewrites the ACE inheritance flags so each child actually
+    holds the rights it previously inherited. Children are updated before the folder
+    so a mid-way failure leaves inheritance intact rather than a partial state.
+
+    Returns True when the folder was hardened.
+    """
+    folder_entries = _acl_entries(folder)
+    if not folder_entries:
+        logger.debug("could not read the ACL of %s; leaving it unhardened", folder)
+        return False
+    try:
+        children = [child for child in folder.iterdir() if not child.is_symlink()]
+    except OSError as exc:
+        logger.debug(
+            "telemetry directory enumeration denied for %s (%s)", folder, type(exc).__name__
+        )
+        return False
+
+    # A dedicated telemetry folder carries only the operating-system trustees that
+    # the observation keeps at the observation file. Those are named explicitly so
+    # icacls receives permission *symbols*: it rejects raw SDDL rights strings such as
+    # ``FA`` in ``/grant`` (exit code 87, "Invalid parameter"). Anything else that
+    # appears on the folder is deliberately not re-granted.
+    trustees = _LOCAL_TRUSTEE_SYMBOLS
+    grants: list[str] = [f"{owner}:(M,DE)", "Administrators:(F)"]
+    for sid, _rights in folder_entries:
+        if sid in trustees:
+            grants.append(f"{trustees[sid]}:(F)")
+
+    def apply(target: Path, *, recursive: bool) -> bool:
+        try:
+            result = subprocess.run(
+                [
+                    "icacls", str(target), "/grant", *grants,
+                    *(["/T", "/C"] if recursive else []),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            logger.debug("ACL apply skipped for %s (%s)", target, type(exc).__name__)
+            return False
+        if result.returncode != 0:
+            logger.warning(
+                "could not apply least-privilege ACL to %s (%s)",
+                target,
+                "icacls_rejected" if result.returncode > 0 else "icacls_error",
+            )
+        return result.returncode == 0
+
+    # Children first, then the folder itself. If a child cannot be granted, stop:
+    # hardening the folder afterwards would strip the rights that child still
+    # relies on through inheritance.
+    for child in children:
+        if not apply(child, recursive=False):
+            return False
+    return apply(folder, recursive=True)
+
+
 def apply_file_protection(path: Path | str) -> None:
     """Apply least-privilege ACLs to the telemetry file and its folder.
 
-    On Windows this restricts access to the local Administrators group and the
-    owning account, disabling inheritance. On other platforms it falls back to
-    owner-only mode bits. Failures are logged, not raised, so a publisher running
-    without elevation can still emit the file (operators must harden ACLs
-    separately where required).
+    Windows: the file's inherited ACEs are replaced with explicit entries for the
+    local Administrators group and the owning account. A dedicated telemetry folder
+    is hardened further (see ``_protect_windows_directory``); a shared parent is
+    never touched.
+
+    The owner receives ``(M,DE)`` - modify plus delete - not ``(R)`` (read-only).
+    ``publish_telemetry`` replaces the file on every publish (``os.replace``); an
+    owner restricted to read access cannot perform that replace and the *publisher
+    itself* would fail with ``PermissionError`` on the second observation. Delete is
+    required because that is the right ``os.replace`` consumes on the target file.
+    Neither right is Full Control: the owner still cannot rewrite the ACL to admit
+    another principal, and Everyone / Users / Authenticated Users are denied.
+
+    Non-Windows platforms fall back to owner-only mode bits.
+
+    Failures are logged, not raised, so a publisher running without elevation can
+    still emit the file (operators must harden ACLs separately where required).
     """
     target = Path(path)
-    folder = target.parent if target.parent.exists() else target
+    # Harden the file itself. Only harden a folder when it is a dedicated telemetry
+    # directory created for this file - never a caller-supplied parent such as a
+    # shared temp root, because revoking inheritance there breaks the owner's own
+    # access to unrelated files (Windows removes the rights that the OS and test
+    # cleanup need to traverse and delete the directory).
+    folder = target.parent if _is_telemetry_directory(target.parent) else None
     owner = os.environ.get("USERNAME") or os.environ.get("USER") or "owner"
     # Invoke icacls.exe directly (not via powershell -Command) so that the
-    # permission shorthand such as :(R) and :(F) is not mangled by PowerShell
+    # permission shorthand such as :(M) and :(F) is not mangled by PowerShell
     # history expansion. Each command is run as a list so no shell parsing occurs.
-    commands = [
-        ["icacls", str(folder), "/inheritance:r"],
-        ["icacls", str(folder), "/grant", f"{owner}:(F)"],
-        ["icacls", str(folder), "/grant", "Administrators:(F)"],
-        ["icacls", str(target), "/inheritance:r"],
-        ["icacls", str(target), "/grant", f"{owner}:(R)"],
+    #
+    # Order matters on Windows: "/inheritance:r" on the folder strips the inherited
+    # ACEs from every child. A child that has no explicit ACE of its own ends up
+    # with an EMPTY ACL - not even the owner can open or replace it. The file is
+    # therefore granted its explicit owner/Administrators ACEs *before* the folder
+    # inheritance is revoked, so it never depends on the vanished inherited entry.
+    commands: list[list[str]] = [
+        # DELETE is granted explicitly: the publisher replaces its own observation on
+        # every publish (``os.replace``), and a Windows file's explicit DELETE right
+        # is what ``os.replace`` needs in addition to ``FILE_ADD_FILE`` on the parent.
+        # The owner ACE stays (M) + DELETE - it is not Full Control and does not let
+        # the owner rewrite the ACL to admit another principal.
+        ["icacls", str(target), "/grant", f"{owner}:(M,DE)"],
         ["icacls", str(target), "/grant", "Administrators:(F)"],
+        ["icacls", str(target), "/inheritance:r"],
     ]
     for command in commands:
         try:
@@ -385,11 +600,19 @@ def apply_file_protection(path: Path | str) -> None:
                 command,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
                 timeout=10,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             logger.debug("file protection command skipped: %s (%s)", command, exc)
+    if folder is not None and os.name == "nt":
+        # A dedicated folder is hardened by re-applying its entitlement explicitly to
+        # every child first (see ``_protect_windows_directory``); a plain
+        # ``/inheritance:r`` on the folder would empty the ACL of any child that had
+        # no ACE of its own, which includes files the publisher does not own.
+        _protect_windows_directory(folder, owner)
     try:
         os.chmod(target, 0o600)
     except OSError as exc:
@@ -435,20 +658,34 @@ def publish_telemetry(
         )
 
     target = Path(output_path)
-    store = sequence_store or SequenceStore(_default_sequence_state(target))
-    sequence_store_used = store
+    sequence_state = _default_sequence_state(target)
+    store = sequence_store or SequenceStore(sequence_state)
     # The observation.sequence is authoritative; store is only advanced on behalf
     # of callers that did not pre-assign a sequence. If no store is provided we
     # still persist the observed sequence for continuity.
-    if sequence_store_used is None:
-        sequence_store_used = SequenceStore(_default_sequence_state(target))
     try:
-        sequence_store_used.write(observation.sequence)
+        store.write(observation.sequence)
     except HostTelemetryError:
         logger.warning("could not persist sequence state for %s", target)
 
     atomic_write_bytes(target, serialized)
+    # This also hardens the containing directory when it is a dedicated telemetry
+    # folder, so it must run before the state file is hardened (see below).
     apply_file_protection(target)
+    # The sequence state is replaced on every publish. Give it the same explicit
+    # owner ACE so hardening the folder can never leave it with an empty
+    # (owner-less) ACL. Only the canonical state file is hardened: unrelated
+    # operator-authored *.json beside the observation keeps the directory's
+    # inherited ACL.
+    #
+    # Order matters when the directory is itself hardened: a folder ACE of (M) also
+    # caps the rights the owner holds on a child, even one whose own ACE says (F).
+    # Hardening the state file *before* the folder would strip the owner's DELETE
+    # right and break ``SequenceStore.write`` on the NEXT publish with WinError 5.
+    # It is therefore hardened as the last step of the publish, after its own write
+    # and after the folder's ACL, and nothing writes to it afterwards.
+    if sequence_state.exists() and _is_canonical_sequence_state(sequence_state):
+        apply_file_protection(sequence_state)
     return envelope
 
 
