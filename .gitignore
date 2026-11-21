@@ -11,6 +11,10 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+# Isolated validation toolchain for scripts/check_dependency_locks.py
+# (pip-tools version pinned by requirements-dev.txt; see docs/development/
+# DEPENDENCY-UPDATE-POLICY.md). Never a runtime or test dependency.
+.venv-lockcheck/
 .ruff_cache/
 .mypy_cache/
 .coverage
