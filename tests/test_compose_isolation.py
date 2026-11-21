@@ -158,3 +158,42 @@ def test_overlay_volumes_and_networks_are_isolated():
             assert net_def.get("name", "").startswith(prefix), (
                 f"compose.{env}.yaml: network {net_name} not isolated with prefix {prefix}"
             )
+
+
+def test_privileged_boundary_services_keep_no_new_privileges():
+    """Every service that drops privileges at runtime must keep no-new-privileges.
+
+    ``x-common`` sets ``security_opt: ["no-new-privileges:true"]``. A service that
+    needs extra capabilities (the entrypoint uses gosu, which requires SETUID and
+    SETGID for the root -> forge drop) used to override ``security_opt: []`` to add
+    them back. That also silently removed no-new-privileges at runtime, contradicting
+    docs/image-provenance-register.md, while ``setuid`` is exactly the case the option
+    exists to constrain.
+
+    ``TestEnvironmentsHave...`` only asserted this for docling-ocr and comfyui, so the
+    drift on api/render-worker/migrate went unnoticed. Adding a capability must not
+    require removing the security option.
+    """
+    base = yaml.safe_load((ROOT / "compose.yaml").read_text())
+    privileged = {
+        name
+        for name, service in base["services"].items()
+        if service.get("cap_add")
+    }
+    # The compose file must actually exercise this rule, not pass vacuously.
+    assert {"api", "render-worker"} <= privileged
+
+    for name in ("api", "render-worker", "dispatcher", "frontend", "migrate"):
+        security_opt = base["services"][name].get("security_opt")
+        # ``None`` means the service inherits the x-common anchor; an explicit list
+        # overrides it entirely, so an empty list would silently drop the option.
+        if security_opt is None:
+            assert base["x-common"]["security_opt"] == ["no-new-privileges:true"], name
+        else:
+            assert "no-new-privileges:true" in security_opt, (
+                f"{name} overrides security_opt without no-new-privileges: {security_opt}"
+            )
+
+    # Capability additions are limited to the privilege-drop pair.
+    for name in ("api", "render-worker"):
+        assert set(base["services"][name]["cap_add"]) == {"SETUID", "SETGID"}

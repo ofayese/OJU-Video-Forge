@@ -37,7 +37,10 @@ x-training-text-env: &training-text-env
 services:
   api:
     <<: *common
-    security_opt: []
+    # ``no-new-privileges`` is kept from x-common; only the setuid/setgid caps the
+    # entrypoint's gosu privilege drop needs are added back. Overriding security_opt
+    # here (previously ``[]``) silently removed no-new-privileges at runtime and
+    # contradicted docs/image-provenance-register.md.
     cap_add: [SETUID, SETGID]
     build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
     cpus: 1.0
@@ -84,7 +87,9 @@ services:
 
   migrate:
     <<: *common
-    security_opt: []
+    # One-shot schema job that must also start from a non-root volume; it keeps
+    # no-new-privileges from x-common. ``cap_drop: []`` restores the default cap set
+    # because alembic needs to open the volume it just chowned as root.
     cap_drop: []
     build: {context: ., dockerfile: services/api/Dockerfile, target: runtime}
     command: ["python", "-m", "alembic", "upgrade", "head"]
@@ -113,7 +118,7 @@ services:
 
   render-worker:
     <<: *common
-    security_opt: []
+    # See api: no-new-privileges is retained; SETUID/SETGID back the gosu drop.
     cap_add: [SETUID, SETGID]
     build: {context: ., dockerfile: services/worker/Dockerfile}
     cpus: 2.0
