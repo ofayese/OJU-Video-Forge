@@ -95,7 +95,12 @@ def digest(path: Path) -> str:
 def h264_encoder() -> str:
     """Return an H.264 encoder available on this ffmpeg build."""
     result = run(["ffmpeg", "-encoders"], lambda: None)
-    encoders = result.decode()
+    # Strict decode: the encoder list is ASCII. UnicodeDecodeError from the \
+    # ``utf-8-strict`` default propagates unchanged (it did before this change)
+    # and is classified with the other media failures.
+    encoders = result.decode("utf-8")
+    if not encoders.strip():
+        raise NarrationError("media_command_no_output:h264_encoders")
     for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
         if f" {name} " in encoders or f" {name}\n" in encoders:
             return name
@@ -835,14 +840,39 @@ def synthesize(script: list[dict], directory: Path, options: NarrationOptions,
     return output
 
 
+def _parse_hash_output(raw: bytes) -> str:
+    """Parse ffmpeg ``-f hash`` output, failing closed on any surprise.
+
+    The value lands in artifact provenance and is compared to prove a mux did not
+    alter the source stream, so a lossy ``errors="replace"`` decode would let a
+    corrupted digest be recorded as if it were real. ffmpeg emits
+    ``SHA256=<64 lowercase hex>`` (the ``-hash sha256`` label); the bare digest is
+    returned. Strictness is applied to the digest itself, not to the format label:
+    a future label change is a contract change and is reported, not skipped.
+    """
+    try:
+        text = raw.decode("ascii").strip()
+    except UnicodeDecodeError as exc:
+        raise NarrationError("media_hash_not_ascii") from exc
+    if text.startswith("SHA256="):
+        text = text[len("SHA256="):]
+    if len(text) != 64 or any(char not in "0123456789abcdef" for char in text):
+        raise NarrationError("media_hash_malformed")
+    return text
+
+
 def video_hash(path: Path, check: Callable[[], None]) -> str:
-    return run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:v:0",
-                "-c:v", "copy", "-f", "hash", "-hash", "sha256", "-"], check).decode().strip()
+    return _parse_hash_output(
+        run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:v:0",
+             "-c:v", "copy", "-f", "hash", "-hash", "sha256", "-"], check)
+    )
 
 
 def audio_hash(path: Path, check: Callable[[], None]) -> str:
-    return run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0",
-                "-c:a", "copy", "-f", "hash", "-hash", "sha256", "-"], check).decode().strip()
+    return _parse_hash_output(
+        run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0",
+             "-c:a", "copy", "-f", "hash", "-hash", "sha256", "-"], check)
+    )
 
 
 def mux(source: Path, audio: Path | None, output: Path, metadata: dict,

@@ -247,6 +247,32 @@ class RenderEngine:
             return _run(args, cwd, timeout)
         return _run(args, cwd, timeout, cancel=self.cancel)
 
+    def _capture_tool_versions(self, cwd, deadline):
+        """Record ffmpeg/ffprobe identity for provenance.
+
+        ``_execute``/``_run`` return raw bytes. The version is decoded strictly:
+        a tool version is ASCII in practice, and a replacement-character rendering
+        would silently corrupt a provenance string that is additionally hashed.
+        The hash is over the bytes exactly as emitted, never over a re-encoded
+        string, so it does not vary with host platform.
+        """
+        versions = {}
+        for name, tool in (("ffmpeg", self.ffmpeg), ("ffprobe", self.ffprobe)):
+            version = self._execute([tool, "-version"], cwd, min(15, deadline - time.monotonic()))
+            try:
+                version_text = version.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise RenderError("Media tool version output is not valid UTF-8") from exc
+            lines = version_text.splitlines()
+            if not lines:
+                raise RenderError("Media tool did not report its version")
+            versions[name] = {
+                "version": lines[0],
+                "version_output_sha256": hashlib.sha256(version).hexdigest(),
+                "executable_sha256": _file_sha256(Path(tool), deadline),
+            }
+        return versions
+
     @staticmethod
     def _tool(value):
         resolved = shutil.which(value)
@@ -410,16 +436,7 @@ class RenderEngine:
                                         + ([self.font] if self.font else [])))
             identities = {str(path.relative_to(self.root)): _file_sha256(path, deadline)
                           for path in inputs}
-            versions = {}
-            for name, tool in (("ffmpeg", self.ffmpeg), ("ffprobe", self.ffprobe)):
-                version = self._execute([tool, "-version"], cwd, min(15, deadline - time.monotonic()))
-                if not version.splitlines():
-                    raise RenderError("Media tool did not report its version")
-                versions[name] = {
-                    "version": version.decode("utf-8", errors="replace").splitlines()[0],
-                    "version_output_sha256": hashlib.sha256(version).hexdigest(),
-                    "executable_sha256": _file_sha256(Path(tool), deadline),
-                }
+            versions = self._capture_tool_versions(cwd, deadline)
             for path, clip in zip(paths, spec["clips"]):
                 probe = self._probe(path, cwd, deadline)
                 stream = self._stream(probe, "video")
