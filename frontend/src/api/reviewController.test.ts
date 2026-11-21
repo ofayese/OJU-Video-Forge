@@ -220,7 +220,7 @@ describe("review presentation (server-rendered without DOM dependencies)", () =>
 
   it("shows completed decision info when review is read-only", () => {
     const completedJob = { ...job, status: "approved", can_review: false, review_version: 5 };
-    const history = [{ ...evidence, decision: "approved", version: 5 }];
+    const history: JobReview[] = [{ ...evidence, decision: "approved", version: 5 }];
     const html = render({ job: completedJob, history, busy: false, error: "" });
     expect(html).toContain("Review complete — decision already recorded.");
     expect(html).toContain("approved by owner");
