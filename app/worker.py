@@ -252,7 +252,7 @@ def _validate_generation_project(db, job):
         raise ValueError("AI generation project authorization no longer valid")
 
 
-def _generate_wan22(job, output_dir, artifact_id=None):
+def _generate_wan22(job, output_dir, artifact_id=None, heartbeat=None):
     spec = _validate_generation_spec(job.spec)
     registry = _workflow_registration()
     work_dir = output_dir / ".comfyui"
@@ -268,6 +268,9 @@ def _generate_wan22(job, output_dir, artifact_id=None):
         lock = redis_client.lock(
             GPU_LOCK_NAME, timeout=GPU_LOCK_SECONDS, blocking_timeout=GPU_WAIT_SECONDS
         )
+        # Tick before the (possibly long) GPU admission wait.
+        if heartbeat is not None:
+            heartbeat.tick()
         acquired = lock.acquire(blocking=True)
         if not acquired:
             raise RuntimeError("GPU generation capacity is busy")
@@ -281,7 +284,11 @@ def _generate_wan22(job, output_dir, artifact_id=None):
             max_output_count=1,
         ) as adapter:
             submission = adapter.submit("wan22_t2v", spec)
-            adapter.wait_for_completion(submission.prompt_id, timeout=GPU_WAIT_SECONDS)
+            adapter.wait_for_completion(
+                submission.prompt_id,
+                timeout=GPU_WAIT_SECONDS,
+                on_poll=heartbeat.tick if heartbeat is not None else None,
+            )
             outputs = adapter.retrieve_outputs(submission)
         if len(outputs) != 1:
             raise RuntimeError("ComfyUI must return exactly one video")
@@ -509,6 +516,57 @@ def _stage_timeline_inputs(db, job):
         write_private_file(ARTIFACT_ROOT, f"{job.id}/inputs/font.ttf", font.read_bytes())
 
 
+HEARTBEAT_INTERVAL_SECONDS = 5
+
+
+class _JobHeartbeat:
+    """Liveness signal for one execution attempt of a running job.
+
+    ``recover_stale_jobs()`` treats a ``running`` job as abandoned purely from the
+    age of ``updated_at``. Only the timeline render harness used to refresh that
+    column, so a healthy GPU (``wan22_t2v``) or narration (``narrate_existing_video``)
+    job that legitimately outlived ``STALE_WORKER_SECONDS`` was failed as
+    ``worker_lost`` while still working.
+
+    This object refreshes ``updated_at`` at most every ``HEARTBEAT_INTERVAL_SECONDS``
+    (bounded write load) and only while the database still records this job as
+    ``running``. It is an in-band checkpoint, not a background thread: every
+    long-running path already calls a ``check()`` hook, which doubles as the tick.
+
+    Ownership fencing: the ``UPDATE`` is conditioned on ``status == 'running'``. Once
+    recovery (or a cancel) moves the job off ``running``, a late heartbeat silently
+    matches zero rows and cannot revive or re-own the job. This is database job
+    liveness only - it does not touch the Redis inference lease contract, and it
+    does not interrupt an in-flight model request.
+    """
+
+    __slots__ = ("job_id", "_interval", "_last")
+
+    def __init__(self, job_id: str, interval: float = HEARTBEAT_INTERVAL_SECONDS) -> None:
+        self.job_id = job_id
+        self._interval = interval
+        self._last = 0.0
+
+    def tick(self) -> None:
+        now = time.monotonic()
+        if now - self._last < self._interval:
+            return
+        try:
+            with SessionLocal() as heartbeat_db:
+                heartbeat_db.execute(
+                    update(Job)
+                    .where(Job.id == self.job_id, Job.status == "running")
+                    .values(updated_at=datetime.now(UTC))
+                )
+                heartbeat_db.commit()
+        except Exception as exc:  # noqa: BLE001 - heartbeat must never fail the job
+            # Visible but non-fatal: a transient database error must not turn a
+            # healthy render into a failure. Losing the signal only risks the
+            # existing stale-recovery timeout, which is reported, not hidden.
+            logger.warning("heartbeat unavailable for job %s (%s)", self.job_id, type(exc).__name__)
+        self._last = now
+
+
 def execute(job_id: str):
     with SessionLocal() as db:
         job = db.get(Job, job_id)
@@ -538,18 +596,10 @@ def execute(job_id: str):
                 if (output_dir.is_symlink() or inputs.is_symlink()
                         or not inputs.resolve(strict=True).is_relative_to(root / job.id)):
                     raise ValueError('Invalid staged input directory')
-                last_heartbeat = 0
+                heartbeat = _JobHeartbeat(job_id)
 
                 def check_cancel():
-                    nonlocal last_heartbeat
-                    now = time.monotonic()
-                    if now - last_heartbeat >= 5:
-                        with SessionLocal() as heartbeat_db:
-                            heartbeat_db.execute(update(Job).where(
-                                Job.id == job_id, Job.status == "running",
-                            ).values(updated_at=datetime.now(UTC)))
-                            heartbeat_db.commit()
-                        last_heartbeat = now
+                    heartbeat.tick()
                     return _cancel_requested(job_id)
 
                 engine = RenderEngine(inputs, font='font.ttf' if (inputs / 'font.ttf').exists() else None,
@@ -589,7 +639,13 @@ def execute(job_id: str):
             elif job.operation == "narrate_existing_video":
                 _validate_generation_project(db, job)
 
+                # Narration runs a local model request per stage and can outlive the
+                # stale-worker threshold; tick the heartbeat from the same hook that
+                # enforces cancellation.
+                heartbeat = _JobHeartbeat(job.id)
+
                 def check_narration():
+                    heartbeat.tick()
                     if _cancel_requested(job.id):
                         raise JobCancelledError()
 
@@ -652,10 +708,14 @@ def execute(job_id: str):
                 if not get_settings().comfyui_enabled:
                     raise RuntimeError("ComfyUI generation is disabled")
                 _validate_generation_project(db, job)
+                # GPU generation blocks on the ComfyUI queue/prompt for minutes and
+                # emits no database writes of its own; tick before the long call.
+                heartbeat = _JobHeartbeat(job_id)
+                heartbeat.tick()
                 output_dir = ARTIFACT_ROOT / job.id
                 output_dir.mkdir(mode=0o750, parents=True, exist_ok=False)
                 artifact_id = str(uuid.uuid4())
-                artifact = _generate_wan22(job, output_dir, artifact_id)
+                artifact = _generate_wan22(job, output_dir, artifact_id, heartbeat=heartbeat)
                 artifact_path = private_file(ARTIFACT_ROOT, artifact)
                 artifact_sha256 = sha256(artifact_path)
                 db.add(WorkflowArtifact(

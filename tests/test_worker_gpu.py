@@ -69,9 +69,13 @@ class FakeAdapter:
         self.submitted_inputs = inputs
         return Submission("prompt-1", workflow_id, "a" * 64)
 
-    def wait_for_completion(self, prompt_id, *, timeout):
+    def wait_for_completion(self, prompt_id, *, timeout, on_poll=None):
         assert prompt_id == "prompt-1"
         assert timeout == worker.GPU_WAIT_SECONDS
+        # The worker passes its job heartbeat so a slow GPU run keeps its liveness
+        # signal; mirror one poll iteration so the contract is exercised.
+        if on_poll is not None:
+            on_poll()
 
     def retrieve_outputs(self, _submission):
         output_path = self.output_dir / "output.mp4"

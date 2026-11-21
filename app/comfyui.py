@@ -17,7 +17,7 @@ import shutil
 import tempfile
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
@@ -399,7 +399,21 @@ class ComfyUIAdapter:
             return JobStatus(prompt_id, "succeeded", detail)
         return JobStatus(prompt_id, "running", detail)
 
-    def wait_for_completion(self, prompt_id: str, *, timeout: float = 300.0) -> JobStatus:
+    def wait_for_completion(
+        self,
+        prompt_id: str,
+        *,
+        timeout: float = 300.0,
+        on_poll: Callable[[], None] | None = None,
+    ) -> JobStatus:
+        """Block until the prompt settles.
+
+        ``on_poll`` is invoked once per poll iteration. It is the in-band liveness
+        checkpoint the worker uses to refresh its job heartbeat: GPU generation
+        blocks here for minutes and performs no database writes of its own, so
+        without it a healthy run could be failed as a stale worker. The callback
+        must not raise; the worker's implementation is already non-fatal.
+        """
         self._validate_limit("timeout", timeout, 0.1, self.max_wait_seconds)
         deadline = time.monotonic() + timeout
         while True:
@@ -414,6 +428,8 @@ class ComfyUIAdapter:
                     f"ComfyUI prompt {prompt_id!r} failed"
                     + (f": {status.detail}" if status.detail else "")
                 )
+            if on_poll is not None:
+                on_poll()
             remaining = deadline - time.monotonic()
             if remaining > 0:
                 time.sleep(min(self.poll_interval, remaining))

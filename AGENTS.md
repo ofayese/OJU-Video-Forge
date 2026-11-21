@@ -242,11 +242,17 @@ duplicate execution; and job-level recovery of lost RQ deliveries
 (`recover_undelivered_jobs`). A crash between the commit and the enqueue leaves the
 outbox row `pending`, which `dispatch_due()` picks up next pass.
 
-Known gap (source-verified, not fixed here): `recover_stale_jobs()` fails a `running`
-job with `worker_lost` purely on `updated_at` age - `STALE_WORKER_SECONDS`
-(`QUEUE_JOB_TIMEOUT` + 300 = 3900s) or `GPU_STALE_WORKER_SECONDS`
-(`GPU_QUEUE_JOB_TIMEOUT` + 300 = 7500s). The only heartbeat refreshing `updated_at`
-is emitted from inside the timeline render harness (`app/worker.py` `check_cancel()`);
-`_generate_wan22` and the audio-workflow path send none. A long GPU or narration run
-can therefore be failed while still alive. Report this as a known limitation, and
-record any refinement as its own scoped change - do not redesign dispatch here.
+Stale recovery is driven purely by the age of `updated_at`:
+`recover_stale_jobs()` fails a `running` job with `worker_lost` at
+`STALE_WORKER_SECONDS` (`QUEUE_JOB_TIMEOUT` + 300 = 3900s) or
+`GPU_STALE_WORKER_SECONDS` (`GPU_QUEUE_JOB_TIMEOUT` + 300 = 7500s). Every
+long-running path now carries an in-band liveness signal through
+`app/worker.py` `_JobHeartbeat`: the timeline harness ticks it from
+`check_cancel()`, narration ticks it from `check_narration()`, and GPU generation
+ticks it before the admission wait and once per ComfyUI poll via
+`ComfyUIAdapter.wait_for_completion(on_poll=...)`. The tick is rate-limited
+(5s), refreshes `updated_at` only while the row is still `running` (ownership
+fencing: a late heartbeat cannot revive a recovered or cancelled job), and a
+heartbeat database error is logged but never fails a healthy render. Covered by
+`tests/test_job_heartbeat.py` (DB-backed). The concurrency model is unchanged -
+do not add background threads to this path.

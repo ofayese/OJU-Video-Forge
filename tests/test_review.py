@@ -530,7 +530,9 @@ def test_comfy_generation_never_records_review_identity(setup, monkeypatch):
         job.artifact = job.artifact_id = job.artifact_sha256 = None
         db.commit()
 
-    def generate(job, output_dir, artifact_id):
+    # The worker now passes its job heartbeat as a keyword argument so a slow
+    # ComfyUI prompt keeps its liveness signal; the stub must accept it.
+    def generate(job, output_dir, artifact_id, heartbeat=None):
         assert artifact_id
         generated = output_dir / "generated.mp4"
         generated.write_bytes(b"synthetic generated output")
@@ -721,7 +723,8 @@ def test_migration_old_rows_and_non_destructive_downgrade(tmp_path):
 
     def migrate(*args):
         return subprocess.run([sys.executable, "-m", "alembic", "-c", str(ROOT / "alembic.ini"), *args],
-                              cwd=ROOT, env=env, capture_output=True, text=True)
+                              cwd=ROOT, env=env, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
 
     result = migrate("upgrade", "0001")
     assert result.returncode == 0, result.stderr
@@ -764,6 +767,7 @@ def test_migration_offline_sql_preserves_guards(url):
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "-c", str(ROOT / "alembic.ini"), "upgrade", "head", "--sql"],
         cwd=ROOT, env=env, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     assert result.returncode == 0, result.stderr
     assert "CREATE TABLE job_reviews" in result.stdout
