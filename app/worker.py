@@ -533,30 +533,67 @@ class _JobHeartbeat:
     ``running``. It is an in-band checkpoint, not a background thread: every
     long-running path already calls a ``check()`` hook, which doubles as the tick.
 
-    Ownership fencing: the ``UPDATE`` is conditioned on ``status == 'running'``. Once
-    recovery (or a cancel) moves the job off ``running``, a late heartbeat silently
-    matches zero rows and cannot revive or re-own the job. This is database job
-    liveness only - it does not touch the Redis inference lease contract, and it
-    does not interrupt an in-flight model request.
+    Ownership fencing: the ``UPDATE`` is conditioned on ``status == 'running'`` AND on
+    the ``review_version`` snapshotted when this heartbeat was constructed. Status
+    alone is not enough: ``recover_jobs()`` resets the SAME row to
+    ``dispatch_pending`` and re-enqueues it, so a row can return to ``running``
+    while the displaced original attempt is still alive. Without the attempt token,
+    that stale attempt would keep refreshing a newer attempt's ``updated_at`` and
+    hide the newer attempt's real death from ``recover_stale_jobs()``.
+
+    ``review_version`` is the row's optimistic-concurrency token (``version_id_col``)
+    and every ``transition()``/``Job`` UPDATE advances it, so it distinguishes
+    consecutive executions of one job row without a schema change. Once recovery,
+    a cancel, or a newer attempt moves the row on, a late heartbeat matches zero
+    rows and cannot revive or re-own the job.
+
+    This is database job liveness only - it does not touch the Redis inference
+    lease contract, and it does not interrupt an in-flight model request.
     """
 
-    __slots__ = ("job_id", "_interval", "_last")
+    __slots__ = ("job_id", "_interval", "_last", "_attempt_version")
 
     def __init__(self, job_id: str, interval: float = HEARTBEAT_INTERVAL_SECONDS) -> None:
         self.job_id = job_id
         self._interval = interval
         self._last = 0.0
+        self._attempt_version = self._current_attempt_version()
+
+    def _current_attempt_version(self) -> int | None:
+        """Snapshot the execution token; ``None`` disables the heartbeat safely.
+
+        Called from the worker after its own ``running`` transition, so the row is
+        already owned by this attempt. A read failure must not fail the job: the
+        heartbeat then stays off and the existing stale-recovery timeout applies.
+        """
+        try:
+            with SessionLocal() as heartbeat_db:
+                return heartbeat_db.scalar(
+                    select(Job.review_version).where(Job.id == self.job_id)
+                )
+        except Exception as exc:  # noqa: BLE001 - heartbeat must never fail the job
+            logger.warning(
+                "heartbeat disabled for job %s (%s)", self.job_id, type(exc).__name__
+            )
+            return None
 
     def tick(self) -> None:
         now = time.monotonic()
         if now - self._last < self._interval:
             return
+        if self._attempt_version is None:
+            return
         try:
             with SessionLocal() as heartbeat_db:
                 heartbeat_db.execute(
                     update(Job)
-                    .where(Job.id == self.job_id, Job.status == "running")
+                    .where(
+                        Job.id == self.job_id,
+                        Job.status == "running",
+                        Job.review_version == self._attempt_version,
+                    )
                     .values(updated_at=datetime.now(UTC))
+                    .execution_options(synchronize_session=False)
                 )
                 heartbeat_db.commit()
         except Exception as exc:  # noqa: BLE001 - heartbeat must never fail the job

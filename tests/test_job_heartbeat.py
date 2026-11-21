@@ -252,6 +252,11 @@ def test_heartbeat_failure_is_visible_but_non_fatal(monkeypatch, caplog):
         def __exit__(self, *exc):
             return False
 
+        def scalar(self, *_a, **_k):
+            # The constructor snapshots the attempt token; fail that read too so
+            # this exercises the real error path rather than an AttributeError.
+            raise RuntimeError("database unavailable")
+
         def execute(self, *_a, **_k):
             raise RuntimeError("database unavailable")
 
@@ -260,8 +265,9 @@ def test_heartbeat_failure_is_visible_but_non_fatal(monkeypatch, caplog):
 
     monkeypatch.setattr(worker, "SessionLocal", BrokenSession)
 
-    heartbeat = worker._JobHeartbeat(job_id, interval=0.0)
     with caplog.at_level("WARNING"):
+        heartbeat = worker._JobHeartbeat(job_id, interval=0.0)
+        assert heartbeat._attempt_version is None, "snapshot failure must disable the heartbeat"
         heartbeat.tick()  # must not raise
 
     # ``record.message`` is only populated after a formatter has run; asserting on it
@@ -269,7 +275,7 @@ def test_heartbeat_failure_is_visible_but_non_fatal(monkeypatch, caplog):
     # not caplog.formatter ran. The warning names the job and the exception *type* only
     # - never the SQL statement, the database URL or any credential.
     assert any(
-        "heartbeat unavailable" in rec.getMessage()
+        "heartbeat disabled" in rec.getMessage()
         and job_id in rec.getMessage()
         and "RuntimeError" in rec.getMessage()
         for rec in caplog.records
@@ -300,3 +306,61 @@ def test_heartbeat_does_not_fail_healthy_render_on_transient_error(monkeypatch):
 
     with SessionLocal() as db:
         assert db.get(Job, job_id).status == "running"
+
+
+def test_previous_execution_cannot_refresh_a_newer_attempt():
+    """Cross-execution fence: an old attempt must not keep a new attempt alive.
+
+    Status-only fencing is not sufficient. ``recover_jobs()`` (engine startup)
+    resets the SAME job row to ``dispatch_pending`` and re-enqueues it, so the row
+    can legitimately return to ``running`` while the original attempt's process is
+    still alive (for example a worker that is slow, partitioned, or was displaced).
+
+    A stale tick from that old attempt must therefore NOT refresh ``updated_at``
+    while a newer attempt owns the row: doing so would let a dead attempt keep
+    ``recover_stale_jobs()`` from ever detecting the new attempt's real death.
+
+    ``_JobHeartbeat`` snapshots the job's ``review_version`` at construction (the
+    optimistic-concurrency token advanced by every ``transition()`` and ``Job``
+    UPDATE), which distinguishes consecutive executions of one job row.
+    """
+    job_id = _new_job()
+    with SessionLocal() as db:
+        old_attempt_version = db.get(Job, job_id).review_version
+    old_heartbeat = worker._JobHeartbeat(job_id)
+
+    # The row goes round the loop and a NEWER execution starts on the same row.
+    with SessionLocal() as db:
+        job = db.get(Job, job_id)
+        job.status = "dispatch_pending"
+        db.commit()
+    with SessionLocal() as db:
+        job = db.get(Job, job_id)
+        job.status = "running"
+        db.commit()
+    with SessionLocal() as db:
+        newer_version = db.get(Job, job_id).review_version
+        db.get(Job, job_id).updated_at = datetime.now(UTC) - timedelta(seconds=600)
+        db.commit()
+    assert newer_version > old_attempt_version, "fixture did not advance the attempt token"
+    newer_updated_at = _updated_at(job_id)
+
+    # The displaced original attempt finally ticks.
+    old_heartbeat.tick()
+
+    assert _updated_at(job_id) == newer_updated_at, (
+        "heartbeat from a previous execution refreshed a newer attempt"
+    )
+
+
+def test_current_execution_still_heartbeats_after_reattach():
+    """Positive control: a heartbeat built for the current execution does tick."""
+    job_id = _new_job()
+    with SessionLocal() as db:
+        db.get(Job, job_id).updated_at = datetime.now(UTC) - timedelta(seconds=600)
+        db.commit()
+    before = _updated_at(job_id)
+
+    worker._JobHeartbeat(job_id).tick()
+
+    assert _updated_at(job_id) > before

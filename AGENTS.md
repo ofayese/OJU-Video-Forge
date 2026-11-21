@@ -16,7 +16,7 @@ external-identity dependency is required.
 Implemented in the checked-out repository (path = evidence, not a completion claim):
 
 | Capability | Implementation |
-|---|---|
+| --- | --- |
 | Local accounts, password sessions, revocation | `app/auth.py`, `app/api.py` (`/v1/auth/register`, `POST/DELETE /v1/auth/session`) |
 | Project membership roles (owner/reviewer/editor/viewer) | `app/auth.py`, `app/core.py` (`Project`, `ProjectMembership`), `app/api.py` |
 | Durable job records and success-only job authorization | `app/core.py` (`Job`, state machine `TRANSITIONS`) |
@@ -251,8 +251,19 @@ long-running path now carries an in-band liveness signal through
 `check_cancel()`, narration ticks it from `check_narration()`, and GPU generation
 ticks it before the admission wait and once per ComfyUI poll via
 `ComfyUIAdapter.wait_for_completion(on_poll=...)`. The tick is rate-limited
-(5s), refreshes `updated_at` only while the row is still `running` (ownership
-fencing: a late heartbeat cannot revive a recovered or cancelled job), and a
+(5s) and resolves `updated_at` only while the row is still `running` **and** still
+carries the `review_version` snapshotted when the heartbeat was constructed
+(attempt fencing: `recover_jobs()` can return the same row to `running`, so
+status alone would let a displaced attempt keep a newer one alive), and a
 heartbeat database error is logged but never fails a healthy render. Covered by
 `tests/test_job_heartbeat.py` (DB-backed). The concurrency model is unchanged -
 do not add background threads to this path.
+
+Coverage is **in-band** and that limit must be stated, not hidden. A tick only
+happens where a `check()` hook runs, so it does not fire during a blocking call
+that returns nothing in between: a model request whose response body arrives only
+at the end (the normal shape of an Ollama completion) and a single long
+`espeak-ng`/FFmpeg invocation get no tick while they block. Narration's
+`heavy_inference_lease` wait also re-checks only every 5s, and a task that is not
+started does not tick at all. `tests/test_heartbeat_streaming_gap.py` records
+both directions (a chunked body does tick; a silent body does not).
