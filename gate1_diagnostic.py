@@ -101,7 +101,7 @@ def _memory_snapshot() -> dict:
         if shutil.which("nvidia-smi"):
             out = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"],
-                text=True, timeout=10,
+                text=True, encoding="utf-8", errors="replace", timeout=10,
             ).strip().splitlines()
             snapshot["nvidia_smi"] = out
     except Exception:

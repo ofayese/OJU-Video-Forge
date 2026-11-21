@@ -168,7 +168,9 @@ def run(base_url, outage, interrupt):
             "artifact_id": registered.id, "size_bytes": len(artifact.content), "sha256": digest,
             "probe": probe, "audit_actions": actions, "outage_reconciliation": outage,
             "interrupted_job_id": interrupted_job_id,
-            "ffmpeg": subprocess.check_output(["ffmpeg", "-version"], text=True).splitlines()[0],
+            "ffmpeg": subprocess.check_output(
+                ["ffmpeg", "-version"], text=True, encoding="utf-8", errors="replace"
+            ).splitlines()[0],
         }
 
 

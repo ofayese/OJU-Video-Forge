@@ -278,17 +278,44 @@ def test_cancel_before_subprocess_does_not_start_tool(monkeypatch):
         narration.run(["ffmpeg"], cancelled)
 
 
+@pytest.fixture
+def patched_popen(monkeypatch):
+    """Patch only ``narration.subprocess`` and return the list of spawned children.
+
+    Only the module attribute is replaced. Assigning ``subprocess.Popen`` on the
+    shared stdlib module would also change it for pytest's own helper processes,
+    whose UTF-8 output would then be decoded with the legacy Windows code page.
+    """
+    spawned = []
+    popen = subprocess.Popen
+
+    class TrackedSubprocess:
+        """Stands in for the ``subprocess`` module on ``app.narration`` only.
+
+        Patching the module attribute (not the stdlib module itself) keeps pytest's
+        own helpers, and anything else in the process, spawning normally.
+        """
+
+        def __getattr__(self, name):
+            return getattr(subprocess, name)
+
+        @staticmethod
+        def Popen(*args, **kwargs):  # noqa: N802 - mirrors subprocess.Popen
+            process = popen(*args, **kwargs)
+            spawned.append(process)
+            return process
+
+        @staticmethod
+        def popen(*args, **kwargs):  # noqa: N802 - mirrors subprocess.Popen
+            return TrackedSubprocess.Popen(*args, **kwargs)
+
+    monkeypatch.setattr(narration, "subprocess", TrackedSubprocess())
+    return spawned
+
+
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
-def test_subprocess_output_limit_kills_tool(monkeypatch, stream):
-    child_processes = []
-    popen = narration.subprocess.Popen
-
-    def tracked_popen(*args, **kwargs):
-        process = popen(*args, **kwargs)
-        child_processes.append(process)
-        return process
-
-    monkeypatch.setattr(narration.subprocess, "Popen", tracked_popen)
+def test_subprocess_output_limit_kills_tool(patched_popen, stream):
+    child_processes = patched_popen
     code = (f"import sys,time; sys.{stream}.write('x' * {2 * 1024 * 1024 + 1}); "
             f"sys.{stream}.flush(); time.sleep(30)")
     with pytest.raises(narration.NarrationError, match="media_diagnostics_limit"):
@@ -296,16 +323,8 @@ def test_subprocess_output_limit_kills_tool(monkeypatch, stream):
     assert child_processes[0].poll() is not None
 
 
-def test_subprocess_timeout_kills_and_reaps_tool(monkeypatch):
-    child_processes = []
-    popen = narration.subprocess.Popen
-
-    def tracked_popen(*args, **kwargs):
-        process = popen(*args, **kwargs)
-        child_processes.append(process)
-        return process
-
-    monkeypatch.setattr(narration.subprocess, "Popen", tracked_popen)
+def test_subprocess_timeout_kills_and_reaps_tool(patched_popen):
+    child_processes = patched_popen
     with pytest.raises(narration.NarrationError, match="media_timeout"):
         narration.run([sys.executable, "-c", "import time; time.sleep(30)"],
                       lambda: None, timeout=0.1)
@@ -1222,6 +1241,7 @@ def _test_h264_encoder():
     encoders = subprocess.run(
         ["ffmpeg", "-hide_banner", "-encoders"],
         check=True, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     ).stdout
     for candidate in ("libx264", "libopenh264", "h264_mf", "h264_nvenc", "h264_qsv", "h264_amf"):
         if re.search(rf"^\s*V\S*\s+{re.escape(candidate)}\b", encoders, re.MULTILINE):

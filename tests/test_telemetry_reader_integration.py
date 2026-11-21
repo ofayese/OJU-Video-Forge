@@ -575,6 +575,8 @@ def _run_cross_process(
         [sys.executable, "-c", _CROSS_PROCESS_SCRIPT],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
         env=env,
         cwd=str(Path(__file__).resolve().parent.parent),

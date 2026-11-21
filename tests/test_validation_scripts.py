@@ -36,7 +36,8 @@ def test_forge_bash_selects_narration_overlay(tmp_path, environment, narration, 
     args = ["bash", str(scripts / "forge.sh"), environment]
     if narration:
         args.append("--narration")
-    result = subprocess.run([*args, "config", "--quiet"], env=env, capture_output=True, text=True)
+    result = subprocess.run([*args, "config", "--quiet"], env=env, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
     assert result.returncode == expected
     if expected == 0:
         assert ("compose.narration.yaml" in result.stdout) is narration

@@ -261,7 +261,8 @@ class RenderEngine:
         """Return the first available H.264 encoder on this ffmpeg build."""
         try:
             result = subprocess.run(
-                [self.ffmpeg, "-encoders"], capture_output=True, text=True, timeout=15
+                [self.ffmpeg, "-encoders"], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=15,
             )
             for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
                 if f" {name} " in result.stdout or f" {name}\n" in result.stdout:

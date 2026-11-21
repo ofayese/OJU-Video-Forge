@@ -15,7 +15,8 @@ from app import rendering as r
 def _h264_encoder():
     """Return an H.264 encoder available on this ffmpeg build."""
     result = subprocess.run(
-        ["ffmpeg", "-encoders"], capture_output=True, text=True, check=True
+        ["ffmpeg", "-encoders"], capture_output=True, text=True,
+        encoding="utf-8", errors="replace", check=True
     )
     for name in ("libx264", "libopenh264", "h264_nvenc", "h264_amf", "h264_mf"):
         if f" {name} " in result.stdout or f" {name}\n" in result.stdout:

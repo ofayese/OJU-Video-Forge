@@ -38,7 +38,8 @@ TELEMETRY_OBS_DIR = Path(r"C:\ProgramData\OJU Video Forge\telemetry")
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", **kwargs)
 
 
 def check(condition: bool, message: str, fatal: bool = True) -> None:
