@@ -2,12 +2,12 @@ param(
     [ValidateSet('acceptance', 'integration')]
     [string]$Environment = 'acceptance'
 )
-
 $ErrorActionPreference = 'Stop'
 $project = "oju-video-forge-$Environment"
 $ids = @(& docker ps -q --filter "label=com.docker.compose.project=$project")
 if ($LASTEXITCODE -ne 0 -or -not $ids) { throw 'Start the selected isolated environment first.' }
-$containers = @(& docker inspect @ids | ConvertFrom-Json)
+$inspect = docker inspect @ids | Out-String
+$containers = @(ConvertFrom-Json $inspect)
 if ($LASTEXITCODE -ne 0) { throw 'Unable to verify test container labels.' }
 foreach ($container in $containers) {
     if ($container.Config.Labels.'com.docker.compose.project' -ne $project) {
@@ -19,7 +19,10 @@ foreach ($container in $containers) {
         }
         if ($mount.Type -eq 'bind' -and $mount.RW) { throw 'Writable host mounts are not allowed in acceptance.' }
     }
-    foreach ($network in $container.NetworkSettings.Networks.PSObject.Properties.Name) {
+    $networks = $container.NetworkSettings.Networks
+    if ($networks -is [System.Array]) { $networks = $networks[0] }
+    $names = @($networks.PSObject.Properties | ForEach-Object Name)
+    foreach ($network in $names) {
         if (-not $network.StartsWith("${project}_")) { throw 'Unexpected shared test network.' }
     }
 }
