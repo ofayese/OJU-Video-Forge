@@ -33,6 +33,12 @@ class Settings(BaseModel):
     training_text_model_digest: str = ""
     training_text_stage_timeout_seconds: int = Field(default=60, ge=10, le=300)
     training_text_generation_timeout_seconds: int = Field(default=300, ge=30, le=900)
+
+    # llama.cpp optional inference provider settings
+    llama_cpp_enabled: bool = False
+    llama_cpp_url: str = "http://llama-cpp:8080"
+    llama_cpp_model: str = ""
+    llama_cpp_model_digest: str = ""
     agent_generation_timeout_seconds: int = Field(default=300, ge=30, le=900)
     ad_domain: str = "ojuidc.olutech.systems"
     public_app_fqdn: str = "video.olutechsys.com"
@@ -81,6 +87,10 @@ class Settings(BaseModel):
             "training_text_generation_timeout_seconds": int(
                 os.getenv("TRAINING_TEXT_GENERATION_TIMEOUT_SECONDS", "300")
             ),
+            "llama_cpp_enabled": os.getenv("LLAMA_CPP_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+            "llama_cpp_url": os.getenv("LLAMA_CPP_URL", "http://llama-cpp:8080"),
+            "llama_cpp_model": os.getenv("LLAMA_CPP_MODEL", ""),
+            "llama_cpp_model_digest": os.getenv("LLAMA_CPP_MODEL_DIGEST", ""),
             "agents_enabled": os.getenv("AGENTS_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
             "agent_provider": os.getenv("AGENT_PROVIDER", ""),
             "agent_url": os.getenv("AGENT_URL", ""),

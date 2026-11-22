@@ -1,0 +1,38 @@
+# llama.cpp Service Configuration
+
+The OJU Video Forge inference layer supports both Ollama and llama.cpp as inference providers. This compose overlay enables optional llama.cpp service deployment.
+
+## Usage
+
+Add to your compose stack:
+
+```yaml
+include:
+  - compose.llamacpp.yaml
+```
+
+Environment variables required:
+
+```
+LLAMA_CPP_ENABLED=true
+LLAMA_CPP_URL=http://llama-cpp:8080
+LLAMA_CPP_MODEL=mistral-latest  # or qwen2.5:7b-instruct GGUF
+```
+
+## Image Selection
+
+Use official llama.cpp CUDA server image:
+
+```yaml
+image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:<DIGEST>
+```
+
+Select a pinned digest from https://github.com/ggml-org/llama.cpp/releases or similar.
+
+## Configuration Notes
+
+- No published host ports - service runs on internal `agent-inference` network only
+- Uses separate GGUF model storage directory (`/models`)
+- GPU allocation via Docker gpus: all directive
+- Context size configurable via environment variables
+- Health check based on `/v1/models` endpoint availability
