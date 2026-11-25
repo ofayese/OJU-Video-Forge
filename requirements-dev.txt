@@ -5,9 +5,9 @@ colorama==0.4.6
 setuptools==84.2.1
 pytest==9.2.0
 # Ruff 0.17.x with scoped config (F/I/N/W, line-length=100) passes clean in pyproject.toml
-ruff==0.17.5
+ruff==0.17.6
 pip-audit==2.10.1
 openapi-spec-validator==0.9.0
 pydantic-settings==2.16.3
-PyYAML==6.0.3
+PyYAML==6.0.4
 jsonschema==4.26.0
